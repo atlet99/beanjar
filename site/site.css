@@ -38,8 +38,8 @@ body {
   height: min(80vh, 110vw);
   overflow: visible;
   opacity: .85;
-  /* Centre the bird's widest point (245, 280), not the jar, on the page centre. */
-  transform: translate(-46.8%, -54.2%);
+  /* The jar centred across the page; its bird's widest point (y 280) at mid-height. */
+  transform: translate(-50%, -54.2%);
 }
 
 /* Bootstrap's h1 size, also capped by height so the title fits the bird on short screens. */
