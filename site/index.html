@@ -71,10 +71,6 @@
         <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur stdDeviation="4"/>
         </filter>
-        <filter id="eye-glow" filterUnits="userSpaceOnUse" x="240" y="190" width="90" height="45">
-          <feGaussianBlur stdDeviation="2.5" result="blur"/>
-          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
         <!-- Glass cylinder: liquid darker at the curved sides, brighter left of centre. -->
         <linearGradient id="cyl" gradientUnits="userSpaceOnUse" x1="116" y1="0" x2="396" y2="0">
           <stop offset="0" stop-color="#7DB3AC"/>
@@ -124,11 +120,11 @@
         <g class="hip hip-r"><path class="leg leg-r" d="M271 367L283 391" stroke="url(#legs)" stroke-width="19" stroke-linecap="round"/></g>
         <path class="body-shape" d="M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 308 311C303 350 285 374 253 377C205 382 161 345 167 279Z" fill="url(#body)"/>
         <path class="body-shape" d="M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 308 311C303 350 285 374 253 377C205 382 161 345 167 279Z" fill="url(#body-shade)"/>
-        <path d="M257 211Q266 219 275 210M293 207Q302 215 311 206" stroke="#FFFFFF" stroke-width="11" stroke-linecap="round" filter="url(#eye-glow)"/>
+        <path d="M257 211Q266 219 275 210M293 207Q302 215 311 206" stroke="#FFFFFF" stroke-width="11" stroke-linecap="round"/>
         <path d="M305 228C290 224 282 236 286 249C290 262 305 264 316 256L330 243L305 228Z" fill="url(#beak)"/>
         <!-- Closed beak: the darker lower half, shut against the upper one along a thin line. -->
-        <path d="M293 245L330 243L316 256C306 263 293 261 288 252C289 248 291 246 293 245Z" fill="#E68A12"/>
-        <path d="M293 245L329 243" stroke="#C87410" stroke-width="1" stroke-linecap="round"/>
+        <path d="M293 245Q311 249 330 243L316 256C306 263 293 261 288 252C289 248 291 246 293 245Z" fill="#E68A12"/>
+        <path d="M293 245Q310.5 248.9 329 243.3" fill="none" stroke="#C87410" stroke-width="1" stroke-linecap="round"/>
       </g>
 
       <!-- Translucent foreground fluid. -->
