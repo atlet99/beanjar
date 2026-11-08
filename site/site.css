@@ -1,0 +1,110 @@
+/*
+ * Bootstrap 5.3 Cover example (cover.css), unchanged.
+ */
+
+.btn-light,
+.btn-light:hover,
+.btn-light:focus {
+  color: #333;
+  text-shadow: none; /* Prevent inheritance from `body` */
+}
+
+body {
+  text-shadow: 0 .05rem .1rem rgba(0, 0, 0, .5);
+  box-shadow: inset 0 0 5rem rgba(0, 0, 0, .5);
+}
+
+.cover-container {
+  max-width: 42em;
+}
+
+.nav-masthead .nav-link {
+  color: rgba(255, 255, 255, .5);
+  border-bottom: .25rem solid transparent;
+}
+
+.nav-masthead .nav-link:hover,
+.nav-masthead .nav-link:focus {
+  border-bottom-color: rgba(255, 255, 255, .25);
+}
+
+.nav-masthead .nav-link + .nav-link {
+  margin-left: 1rem;
+}
+
+.nav-masthead .active {
+  color: #fff;
+  border-bottom-color: #fff;
+}
+
+/*
+ * The sleeping bean bird. Static (the logo) unless motion is allowed.
+ */
+
+.beanbird {
+  height: min(80vh, 110vw);
+  overflow: visible;
+  opacity: .85;
+  /* Centre the bird's widest point (245, 280), not the jar, on the page centre. */
+  transform: translate(-46.8%, -54.2%);
+}
+
+.beanbird .bird-body,
+.beanbird .bubble {
+  transform-box: view-box;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .beanbird .bird-body {
+    transform-origin: 245px 275px;
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .beanbird .bubble {
+    animation: rise 7s linear var(--delay) infinite;
+  }
+
+  .beanbird .fluid {
+    animation: fluid 9s ease-in-out infinite;
+  }
+
+  .beanbird .glint {
+    animation: shimmer 5s ease-in-out infinite;
+  }
+
+  .beanbird .halo {
+    animation: glow 6s ease-in-out infinite;
+  }
+
+  .beanbird .status {
+    animation: shimmer 4s ease-in-out infinite;
+  }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(-6px) rotate(-2deg); }
+  50% { transform: translateY(6px) rotate(2deg); }
+}
+
+@keyframes rise {
+  0% { transform: translate(0, var(--from)); opacity: 0; }
+  12% { opacity: 1; }
+  50% { transform: translate(-4px, calc((var(--from) + var(--to)) / 2)); }
+  85% { opacity: 1; }
+  100% { transform: translate(0, var(--to)); opacity: 0; }
+}
+
+@keyframes fluid {
+  0%, 100% { fill-opacity: .28; }
+  50% { fill-opacity: .4; }
+}
+
+@keyframes shimmer {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .4; }
+}
+
+@keyframes glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .7; }
+}

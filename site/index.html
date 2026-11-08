@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en" class="h-100" data-bs-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>beanjar</title>
+    <meta name="description" content="beanjar boots real LG webOS TV firmware in virtual machines.">
+    <link rel="icon" href="data:,">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+    <link href="site.css" rel="stylesheet">
+  </head>
+  <body class="d-flex h-100 text-center text-white bg-black">
+    <!-- The logo's jar, the only light in a dark room, as the background; the title sits over the bird's body. -->
+    <svg class="beanbird position-fixed top-50 start-50 z-n1 pe-none" viewBox="84 46 344 432" aria-hidden="true" focusable="false">
+      <defs>
+        <radialGradient id="halo">
+          <stop offset="0" stop-color="#B9E1DB" stop-opacity=".55"/>
+          <stop offset=".35" stop-color="#B9E1DB" stop-opacity=".2"/>
+          <stop offset="1" stop-color="#B9E1DB" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="pool">
+          <stop offset="0" stop-color="#B9E1DB" stop-opacity=".4"/>
+          <stop offset="1" stop-color="#B9E1DB" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="lit" cy=".45" r=".75">
+          <stop offset="0" stop-color="#E4F6F3"/>
+          <stop offset=".6" stop-color="#B9E1DB"/>
+          <stop offset="1" stop-color="#86BDB6"/>
+        </radialGradient>
+        <clipPath id="chamber"><path d="M116 100H396V428H116Z"/></clipPath>
+      </defs>
+
+      <!-- Light spilling into the room, and a pool of it on the floor. -->
+      <ellipse class="halo" cx="256" cy="262" rx="760" ry="620" fill="url(#halo)"/>
+      <ellipse class="halo" cx="256" cy="478" rx="300" ry="34" fill="url(#pool)"/>
+
+      <!-- Chamber fluid, brightest in the middle. -->
+      <path d="M116 100H396V428H116Z" fill="url(#lit)"/>
+
+      <!-- The bean bird: legs, body, closed eyes, beak. -->
+      <g class="bird-body">
+        <path d="M191 355L177 377M271 367L283 391" stroke="#383B3A" stroke-width="19" stroke-linecap="round"/>
+        <path d="M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 308 311C303 350 285 374 253 377C205 382 161 345 167 279Z" fill="#383B3A"/>
+        <path d="M257 211Q266 219 275 210M293 207Q302 215 311 206" stroke="#FFFFFF" stroke-width="11" stroke-linecap="round"/>
+        <path d="M305 228C290 224 282 236 286 249C290 262 305 266 321 260L309 246L329 237L305 228Z" fill="#FFBE32"/>
+        <path d="M293 242L329 237L309 246L321 260Z" fill="#E68A12"/>
+      </g>
+
+      <!-- Translucent foreground fluid. -->
+      <path class="fluid" d="M116 100H396V428H116Z" fill="#B9E1DB" fill-opacity="0.28"/>
+
+      <!-- Bubbles, rising in a loop. -->
+      <g clip-path="url(#chamber)" fill="#EDF8F7" fill-opacity=".6">
+        <circle class="bubble" cx="339" cy="146" r="5" style="--from: 260px; --to: -40px; --delay: -3s"/>
+        <circle class="bubble" cx="355" cy="294" r="6" style="--from: 110px; --to: -190px; --delay: -6.5s"/>
+        <circle class="bubble" cx="343" cy="335" r="4" style="--from: 70px; --to: -230px; --delay: -1s"/>
+      </g>
+
+      <!-- Glass edges and reflection. -->
+      <path d="M116 100V428M396 100V428" stroke="#719F9B" stroke-width="10"/>
+      <path class="glint" d="M139 139V215" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round"/>
+
+      <!-- Dark end caps, lit only along the edges that face the fluid, and the status strip. -->
+      <rect x="100" y="62" width="312" height="48" rx="12" fill="#2C3334"/>
+      <path d="M108 109H404" stroke="#B9E1DB" stroke-opacity=".55" stroke-width="3"/>
+      <path d="M166 86H190M244 86H268M322 86H346" stroke="#454F50" stroke-width="8" stroke-linecap="round"/>
+      <rect x="100" y="418" width="312" height="44" rx="12" fill="#2C3334"/>
+      <path d="M108 419H404" stroke="#B9E1DB" stroke-opacity=".55" stroke-width="3"/>
+      <path class="status" d="M236 440H276" stroke="#B9E1DB" stroke-width="8" stroke-linecap="round"/>
+    </svg>
+    <div class="cover-container d-flex w-100 h-100 p-3 mx-auto flex-column">
+      <header class="mb-auto">
+        <div>
+          <h3 class="float-md-start mb-0">beanjar</h3>
+          <nav class="nav nav-masthead justify-content-center float-md-end">
+            <a class="nav-link fw-bold py-1 px-0 active" aria-current="page" href="#">Home</a>
+            <a class="nav-link fw-bold py-1 px-0" href="#">GitHub</a>
+          </nav>
+        </div>
+      </header>
+
+      <main class="px-3">
+        <h1 class="fw-bold">Coming <br>soon</h1>
+      </main>
+
+      <footer class="mt-auto text-white-50">
+        <p>Not affiliated with LG Electronics.</p>
+      </footer>
+    </div>
+  </body>
+</html>
