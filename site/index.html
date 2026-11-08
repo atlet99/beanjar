@@ -28,6 +28,83 @@
           <stop offset="1" stop-color="#86BDB6"/>
         </radialGradient>
         <clipPath id="chamber"><path d="M116 100H396V428H116Z"/></clipPath>
+        <!-- Soft volume for each part: light from the fluid, darker away from it. -->
+        <radialGradient id="body" gradientUnits="userSpaceOnUse" cx="236" cy="240" r="175" fx="222" fy="214">
+          <stop offset="0" stop-color="#616867"/>
+          <stop offset=".4" stop-color="#474C4B"/>
+          <stop offset=".75" stop-color="#363938"/>
+          <stop offset="1" stop-color="#282B2A"/>
+        </radialGradient>
+        <!-- A gentle shadow towards the lower back gives the body a rounder volume. -->
+        <radialGradient id="body-shade" gradientUnits="userSpaceOnUse" cx="200" cy="352" r="120">
+          <stop offset="0" stop-color="#151716" stop-opacity=".5"/>
+          <stop offset="1" stop-color="#151716" stop-opacity="0"/>
+        </radialGradient>
+        <linearGradient id="legs" gradientUnits="userSpaceOnUse" x1="0" y1="352" x2="0" y2="394">
+          <stop offset="0" stop-color="#4B504F"/>
+          <stop offset="1" stop-color="#2A2D2C"/>
+        </linearGradient>
+        <linearGradient id="beak" gradientUnits="userSpaceOnUse" x1="0" y1="226" x2="0" y2="262">
+          <stop offset="0" stop-color="#FFDA80"/>
+          <stop offset=".55" stop-color="#FFBE32"/>
+          <stop offset="1" stop-color="#F5A623"/>
+        </linearGradient>
+        <linearGradient id="cap" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#3E4849"/>
+          <stop offset=".45" stop-color="#2C3334"/>
+          <stop offset="1" stop-color="#1D2223"/>
+        </linearGradient>
+        <linearGradient id="wall" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#9CC9C4"/>
+          <stop offset=".5" stop-color="#5F8F8B"/>
+          <stop offset="1" stop-color="#8DBBB6"/>
+        </linearGradient>
+        <linearGradient id="glint" gradientUnits="userSpaceOnUse" x1="0" y1="135" x2="0" y2="219">
+          <stop offset="0" stop-color="#FFFFFF"/>
+          <stop offset="1" stop-color="#FFFFFF" stop-opacity=".45"/>
+        </linearGradient>
+        <radialGradient id="bubble" cx=".5" cy=".5" r=".5" fx=".35" fy=".3">
+          <stop offset="0" stop-color="#FFFFFF"/>
+          <stop offset=".6" stop-color="#EDF8F7"/>
+          <stop offset="1" stop-color="#D3ECE8"/>
+        </radialGradient>
+        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="4"/>
+        </filter>
+        <filter id="eye-glow" filterUnits="userSpaceOnUse" x="240" y="190" width="90" height="45">
+          <feGaussianBlur stdDeviation="2.5" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <!-- Glass cylinder: liquid darker at the curved sides, brighter left of centre. -->
+        <linearGradient id="cyl" gradientUnits="userSpaceOnUse" x1="116" y1="0" x2="396" y2="0">
+          <stop offset="0" stop-color="#7DB3AC"/>
+          <stop offset=".14" stop-color="#A6D5CE"/>
+          <stop offset=".4" stop-color="#E0F4F1"/>
+          <stop offset=".62" stop-color="#C6E8E2"/>
+          <stop offset=".88" stop-color="#9ACAC3"/>
+          <stop offset="1" stop-color="#76ACA5"/>
+        </linearGradient>
+        <linearGradient id="edge-l" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#3F726D" stop-opacity=".45"/>
+          <stop offset="1" stop-color="#3F726D" stop-opacity="0"/>
+        </linearGradient>
+        <linearGradient id="edge-r" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#3F726D" stop-opacity="0"/>
+          <stop offset="1" stop-color="#3F726D" stop-opacity=".45"/>
+        </linearGradient>
+        <!-- Round caps: darker towards both ends. -->
+        <linearGradient id="cap-round" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#000000" stop-opacity=".35"/>
+          <stop offset=".3" stop-color="#FFFFFF" stop-opacity=".07"/>
+          <stop offset=".55" stop-color="#000000" stop-opacity="0"/>
+          <stop offset="1" stop-color="#000000" stop-opacity=".4"/>
+        </linearGradient>
+        <filter id="soft" x="-100%" y="-10%" width="300%" height="120%">
+          <feGaussianBlur stdDeviation="5"/>
+        </filter>
+        <filter id="soft-thin" x="-200%" y="-10%" width="500%" height="120%">
+          <feGaussianBlur stdDeviation="2.5"/>
+        </filter>
       </defs>
 
       <!-- Light spilling into the room, and a pool of it on the floor. -->
@@ -35,14 +112,19 @@
       <ellipse class="halo" cx="256" cy="478" rx="300" ry="34" fill="url(#pool)"/>
 
       <!-- Chamber fluid, brightest in the middle. -->
-      <path d="M116 100H396V428H116Z" fill="url(#lit)"/>
+      <path d="M116 100H396V428H116Z" fill="url(#cyl)"/>
+      <path d="M116 100H396V428H116Z" fill="url(#lit)" opacity=".45"/>
+      <!-- Thick curved glass darkens towards each wall. -->
+      <path d="M121 100H135V428H121Z" fill="url(#edge-l)"/>
+      <path d="M377 100H391V428H377Z" fill="url(#edge-r)"/>
 
       <!-- The bean bird: legs, body, closed eyes, beak. -->
       <g class="bird-body">
-        <path d="M191 355L177 377M271 367L283 391" stroke="#383B3A" stroke-width="19" stroke-linecap="round"/>
-        <path d="M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 308 311C303 350 285 374 253 377C205 382 161 345 167 279Z" fill="#383B3A"/>
-        <path d="M257 211Q266 219 275 210M293 207Q302 215 311 206" stroke="#FFFFFF" stroke-width="11" stroke-linecap="round"/>
-        <path d="M305 228C290 224 282 236 286 249C290 262 305 266 321 260L309 246L329 237L305 228Z" fill="#FFBE32"/>
+        <path d="M191 355L177 377M271 367L283 391" stroke="url(#legs)" stroke-width="19" stroke-linecap="round"/>
+        <path d="M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 308 311C303 350 285 374 253 377C205 382 161 345 167 279Z" fill="url(#body)"/>
+        <path d="M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 308 311C303 350 285 374 253 377C205 382 161 345 167 279Z" fill="url(#body-shade)"/>
+        <path d="M257 211Q266 219 275 210M293 207Q302 215 311 206" stroke="#FFFFFF" stroke-width="11" stroke-linecap="round" filter="url(#eye-glow)"/>
+        <path d="M305 228C290 224 282 236 286 249C290 262 305 266 321 260L309 246L329 237L305 228Z" fill="url(#beak)"/>
         <path d="M293 242L329 237L309 246L321 260Z" fill="#E68A12"/>
       </g>
 
@@ -50,23 +132,33 @@
       <path class="fluid" d="M116 100H396V428H116Z" fill="#B9E1DB" fill-opacity="0.28"/>
 
       <!-- Bubbles, rising in a loop. -->
-      <g clip-path="url(#chamber)" fill="#EDF8F7" fill-opacity=".6">
+      <g clip-path="url(#chamber)" fill="url(#bubble)" fill-opacity=".7">
         <circle class="bubble" cx="339" cy="146" r="5" style="--from: 260px; --to: -40px; --delay: -3s"/>
         <circle class="bubble" cx="355" cy="294" r="6" style="--from: 110px; --to: -190px; --delay: -6.5s"/>
         <circle class="bubble" cx="343" cy="335" r="4" style="--from: 70px; --to: -230px; --delay: -1s"/>
       </g>
 
       <!-- Glass edges and reflection. -->
-      <path d="M116 100V428M396 100V428" stroke="#719F9B" stroke-width="10"/>
-      <path class="glint" d="M139 139V215" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round"/>
+      <!-- Specular bands on the curved front of the glass. -->
+      <rect x="134" y="122" width="16" height="284" rx="8" fill="#FFFFFF" fill-opacity=".3" filter="url(#soft)"/>
+      <rect x="371" y="136" width="5" height="256" rx="2.5" fill="#FFFFFF" fill-opacity=".3" filter="url(#soft-thin)"/>
+      <path d="M111 100H121V428H111ZM391 100H401V428H391Z" fill="url(#wall)"/>
+      <path class="glint" d="M139 139V215" stroke="url(#glint)" stroke-width="9" stroke-linecap="round"/>
 
       <!-- Dark end caps, lit only along the edges that face the fluid, and the status strip. -->
-      <rect x="100" y="62" width="312" height="48" rx="12" fill="#2C3334"/>
+      <rect x="100" y="62" width="312" height="48" rx="12" fill="url(#cap)"/>
+      <rect x="100" y="62" width="312" height="48" rx="12" fill="url(#cap-round)"/>
+      <path d="M112 64.5H400" stroke="#FFFFFF" stroke-opacity=".14" stroke-width="3" stroke-linecap="round"/>
       <path d="M108 109H404" stroke="#B9E1DB" stroke-opacity=".55" stroke-width="3"/>
-      <path d="M166 86H190M244 86H268M322 86H346" stroke="#454F50" stroke-width="8" stroke-linecap="round"/>
-      <rect x="100" y="418" width="312" height="44" rx="12" fill="#2C3334"/>
+      <path d="M166 86H190M244 86H268M322 86H346" stroke="#1B2021" stroke-width="8" stroke-linecap="round"/>
+      <path d="M166 88H190M244 88H268M322 88H346" stroke="#FFFFFF" stroke-opacity=".08" stroke-width="3" stroke-linecap="round"/>
+      <rect x="100" y="418" width="312" height="44" rx="12" fill="url(#cap)"/>
+      <rect x="100" y="418" width="312" height="44" rx="12" fill="url(#cap-round)"/>
       <path d="M108 419H404" stroke="#B9E1DB" stroke-opacity=".55" stroke-width="3"/>
-      <path class="status" d="M236 440H276" stroke="#B9E1DB" stroke-width="8" stroke-linecap="round"/>
+      <g class="status">
+        <path d="M236 440H276" stroke="#B9E1DB" stroke-width="12" stroke-linecap="round" filter="url(#glow)"/>
+        <path d="M236 440H276" stroke="#D9F2EE" stroke-width="8" stroke-linecap="round"/>
+      </g>
     </svg>
     <div class="cover-container d-flex w-100 h-100 p-3 mx-auto flex-column">
       <header class="mb-auto">
