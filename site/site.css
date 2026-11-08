@@ -1,13 +1,6 @@
 /*
- * Bootstrap 5.3 Cover example (cover.css), unchanged.
+ * Bootstrap 5.3 Cover example (cover.css), without the unused button rules.
  */
-
-.btn-light,
-.btn-light:hover,
-.btn-light:focus {
-  color: #333;
-  text-shadow: none; /* Prevent inheritance from `body` */
-}
 
 body {
   text-shadow: 0 .05rem .1rem rgba(0, 0, 0, .5);
@@ -49,7 +42,14 @@ body {
   transform: translate(-46.8%, -54.2%);
 }
 
+/* Bootstrap's h1 size, also capped by height so the title fits the bird on short screens. */
+main h1 {
+  font-size: min(calc(1.375rem + 1.5vw), 2.5rem, 4.4vh);
+}
+
 .beanbird .bird-body,
+.beanbird .hip,
+.beanbird .leg,
 .beanbird .bubble {
   transform-box: view-box;
 }
@@ -58,6 +58,34 @@ body {
   .beanbird .bird-body {
     transform-origin: 245px 275px;
     animation: float 6s ease-in-out infinite;
+  }
+
+  /* Legs swing a little from the hips; their length never changes. */
+  .beanbird .leg-l {
+    transform-origin: 191px 355px;
+    animation: sway-l 5s ease-in-out infinite;
+  }
+
+  .beanbird .leg-r {
+    transform-origin: 271px 367px;
+    animation: sway-r 6.5s ease-in-out -2s infinite;
+  }
+
+  /*
+   * The bean bends: below the waist (y = 279) the outline is sheared
+   * sideways in proportion to depth, which keeps its length, width and
+   * area. The head's points never move; the hips follow the bend.
+   */
+  .beanbird .body-shape {
+    animation: bend 8s ease-in-out infinite;
+  }
+
+  .beanbird .hip-l {
+    animation: hip-l 8s ease-in-out infinite;
+  }
+
+  .beanbird .hip-r {
+    animation: hip-r 8s ease-in-out infinite;
   }
 
   .beanbird .bubble {
@@ -107,4 +135,29 @@ body {
 @keyframes glow {
   0%, 100% { opacity: 1; }
   50% { opacity: .7; }
+}
+
+@keyframes sway-l {
+  0%, 100% { transform: rotate(-2.5deg); }
+  50% { transform: rotate(2.5deg); }
+}
+
+@keyframes sway-r {
+  0%, 100% { transform: rotate(2deg); }
+  50% { transform: rotate(-2deg); }
+}
+
+@keyframes bend {
+  0%, 100% { d: path("M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 309.12 311C305.485 350 288.325 374 256.43 377C208.605 382 163.31 345 167 279Z"); }
+  50% { d: path("M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 306.88 311C300.515 350 281.675 374 249.57 377C201.395 382 158.69 345 167 279Z"); }
+}
+
+@keyframes hip-l {
+  0%, 100% { transform: translateX(2.66px); }
+  50% { transform: translateX(-2.66px); }
+}
+
+@keyframes hip-r {
+  0%, 100% { transform: translateX(3.08px); }
+  50% { transform: translateX(-3.08px); }
 }

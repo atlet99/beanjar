@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>beanjar</title>
+    <title>Beanjar</title>
     <meta name="description" content="beanjar boots real LG webOS TV firmware in virtual machines.">
     <link rel="icon" href="data:,">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
@@ -120,9 +120,10 @@
 
       <!-- The bean bird: legs, body, closed eyes, beak. -->
       <g class="bird-body">
-        <path d="M191 355L177 377M271 367L283 391" stroke="url(#legs)" stroke-width="19" stroke-linecap="round"/>
-        <path d="M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 308 311C303 350 285 374 253 377C205 382 161 345 167 279Z" fill="url(#body)"/>
-        <path d="M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 308 311C303 350 285 374 253 377C205 382 161 345 167 279Z" fill="url(#body-shade)"/>
+        <g class="hip hip-l"><path class="leg leg-l" d="M191 355L177 377" stroke="url(#legs)" stroke-width="19" stroke-linecap="round"/></g>
+        <g class="hip hip-r"><path class="leg leg-r" d="M271 367L283 391" stroke="url(#legs)" stroke-width="19" stroke-linecap="round"/></g>
+        <path class="body-shape" d="M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 308 311C303 350 285 374 253 377C205 382 161 345 167 279Z" fill="url(#body)"/>
+        <path class="body-shape" d="M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 308 311C303 350 285 374 253 377C205 382 161 345 167 279Z" fill="url(#body-shade)"/>
         <path d="M257 211Q266 219 275 210M293 207Q302 215 311 206" stroke="#FFFFFF" stroke-width="11" stroke-linecap="round" filter="url(#eye-glow)"/>
         <path d="M305 228C290 224 282 236 286 249C290 262 305 264 316 256L330 243L305 228Z" fill="url(#beak)"/>
         <!-- Closed beak: the darker lower half, shut against the upper one along a thin line. -->
@@ -165,20 +166,19 @@
     <div class="cover-container d-flex w-100 h-100 p-3 mx-auto flex-column">
       <header class="mb-auto">
         <div>
-          <h3 class="float-md-start mb-0">beanjar</h3>
+          <h3 class="float-md-start mb-0">Beanjar</h3>
           <nav class="nav nav-masthead justify-content-center float-md-end">
-            <a class="nav-link fw-bold py-1 px-0 active" aria-current="page" href="#">Home</a>
-            <a class="nav-link fw-bold py-1 px-0" href="#">GitHub</a>
+            <a class="nav-link fw-bold py-1 px-0" href="https://github.com/webosbrew">GitHub</a>
           </nav>
         </div>
       </header>
 
-      <main class="px-3">
+      <main class="px-3 pt-4 mt-md-5">
         <h1 class="fw-bold">Coming <br>soon</h1>
       </main>
 
       <footer class="mt-auto text-white-50">
-        <p>Not affiliated with LG Electronics.</p>
+        <p class="small">Not affiliated with LG Electronics.</p>
       </footer>
     </div>
   </body>
