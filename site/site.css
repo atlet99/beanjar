@@ -152,12 +152,17 @@ main h1 {
   50% { d: path("M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 306.88 311C300.515 350 281.675 374 249.57 377C201.395 382 158.69 345 167 279Z"); }
 }
 
+/*
+ * The hips only slide, and Firefox snaps a translate-only transform to whole
+ * pixels while the body around them moves smoothly, which opens hairline
+ * seams. A negligible rotation makes it resample instead of snapping.
+ */
 @keyframes hip-l {
-  0%, 100% { transform: translateX(2.66px); }
-  50% { transform: translateX(-2.66px); }
+  0%, 100% { transform: translateX(2.66px) rotate(0.0001deg); }
+  50% { transform: translateX(-2.66px) rotate(0.0001deg); }
 }
 
 @keyframes hip-r {
-  0%, 100% { transform: translateX(3.08px); }
-  50% { transform: translateX(-3.08px); }
+  0%, 100% { transform: translateX(3.08px) rotate(0.0001deg); }
+  50% { transform: translateX(-3.08px) rotate(0.0001deg); }
 }
