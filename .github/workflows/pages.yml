@@ -23,6 +23,7 @@ jobs:
     if: github.repository == 'mariotaku/beanjar'
     runs-on: ubuntu-24.04
     permissions:
+      contents: read   # the job's permissions replace the workflow's; a private checkout needs it
       pages: write
       id-token: write
     environment:
