@@ -1,0 +1,28 @@
+scsi: no uevent for a power-on or reset unit attention, as LG's 4.4 kernels
+
+LG's 4.4 kernels (webOS 5 and 6; N21D's has no SDEV_UA=POWER_ON_RESET_OCCURRED)
+send no uevent for a power-on or reset unit attention (29/xx); this kernel
+sends one, a scsi_device change. QEMU's emulated USB stick reports that
+unit attention on its first command, and webOS's 60-block.rules forwards
+the change to the disk, where udev rebuilds the disk's database entry
+without the properties LG's rules set only on add (READ_ONLY, CARD_READER,
+HARD_DISK). PDM's start scan then takes a stick present at power-on as
+removed and never mounts it. Do as LG's 4.4 kernels do: send no
+uevent (the warning stays).
+
+--- a/drivers/scsi/scsi_error.c
++++ b/drivers/scsi/scsi_error.c
+@@ -516,7 +516,12 @@
+ 		}
+ 
+ 		if (sshdr->asc == 0x29) {
+-			evt_type = SDEV_EVT_POWER_ON_RESET_OCCURRED;
++			/*
++			 * No uevent (SDEV_UA=POWER_ON_RESET_OCCURRED): LG's 4.4
++			 * kernels have none, and webOS's 60-block.rules turns it
++			 * into a block "change" that drops the add-only udev
++			 * properties PDM's start scan needs (READ_ONLY).
++			 */
+ 			/*
+ 			 * Do not print message if it is an expected side-effect
+ 			 * of runtime PM.

@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Options of both build directories (docs/dev/guides/build.md). A guest build is one set up with the cross
+# file meson/cross/webos-sdk.ini (build/guest-<chip>-<release>); the host build is native (build/host).
+
+option('publish_dir', type: 'string', value: '',
+  description: 'Where finished outputs go (Image, initramfs.cpio.gz, guest/layers/, qemu/, viewer/, ...); default: <source>/build')
+option('firmware', type: 'string', value: '',
+  description: 'Firmware directory (paks; the guest build also needs its extracted rootfs/); default: host/scripts/vm-launcher config FW, or of a guest build of a given soc and webos, that target\'s firmware')
+
+# guest
+option('soc', type: 'combo', choices: ['auto', 'h13', 'm14', 'm2', 'm16p', 'm3', 'k5lp', 'k6lp', 'k6hp', 'k7lp', 'k8lp', 'k8ap', 'k8hp', 'k8hpp', 'k8lpn', 'k8lpn2', 'lm14', 'lm21a', 'lm21an', 'lm21ann', 'lm21u', 'o22', 'o22n', 'o22n2'], value: 'auto',
+  description: 'The SoC of the firmware target (guest/layers/soc/<soc>; lm14: LG\'s NetCast LM14, guest/layers/netcast45); auto: the firmware\'s')
+option('webos', type: 'combo', choices: ['auto', 'afro', 'beehive', 'dreadlocks', 'dreadlocks2', 'goldilocks', 'goldilocks2', 'jhericurl', 'kisscurl', 'mullet', 'number1', 'ombre', 'ponytail', 'queue', 'spacebuns', 'simplesmart', 'netcast45'], value: 'auto',
+  description: 'The release family of the firmware target: a webOS codename (guest/layers/webos/<webos>), or simplesmart (LG\'s SimpleSmart line, guest/layers/simplesmart) or netcast45 (LG\'s NetCast 4.5, guest/layers/netcast45); auto: the firmware\'s')
+option('arm64_cross_compile', type: 'string', value: 'aarch64-linux-gnu-',
+  description: 'CROSS_COMPILE prefix for the arm64 guest kernel, busybox and the initramfs input bridges')
+option('uapi_headers', type: 'string', value: '/usr/arm-linux-gnueabi/include',
+  description: 'Kernel uapi headers for Mesa, newer than the SDK\'s (Debian: linux-libc-dev-armel-cross)')
+
+# host
+option('qemu', type: 'feature', value: 'auto',
+  description: 'Build the patched QEMU into build/qemu; auto: wherever its build dependencies are found, and required where host/scripts/vm-launcher config RENDERNODE is surfaceless (WSL2); without it the system QEMU is checked')
+option('firmware_cache', type: 'feature', value: 'auto',
+  description: 'Uncompressed firmware paks for ROOTFS=uncompressed (build/firmware-cache); auto: when the firmware and squashfs-tools are present')
+option('ffmpeg', type: 'feature', value: 'auto',
+  description: 'Video/audio decoding in media-helper (libavcodec, libavutil, libswresample); without it the helper drains media and reports decoder unavailable')
+option('mitmproxy', type: 'feature', value: 'enabled',
+  description: 'The pinned mitmproxy venv for mode=mitm (build/mitmproxy-venv)')
+option('virtcam', type: 'feature', value: 'auto',
+  description: 'The virtual USB camera (host/helpers/virtcam, beanjar io usb plug --camera): usbipdcpp built from source (cmake, libspdlog-dev, libasio-dev), libusbredirparser; auto: where they are found, required in the arm64 cross build')
+option('kernel_debug', type: 'boolean', value: false,
+  description: 'the guest kernel with guest/kernel/configs/debug.config over the defconfig (KASAN, lockdep, kmemleak, KUnit): for a build directory of its own with its own publish_dir, never the published Image')

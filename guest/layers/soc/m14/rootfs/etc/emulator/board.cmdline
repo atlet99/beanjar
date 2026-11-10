@@ -1,0 +1,60 @@
+# Board parameters the LG bootloader (lxboot) puts on the kernel command line, parsed by
+# libdile_boardinfo, tvservice and the Upstart jobs. The initramfs appends these to the real
+# cmdline and bind-mounts the result over /proc/cmdline inside webOS.
+# Formats and order follow W15M's lxboot (V4.01.23) format strings; the values describe a 42LF652V,
+# a model that runs W15M, in W15M's own
+# encodings; they are not read from a real set. lxboot's kernel-only parameters (root=, mem=, lpj=,
+# rootwait, l2cache=, console=, sdhci.emmc_log=1, sbkey=) are left out: nothing in userland reads
+# them. So are portProtection, factory and the snapshot/art parameters: lxboot adds them only for
+# those modes (securitymanager's secure-boot check runs only with "snapshot").
+#
+# rev=1 is a constant in this lxboot, bver= its own version (sver=, the first-stage loader's, is
+# left out: libdile_boardinfo then has no first boot version). chip= is <family><rev>; M14's
+# revisions in libdile_boardinfo are A0, A1, B0, B1, C0, C1, and W15M's tvservice has picture
+# tables for M14B0 only, so B0.
+# mknod.conf creates the /etc/device_table nodes only with devtmpfs.mount=1.
+ethaddr=a8:23:fe:12:34:56 rev=1 chip=M14B0 bver=4.01.23 devtmpfs.mount=1
+# 0x + 9 hex digits; parsers drop the last 2 digits and read KB. 7.5 GB eMMC, as H13's (the state
+# disks' sizes are the launcher's, not this)
+emmc_size=0x1d2000000
+# 14 model-option straps, '0'/'1' each, as W15M's lxboot reads its GPIOs 14 9 8 7 6 5 4 3 2 1 0 31
+# 15 10 (reproduced from the firmware's tables): "10" EU, panel row "0000", "01" T2+S, GPIO1 '1'
+# with GPIO0 '0' the DDR 1.5 GB (the 42LF652V's published RAM); every other strap 0, the
+# bootloader's default. Nothing in userland or the M14 kernel reads modelopt=.
+modelopt=10000001010000
+# 18 digits, as this lxboot prints them for those straps and W15M's tvservice (SystemHdrInit)
+# decodes them: EU (d0 2, {TW_CO, CN_HK, EU, AJ_JA}), and panel row 0000 of lxboot's table: EPI
+# (d2 0), FHD (d3 1), FRC (d4 1), V14 (d5 2). The interface is the default strap's, not a published
+# fact (the 42LF652V's panel is an LGD LC420DUH-MGP1 or an AUO T420HVJ01.3, 100/120 Hz, which FRC
+# fits); no "paneltype" env. T2+S (d8 1, gmodelopt_tuner_comb[EU] below M14 C0), DDR 1.5 GB (d11
+# 2), graphic resolution 1920x1080 (d14 2)
+hwopt=200112001002002000
+# M14's lxboot prints 8 tool option words (H13's 7). The first 7 have H13's layout, decoded by
+# tvservice's API_SUMDSVC_GetToolOptionN; the eighth is W15M's ToolOption9 (there is no
+# ToolOption8), the ToolOptionDB's word at +18, 0 here. The launcher programs all eight into a new
+# EEPROM (host/core/beanjar/nvm.py, targets.py's Nvm).
+# The values are derived from the firmware's tables for the 42LF652V: the model's inch and tool type, a
+# direct LED backlight and the Magic Remote sold separately (READY), the 42LF652V's retail spec;
+# the rest RELEASE.cfg's, the firmware's factory default (OSA_MD_InitToolOption), whose series is
+# the LF63, not an LF65's own record:
+# Opt1 34722 = inch index 2 (42), tool type 61 (LF65), maker 0 (LGD), LVDS bit 1;
+# Opt2 4114 = external video input row 2 of the FHD table (HDMI x3, component, SCART, AV: the
+# 42LF652V's rear panel), audio index 1, backlight 0 (direct LED), USB field 2 (three ports);
+# Opt3 25273 = NTP7515 amplifier, headphone, logo light, DVR ready, ISF, dual view, local dimming
+# and its menu; Opt4 64793 = demodulators TCS_COMBO 1, DVB_SI2169C 6, SI2178B 4, NO_DEMOD 14,
+# NO_DEMOD_ANA 7 (no tuner or demodulator chip is modelled); Opt5 11094 = wifi 11n combo,
+# camera ready, motionRemoconType 5 READY, mirror mode, component/RCA common, passive 3D,
+# scanning backlight; Opt6 2377 = backlight level 9 (RELEASE.cfg's 70 as the factory scales it),
+# motion eye care MIDDLE1, audio power 1, speaker wattage 1; Opt7 47247 = the MAC, ESN, CI and
+# Widevine keys, EDID DTS, edge LED bar 6, 100/120 Hz PWM; ToolOption9 0.
+ToolOpt=34722:4114:25273:64793:11094:2377:47247:0
+# 4 = EU (18 = JP switches the Japanese paths)
+countryGrp=4
+# 3 = DEBUG, 4 = EVENT, 5 = RELEASE (panic_on_oom; webOS 2's lginit_app and tvservice jobs start
+# the reboot job when they end in RELEASE)
+debugMode=3
+# modelName <= 12 chars, serialNum <= 16 chars (lxboot field sizes)
+modelName=42LF652V-ZA serialNum=505RAXX00001
+# lxboot always ends with cmdEnd. It also guarantees a space after every value: tvservice and
+# libdile_crypto copy emmc_size= and ethaddr= up to the next space.
+cmdEnd

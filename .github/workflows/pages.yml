@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Deploy site/ to GitHub Pages. Runs in the public repository only
 # (Settings > Pages > Source: GitHub Actions); in any other repository the
 # job is skipped.
@@ -18,7 +20,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.repository == 'webosbrew/beanjar'
+    if: github.repository == 'mariotaku/beanjar'
     runs-on: ubuntu-24.04
     permissions:
       pages: write

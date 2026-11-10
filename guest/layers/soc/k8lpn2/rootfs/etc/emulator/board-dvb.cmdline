@@ -1,0 +1,17 @@
+# K8LPN2 33.20.23: native generators verify this OTA-associated EU retail model,
+# 1.5G LCD, UD and 1080p. ToolOpt uses this firmware's own factory defaults.
+# Stock noncommercial getter sentinels.
+# Identity placeholders are replaced per VM.
+ethaddr=02:00:00:12:34:56
+devtmpfs.mount=1
+countryGrp=4
+modelopt=000000000
+hwopt=200200000003002000
+ToolOpt=33707402:1343510:34816:65:4012342:56020299
+modelName=43UT80006LA
+debugMode=3
+serialNum=000RAXX00001
+chip=K8LPNN
+tvregion=DVB
+emmc_size=0x1d2000000
+cmdEnd

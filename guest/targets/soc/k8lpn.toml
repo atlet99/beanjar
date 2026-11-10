@@ -1,0 +1,7 @@
+# W23P's frontend consumer requires 1.2.x, while DILE opens only buses 0..5.
+# Its NVM and two-amp addresses match K8HPP; no retail board image is borrowed.
+
+base = "k8hpp"
+lgemu = [
+    "i2c_buses=0,1,2,3,4,5", "i2c_dev=nvm:4:0x50,amp:0:0x2a,amp:0:0x2b", "snd_ctls=1",
+]

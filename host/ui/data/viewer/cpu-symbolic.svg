@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The status bar's CPU indicator (beanjar_ui/viewer/statusbar.py): a chip, 16x16 symbolic; Adwaita has none. -->
+<svg height="16px" viewBox="0 0 16 16" width="16px" xmlns="http://www.w3.org/2000/svg">
+    <path d="m 5 1 v 2 h -1 c -0.55 0 -1 0.45 -1 1 v 1 h -2 v 1.5 h 2 v 1 h -2 v 1.5 h 2 v 1 c 0 0.55 0.45 1 1 1 h 1 v 2 h 1.5 v -2 h 1 v 2 h 1.5 v -2 h 1 c 0.55 0 1 -0.45 1 -1 v -1 h 2 v -1.5 h -2 v -1 h 2 v -1.5 h -2 v -1 c 0 -0.55 -0.45 -1 -1 -1 h -1 v -2 h -1.5 v 2 h -1 v -2 z m -1 3 h 8 v 8 h -8 z m 2 2 v 4 h 4 v -4 z" fill-rule="evenodd" fill="#2e3436" transform="translate(0 -0.5)"/>
+</svg>

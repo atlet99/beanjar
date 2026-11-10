@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+minimum_pre_commit_version: '4.7.0'
+exclude: '(^|/)(vendor|third_party|subprojects|build|scratch)/|^host/ui/beanjar_ui/viewer/_core_abi\.py$'
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: Ruff format
+        language: system
+        entry: python3 scripts/format-hooks/python-format.py
+        types: [text]
+        stages: [pre-commit]
+      - id: clang-format
+        name: clang-format
+        language: system
+        entry: clang-format -i
+        files: '\.(c|h)$'
+        types: [file]
+        stages: [pre-commit]
+      - id: ruff-check
+        name: Ruff format check
+        language: system
+        entry: python3 scripts/format-hooks/python-format.py --check
+        types: [text]
+        stages: [manual]
+      - id: clang-check
+        name: clang-format check
+        language: system
+        entry: clang-format --dry-run --Werror
+        files: '\.(c|h)$'
+        types: [file]
+        stages: [manual]

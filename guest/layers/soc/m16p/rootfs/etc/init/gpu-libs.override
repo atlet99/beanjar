@@ -1,0 +1,6 @@
+# Emulator: no Mali kernel modules (bsppart's gpu-libs: kds, ump, ump_ion_import, ump_lgfb_import
+# and mali_kbase, the Midgard T760 driver for LG's 4.4.3 kernel). Kept as a no-op task because
+# surface-manager starts on "stopped gpu-libs".
+script
+	echo "[Upstart Job: $UPSTART_JOB] emulator: no Mali driver"
+end script

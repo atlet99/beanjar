@@ -1,0 +1,1 @@
+{"role":{"exeName":"/usr/sbin/tcg-luna-perf","type":"regular","allowedNames":["com.webos.emulator.tcgperf"]},"permissions":[{"service":"com.webos.emulator.tcgperf","inbound":[],"outbound":["com.webos.service.tvpower"]}]}

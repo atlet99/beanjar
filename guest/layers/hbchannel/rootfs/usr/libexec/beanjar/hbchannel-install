@@ -1,0 +1,115 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Homebrew Channel's install (guest/layers/hbchannel), at each boot once mount-readwrite has bound
+# /media and /var from the state disks, and before sam scans the developer apps: what dev/install
+# and HBC's elevate-service leave on a rooted TV (captured from a real install), copied from the layer's stage
+# (/usr/share/beanjar/hbchannel, laid out at the guest's paths; build-layer.sh says what it holds).
+#
+# - The app, its service and its package under /media/developer/apps, where sam lists developer
+#   apps (developer mode, which the layer requires, keeps that directory), with opkg's records of
+#   the package (its info files and its entry in opkg's status), and the app's and service's LS2
+#   files, already elevated, under /var (palm/ls2-dev or luna-service2-dev, where the release's
+#   appinstalld writes a dev app's). The layer's HBC is installed when the state has none (or a
+#   part of it is missing), an older version (appinfo.json's), or the same version from another
+#   IPK than the layer's (its hash, kept beside the state in /var/lib/beanjar). A newer version in
+#   the state stays as it is, LS2 files included: HBC updated itself there (its install method:
+#   appinstalld's dev/install, then its elevate-service), and on a TV that updated itself the
+#   newer copy is what runs. The layer's own install gets its LS2 files again every boot. A hub
+#   that is already up rescans, as elevate-service makes it; one that starts later reads them.
+# - With mode=mitm, the proxy's CA (/etc/emulator/netstub-ca.pem, which the initramfs also adds to the
+#   firmware's trust stores) as an extra file, beanjar-netstub-ca.pem, in the service's certs
+#   directory, every boot; removed without it. HBC downloads IPKs through an https Agent whose ca is
+#   every PEM file of that directory (its certifi bundle), which replaces Node's roots, so the system
+#   stores do not count. HBC's own files stay as shipped.
+set -eu
+ROOT=					# the guest's / (a test's directory in tests/unit/layers/test_hbchannel.py)
+STAGE=$ROOT/usr/share/beanjar/hbchannel
+PALM=/media/developer/apps/usr/palm
+STAMP=$ROOT/var/lib/beanjar/hbchannel-ipk.sha256
+
+APPINFO=applications/org.webosbrew.hbchannel/appinfo.json
+
+# appinfo.json's version (webOS app versions are N.N.N), "" without one
+version_of() {
+	sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" 2>/dev/null | head -n 1
+}
+
+# true when version $1 is older than $2, field by field as numbers
+older() {
+	a=$1 b=$2
+	while [ -n "$a$b" ]; do
+		x=${a%%.*} y=${b%%.*}
+		x=${x%%[!0-9]*} y=${y%%[!0-9]*}
+		[ "${x:-0}" -lt "${y:-0}" ] && return 0
+		[ "${x:-0}" -gt "${y:-0}" ] && return 1
+		case $a in *.*) a=${a#*.} ;; *) a= ;; esac
+		case $b in *.*) b=${b#*.} ;; *) b= ;; esac
+	done
+	return 1
+}
+
+layer=$(version_of "$STAGE$PALM/$APPINFO")
+installed=$(version_of "$ROOT$PALM/$APPINFO")
+copy= own=
+[ "$(cat "$STAGE/ipk.sha256")" = "$(cat "$STAMP" 2>/dev/null)" ] && own=1
+for d in "$STAGE$PALM"/*/*; do
+	[ -d "$ROOT$PALM/${d#"$STAGE$PALM/"}" ] || copy=1
+done
+if [ -n "$copy" ] || [ -z "$installed" ] || older "$installed" "$layer"; then
+	copy=1
+elif older "$layer" "$installed"; then
+	own=
+	echo "hbchannel-install: keeping the installed Homebrew Channel $installed (the layer's is $layer)" >&2
+elif [ -z "$own" ]; then
+	copy=1
+fi
+if [ -n "$copy" ]; then
+	for d in "$STAGE$PALM"/*/*; do
+		t=$ROOT$PALM/${d#"$STAGE$PALM/"}
+		rm -rf "$t"
+		mkdir -p "$(dirname "$t")"
+		cp -a "$d" "$t"
+	done
+	# opkg's records of the package (in var/lib/opkg, usr/lib/opkg from afro to dreadlocks2): its own
+	# info files, and its entry in the status file that every developer app shares (the others'
+	# entries kept)
+	(cd "$STAGE" && find media -type f) | grep -v "^${PALM#/}/" | while read -r f; do
+		mkdir -p "$(dirname "$ROOT/$f")"
+		if [ "${f##*/}" = status ]; then
+			{
+				[ -f "$ROOT/$f" ] && sed '/^Package: org\.webosbrew\.hbchannel$/,/^$/d' "$ROOT/$f"
+				cat "$STAGE/$f"
+			} > "$ROOT/$f.new"
+			mv "$ROOT/$f.new" "$ROOT/$f"
+		else
+			cp "$STAGE/$f" "$ROOT/$f"
+		fi
+		chmod 644 "$ROOT/$f"
+	done
+fi
+
+if [ -n "$copy" ] || [ -n "$own" ]; then
+	(cd "$STAGE" && find var -type f) | while read -r f; do
+		mkdir -p "$(dirname "$ROOT/$f")"
+		cp "$STAGE/$f" "$ROOT/$f"
+		chmod 644 "$ROOT/$f"
+	done
+	mkdir -p "$(dirname "$STAMP")"
+	cp "$STAGE/ipk.sha256" "$STAMP"
+fi
+
+CA=$ROOT/etc/emulator/netstub-ca.pem
+CERTS=$ROOT$PALM/services/org.webosbrew.hbchannel.service/certs
+if [ -d "$CERTS" ]; then
+	if [ -f "$CA" ]; then
+		{ cp "$CA" "$CERTS/beanjar-netstub-ca.pem" && chmod 644 "$CERTS/beanjar-netstub-ca.pem"; } ||
+			echo "hbchannel-install: no proxy CA in $CERTS" >&2
+	else
+		rm -f "$CERTS/beanjar-netstub-ca.pem"
+	fi
+fi
+
+if pidof ls-hubd >/dev/null 2>&1; then
+	ls-control scan-services || true
+fi

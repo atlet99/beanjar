@@ -1,0 +1,5 @@
+# Emulator: no PowerVR kernel modules. Kept as a no-op task because surface-manager
+# starts on "stopped gpu-libs".
+script
+	echo "[Upstart Job: $UPSTART_JOB] emulator: no PowerVR driver"
+end script

@@ -1,0 +1,97 @@
+Resolve the GL_IMG_multisampled_render_to_texture entry points through eglGetProcAddress, and
+make them work on drivers without multisampled render-to-texture.
+
+LG's QtWebKit (libQt5WebKit.so.5, GraphicsSurfaceStarfish.cpp) looks up
+glRenderbufferStorageMultisampleIMG and glFramebufferTexture2DMultisampleIMG in initExtensions().
+If either lookup returns NULL it logs "Failed to get proc address of ...", initExtensions()
+returns false and no shared surface is ever created: no web page reaches WebAppMgr. When they
+exist, WebKit attaches every page tile's colour texture to its FBO with
+glFramebufferTexture2DMultisampleIMG(..., samples = 4) and then paints the tile with Qt's GL
+paint engine.
+
+Mesa has no IMG functions, and virgl has no GL_EXT_multisampled_render_to_texture, so even the
+EXT functions would fail there and leave the FBO incomplete: the tiles stay empty. So
+eglGetProcAddress returns two small wrappers for the IMG names: they call the EXT functions when
+the current context has GL_EXT_multisampled_render_to_texture, and otherwise attach/allocate
+single-sampled (glFramebufferTexture2D, glRenderbufferStorage). The picture is the same, without
+anti-aliasing. Nothing else changes; the extension string does not list the IMG extension.
+
+--- a/src/egl/main/eglapi.c
++++ b/src/egl/main/eglapi.c
+@@ -2761,6 +2761,64 @@
+    RETURN_EGL_EVAL(disp, ret);
+ }
+ 
++/* webOS TV 1.4 (WT1H): GL_IMG_multisampled_render_to_texture on drivers without
++ * GL_EXT_multisampled_render_to_texture.
++ *
++ * LG's QtWebKit (GraphicsSurfaceStarfish) gets glFramebufferTexture2DMultisampleIMG and
++ * glRenderbufferStorageMultisampleIMG from eglGetProcAddress, gives up on its shared surfaces if
++ * either is NULL, and draws every web page tile into an FBO whose colour texture it attaches with
++ * glFramebufferTexture2DMultisampleIMG(..., samples = 4). Mesa has no IMG entry points, and virgl
++ * has no multisampled render-to-texture, so the EXT equivalents would fail and leave the FBO
++ * incomplete: the tiles stay empty.
++ *
++ * These two wrappers use the EXT functions when the current context has the EXT extension, and
++ * otherwise attach/allocate single-sampled, which is what the IMG extension degrades to without
++ * the resolve hardware: the same picture without anti-aliasing. */
++typedef void (*_egl_fbtex2dms_t)(unsigned, unsigned, unsigned, unsigned, int, int);
++typedef void (*_egl_fbtex2d_t)(unsigned, unsigned, unsigned, unsigned, int);
++typedef void (*_egl_rbms_t)(unsigned, int, unsigned, int, int);
++typedef void (*_egl_rb_t)(unsigned, unsigned, int, int);
++typedef const char *(*_egl_getstring_t)(unsigned);
++
++static bool
++_eglHasMSRTT(void)
++{
++   _egl_getstring_t get_string =
++      (_egl_getstring_t)_mesa_glapi_get_proc_address("glGetString");
++   const char *ext = get_string ? get_string(0x1F03 /* GL_EXTENSIONS */) : NULL;
++   return ext && strstr(ext, "GL_EXT_multisampled_render_to_texture");
++}
++
++static void
++_eglFramebufferTexture2DMultisampleIMG(unsigned target, unsigned attachment,
++                                       unsigned textarget, unsigned texture,
++                                       int level, int samples)
++{
++   if (samples > 0 && _eglHasMSRTT()) {
++      ((_egl_fbtex2dms_t)_mesa_glapi_get_proc_address(
++         "glFramebufferTexture2DMultisampleEXT"))(target, attachment, textarget,
++                                                  texture, level, samples);
++      return;
++   }
++   ((_egl_fbtex2d_t)_mesa_glapi_get_proc_address("glFramebufferTexture2D"))(
++      target, attachment, textarget, texture, level);
++}
++
++static void
++_eglRenderbufferStorageMultisampleIMG(unsigned target, int samples,
++                                      unsigned internalformat, int width,
++                                      int height)
++{
++   if (samples > 0 && _eglHasMSRTT()) {
++      ((_egl_rbms_t)_mesa_glapi_get_proc_address(
++         "glRenderbufferStorageMultisampleEXT"))(target, samples, internalformat,
++                                                 width, height);
++      return;
++   }
++   ((_egl_rb_t)_mesa_glapi_get_proc_address("glRenderbufferStorage"))(
++      target, internalformat, width, height);
++}
++
+ PUBLIC __eglMustCastToProperFunctionPointerType EGLAPIENTRY
+ eglGetProcAddress(const char *procname)
+ {
+@@ -2786,6 +2844,11 @@
+          ret = entrypoint->function;
+    }
+ 
++   if (!ret && strcmp(procname, "glFramebufferTexture2DMultisampleIMG") == 0)
++      ret = (_EGLProc)_eglFramebufferTexture2DMultisampleIMG;
++   if (!ret && strcmp(procname, "glRenderbufferStorageMultisampleIMG") == 0)
++      ret = (_EGLProc)_eglRenderbufferStorageMultisampleIMG;
++
+    if (!ret)
+       ret = _mesa_glapi_get_proc_address(procname);
+ 

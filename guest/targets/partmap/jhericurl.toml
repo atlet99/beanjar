@@ -1,0 +1,79 @@
+# W20L's partition map. Its only table, see-init's (rootfs
+# /usr/sbin/see-init, byte-identical in W22H), is a stale bootstrap one (36 partitions, a 10 MiB
+# rootfs; none of db8, cmn_data, uhdcp, sestore, wossestore, sedata, dbboot, authcxt, bsppart,
+# otncabi, ... which W20L's own code looks up). So this table is assembled: W20L's header (magic,
+# versions 0, device h13_emmc, partinfo/mapbak sw_ver 0x75: see-init's), W20L's names and the
+# indices W20L pins (fstabs: p14 cert, p30 otncabi, p31 otycabi, p32 fonts, p34 license, p50
+# uhdcp, p57 db8, p58 cmn_data, p59 apps; jail confs and udev: p19, p20, p23, every earlier
+# table's sestore, wossestore, sedata), in the order of LG's UP7560 (webOS 6) table with bspfw
+# after rootfs in each bank, as W19P's. Ours: the order, offsets (consecutive; secureboot's 1 MiB
+# puts partinfo at lgemmc.c's EMMC_PARTINFO_ADDR 0x100000), the paks' sizes (rounded up to 1
+# MiB), the state partitions' (the state disks'), the fill names in the slots the pins leave
+# (W20L's own: see-init's cfginfo, lginit, lgapp; the W20L kernel's wovdb, wovbin of pm.c), and
+# sizes no W20L file states (UP7560's for swue, emergency, widevine, idfile, cert, authcxt,
+# sestore, wossestore, sedata, dbboot, efs, apphib, dump; wovdb and wovbin 1 MiB). Fields
+# (filename, used, valid, flags) as see-init's for its names, else as UP7560's (W19P's bspfw).
+
+header = { pak = "rootfs", path = "/usr/sbin/see-init" }
+reserved = { size = 0x1B800000, used = 0, valid = 0, flags = 1 }
+parts = [
+    { name = "secureboot", size = 0x100000, filename = "secureboot.bin", flags = 3 },
+    { name = "partinfo", size = 0x40000, filename = "PART.INFO", sw_ver = 0x75, flags = 3 },
+    { name = "mapbak", size = 0x40000, filename = "PART.INFO", sw_ver = 0x75, used = 0, flags = 1 },
+    { name = "boot", size = { pak = "boot" }, filename = "boot.bin", flags = 3 },
+    { name = "boot", size = { pak = "boot" }, filename = "boot.bin", used = 0, flags = 1 },
+    { name = "swue", size = 0x1400000, filename = "swue.squashfs", flags = 3 },
+    { name = "swue", size = 0x1400000, filename = "swue.squashfs", used = 0, flags = 1 },
+    { name = "emergency", size = 0x40000, flags = 1 },
+    { name = "crc32info", size = 0x40000, filename = "CRC32.INFO", flags = 3 },
+    { name = "macadr", size = 0x40000, valid = 0, flags = 5 },
+    { name = "env_nvm", size = 0x40000, flags = 5 },
+    { name = "widevine", size = 0x80000, filename = "widevine.squashfs", flags = 5 },
+    { name = "idfile", size = 0x80000, filename = "idfile.squashfs", flags = 5 },
+    { name = "cert", size = 0x80000, filename = "cert.squashfs", flags = 5 },  # p14
+    { name = "authcxt", size = 0x600000, used = 0, valid = 0, flags = 5 },
+    { name = "nvram", size = 0x600000, flags = 5 },
+    { name = "cfginfo", size = 0x40000, filename = "CFG.INFO", flags = 2 },
+    { name = "lginit", size = 0x80000, filename = "lginit.squashfs", flags = 34 },
+    { name = "sestore", size = 0x80000, flags = 5 },  # p19
+    { name = "wossestore", size = 0x100000, flags = 5 },  # p20
+    { name = "kernel", size = { pak = "kernel" }, filename = "kernel.lzo", flags = 3 },
+    { name = "kernel", size = { pak = "kernel" }, filename = "kernel.lzo", used = 0, flags = 1 },
+    { name = "sedata", size = 0x80000, filename = "sedata.dat", flags = 3 },  # p23
+    { name = "sedata", size = 0x80000, filename = "sedata.dat", used = 0, flags = 1 },
+    { name = "logo", size = 0x80000, filename = "logo.img", flags = 2 },
+    { name = "lgapp", size = 0xE00000, filename = "lgapp.lz4", flags = 2 },
+    { name = "rootfs", size = { pak = "rootfs" }, filename = "rootfs.squashfs", flags = 2 },
+    { name = "bspfw", size = { pak = "bspfw" }, filename = "bspfw.bin", flags = 2 },
+    { name = "bsppart", size = { pak = "bsppart-arib" }, filename = "bsp.squashfs", flags = 2 },
+    { name = "otncabi", size = { pak = "otncabi-arib" }, filename = "otncabi.squashfs", flags = 2 },
+    { name = "otycabi", size = { pak = "otycabi-arib" }, filename = "otycabi.squashfs", flags = 2 },
+    { name = "fonts", size = { pak = "fonts" }, filename = "fonts.squashfs", flags = 2 },
+    { name = "tzfw", size = { pak = "tzfw" }, filename = "tzfw.bin", flags = 2 },
+    { name = "license", size = { pak = "license" }, filename = "license.squashfs", flags = 2 },
+    { name = "intmicom", size = { pak = "intmicom" }, filename = "internalpm.bin", flags = 2 },
+    { name = "lgapp", size = 0xE00000, filename = "lgapp.lz4", used = 0, flags = 0 },
+    { name = "rootfs", size = { pak = "rootfs" }, filename = "rootfs.squashfs", used = 0, flags = 0 },
+    { name = "bspfw", size = { pak = "bspfw" }, filename = "bspfw.bin", used = 0, flags = 0 },
+    { name = "bsppart", size = { pak = "bsppart-arib" }, filename = "bsp.squashfs", used = 0, flags = 0 },
+    { name = "otncabi", size = { pak = "otncabi-arib" }, filename = "otncabi.squashfs", used = 0, flags = 0 },
+    { name = "otycabi", size = { pak = "otycabi-arib" }, filename = "otycabi.squashfs", used = 0, flags = 0 },
+    { name = "fonts", size = { pak = "fonts" }, filename = "fonts.squashfs", used = 0, flags = 0 },
+    { name = "tzfw", size = { pak = "tzfw" }, filename = "tzfw.bin", used = 0, flags = 0 },
+    { name = "license", size = { pak = "license" }, filename = "license.squashfs", used = 0, flags = 0 },
+    { name = "intmicom", size = { pak = "intmicom" }, filename = "internalpm.bin", used = 0, flags = 0 },
+    { name = "dbboot", size = 0x400000, flags = 16 },
+    { name = "lginit", size = 0x80000, filename = "lginit.squashfs", used = 0, flags = 32 },
+    { name = "wovdb", size = 0x100000, flags = 16 },
+    { name = "wovbin", size = 0x100000, flags = 16 },
+    { name = "uhdcp", size = { disk = "uhdcp" }, flags = 16 },
+    { name = "profdata", size = 0x80000, flags = 16 },
+    { name = "efs", size = 0x25800000, flags = 16 },
+    { name = "hib", size = 0x4000000, flags = 16 },
+    { name = "apphib", size = 0x12C00000, flags = 16 },
+    { name = "dump", size = 0xA00000, flags = 16 },
+    { name = "hist", size = 0x80000, valid = 0, flags = 16 },
+    { name = "db8", size = { disk = "db8" }, flags = 16 },
+    { name = "cmn_data", size = { disk = "cmn_data" }, flags = 16 },
+    { name = "apps", size = { disk = "appstore" }, flags = 16 },
+]

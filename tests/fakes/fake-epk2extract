@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Stand-in for epk2extract in the manager tests: `fake-epk2extract -c -n FILE` writes stub paks into
+./<FAKE_EPK_NAME>/ (default 05.06.10.01-HE_DTV_WT1H_AFAAABAA), as the real one names its output.
+FAKE_EPK_MISSING="pak ..." leaves those out; FAKE_EPK_SLEEP=N waits N s half-way (cancellation);
+FAKE_EPK_FAIL=1 exits 1. Like the real one without -c, it also drops a file next to FILE, so the
+test sees whether the manager kept the source's directory clean. rootfs.pak is a real SquashFS,
+trust-rootfs.pak: an afro rootfs (etc/starfish-release, which import resolves the target by) with two
+trust bundles (tests/unit/launch/test_firmware_cache.py SquashfsCatTest's fixture, read with unsquashfs)."""
+
+import os
+import shutil
+import sys
+import time
+
+args = sys.argv[1:]
+assert "-c" in args and "-n" in args, args
+src = [a for a in args if not a.startswith("-")][-1]
+assert os.path.isfile(src), src
+name = os.environ.get("FAKE_EPK_NAME", "05.06.10.01-HE_DTV_WT1H_AFAAABAA")
+missing = os.environ.get("FAKE_EPK_MISSING", "").split()
+print(f"Input file: {src}", flush=True)
+with open(os.path.join(os.path.dirname(src), "fake-epk2extract.stray"), "w") as f:
+    f.write("stray\n")
+out = os.path.join(os.getcwd(), name)
+os.makedirs(out, exist_ok=True)
+paks = [
+    "rootfs",
+    "tvservice-dvb",
+    "otncabi-dvb",
+    "otycabi-dvb",
+    "fonts",
+    "smartkey",
+    "kernel",
+    "tzfw",
+]
+for i, p in enumerate(paks):
+    if p in missing:
+        continue
+    if p == "rootfs":
+        shutil.copyfile(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "trust-rootfs.pak"),
+            os.path.join(out, p + ".pak"),
+        )
+    else:
+        with open(os.path.join(out, p + ".pak"), "wb") as f:
+            f.write(b"hsqs" + p.encode() * 16)
+    print(f"#{i + 1}/{len(paks)} saved PAK ({p}) to file {out}/{p}.pak", flush=True)
+    if i == 2 and os.environ.get("FAKE_EPK_SLEEP"):
+        print("sleeping", flush=True)
+        time.sleep(float(os.environ["FAKE_EPK_SLEEP"]))
+if os.environ.get("FAKE_EPK_FAIL"):
+    sys.exit(1)
+print("Extraction is finished.", flush=True)

@@ -1,0 +1,19 @@
+chrdev: majors up to 4095, as LG's kernels
+
+LG's kdrivers keep fixed character majors above 511: the log manager's /dev/lg/logm is 1810 in
+every LG115x firmware's /etc/device_table (WT1H, W15M, W17H), and KADP and liblogs open it there.
+LG's kernels (3.10, 4.4) predate the 512 limit Linux added for register_chrdev_region; a dev_t
+holds majors up to 4095 (MINORBITS 20). The hash of registered majors stays 255 buckets;
+/proc/devices walks the larger range.
+
+--- a/include/linux/fs.h
++++ b/include/linux/fs.h
+@@ -2999,7 +2999,7 @@
+ extern const struct file_operations def_chr_fops;
+ 
+ /* fs/char_dev.c */
+-#define CHRDEV_MAJOR_MAX 512
++#define CHRDEV_MAJOR_MAX 4096
+ /* Marks the bottom of the first segment of free char majors */
+ #define CHRDEV_MAJOR_DYN_END 234
+ /* Marks the top and bottom of the second segment of free char majors */

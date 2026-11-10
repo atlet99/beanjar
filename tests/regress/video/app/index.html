@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<!-- SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- The video checks' app (tests/regress/video/check-video-app.sh, check-media.sh), which copy this
+directory into build/test-apps/ and fill in @SRC@ (video.mp4, video.webm, video.ts: the clip keeps
+its extension), @LOOP@ (" loop" without a script) and @SCRIPT@: actions at seconds of wall time
+after the first "playing", e.g. "pause@5:2,seek@10:15" pauses at 5 s for 2 s, then at 10 s seeks
+to 15 s of media. The bar shows currentTime, the state and the events seen.
+The page is transparent (a <video> played through uMediaServer paints nothing, so the video shows
+only where the page does), with the video element at 320,180 960x540 and an opaque bar at the
+bottom, so the OSD has alpha 0 in the window and 255 on the bar. appinfo has no "transparent" key,
+like FirstUse: WebAppMgr then calls setTransparentBackground(false), and WebKit still leaves
+unpainted areas at alpha 0. -->
+<html><head><meta charset="utf-8"><title>Video test</title>
+<style>
+html,body{margin:0;width:1920px;height:1080px;background:transparent;overflow:hidden}
+video{position:absolute;left:320px;top:180px;width:960px;height:540px}
+#bar{position:absolute;left:0;top:900px;width:1920px;height:120px;background:#1b5e20;color:#fff;
+font:48px sans-serif;line-height:120px;text-align:center}
+</style></head>
+<body><video id="v" src="@SRC@" autoplay@LOOP@></video>
+<div id="bar">video test <span id="t"></span> <span id="e"></span></div>
+<script>
+var v=document.getElementById('v'), t=document.getElementById('t'), e=document.getElementById('e');
+var script="@SCRIPT@", start=0, done={};
+['playing','pause','seeked','ended','error'].forEach(function(n){v.addEventListener(n,function(){
+  e.textContent+=' '+n+'@'+v.currentTime.toFixed(1); console.log('videotest '+n+' '+v.currentTime);
+  if(n=='playing'&&!start)start=Date.now();});});
+setInterval(function(){t.textContent=v.currentTime.toFixed(1)+' s '+(v.paused?'paused':'playing');
+  if(!start||!script)return; var now=(Date.now()-start)/1000;
+  script.split(',').forEach(function(a,i){var m=a.match(/(\w+)@([\d.]+):([\d.]+)/); if(!m||done[i]||now<+m[2])return;
+    done[i]=1; if(m[1]=='pause'){v.pause(); setTimeout(function(){v.play();},m[3]*1000);}
+    else if(m[1]=='seek'){v.currentTime=+m[3];}});},100);
+</script></body></html>

@@ -1,0 +1,51 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Start the firmware's Upstart as PID 1 of a new PID+UTS+IPC+mount namespace, chrooted into
+# /webos, with /proc/cmdline replaced by /run/cmdline. Returns immediately.
+#
+# When webOS powers the set off or reboots it, the last step ends the namespace as reboot(2)
+# inside it does: the micom on the I2C bus (lgemu.ko, guest/kernel/modules/lgemu/i2c.c: power off,
+# restart, the power-off timer, for the namespace of the process that wrote the command) or
+# reboot.conf's `reboot -f`. The kernel reports the request as the exit signal of the namespace's
+# init (SIGINT: power off or halt; SIGHUP: restart), which busybox unshare passes on as its own. The watcher below turns it into the machine's power-off
+# (QEMU exits) or reset. Any other end of Upstart (a crash, a kill from the debug shell) leaves
+# the VM up with the debug shell.
+#
+# POSIX message queues: the kernel charges each queue maxmsg * (msgsize + bookkeeping) to its
+# owner's RLIMIT_MSGQUEUE, and every webOS daemon is root. LG's kernels raise the default,
+# MQ_BYTES_MAX, from 819200 to 819200 * 4 (include/uapi/linux/mqueue.h in each GPL kernel, WT1H to
+# W20L). The bookkeeping is a struct msg_msg and a posix_msg_tree_node per message: 24 + 24 bytes on
+# the TV's 32-bit kernel, 48 + 48 on this arm64 one, so the same queues cost up to twice as much
+# here ((s + 96) / (s + 48) <= 2). Hence twice LG's limit. With less, a daemon whose mq_open fails
+# spins on the queue it never got: btmngr, lginput2 and update with LG's tvservice,
+# and W18R's update once ToolOpt7's CI_AP adds tvservice's 14 CI+ queues.
+#
+# /proc/sys/kernel/cap_last_cap is the firmware's own kernel's (/run/cap_last_cap, boot.conf's
+# CAP_LAST_CAP: 36 on LG's 3.10 kernels, 37 on 4.4): this kernel knows more capabilities, and
+# W20L's systemd 239 turns AmbientCapabilities=~ (connman, webos-connman-adapter,
+# wpa-supplicant) into every capability up to cap_last_cap, which its libcap cannot raise past
+# its own last one (Failed to apply ambient capabilities: Operation not permitted).
+console=$(cat /run/webos-console)
+cat > /run/webos-init <<EOS
+#!/bin/sh
+ulimit -q $((2 * 819200 * 4))
+[ ! -s /webos/etc/hostname ] || hostname "\$(cat /webos/etc/hostname)"
+mount -t proc proc /webos/proc
+mount --bind /run/cmdline /webos/proc/cmdline
+[ ! -s /run/cap_last_cap ] || mount --bind /run/cap_last_cap /webos/proc/sys/kernel/cap_last_cap
+exec chroot /webos /sbin/init $(cat /run/webos-init-args)
+EOS
+chmod +x /run/webos-init
+(
+	unshare --pid --fork --uts --ipc --mount --propagation private /run/webos-init \
+		<"$console" >"$console" 2>&1
+	rc=$?
+	case $rc in
+	130) echo "webos-start: webOS powered the set off (SIGINT); powering off" >/dev/console
+	     sync; poweroff -f ;;
+	129) echo "webos-start: webOS rebooted the set (SIGHUP); resetting" >/dev/console
+	     sync; reboot -f ;;
+	*)   echo "webos-start: webOS ended with status $rc; the VM stays up" >/dev/console ;;
+	esac
+) </dev/null >/dev/null 2>&1 &

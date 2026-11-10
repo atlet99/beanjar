@@ -1,0 +1,25 @@
+# W24G 02.68.80.01 identifies itself as 12.0.0-GoogleHomePlatform688001,
+# spacebuns-sable. Its five logical images retain O22N2's global pak paths
+# and its own fstabs independently retain the same fixed partition pins.
+# Reuse the VM allocation, not queue's ARIB map or a retail super geometry.
+# PID1 and NYX preparation remain ARM32 despite additional usr/lib64 content.
+
+base = "queue"
+version = "12"
+peripherals = [
+    "usbhid", "uhid", "joydev", "input-leds", "hid-axff", "hid-dr", "hid-logitech",
+    "hid-microsoft", "hid-pl", "hid-sony", "hid-playstation", "hid-zpff", "xpad", "uvcvideo",
+    "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii", "nls_utf8",
+    "nls_iso8859-1", "nls_cp949", "exfat", "snd-usb-audio", "cdc-acm", "pl2303", "option",
+    "sierra", "lgfs", "ftdi_sio",
+]
+paks = [
+    { file = "rootfs", serial = "rootfs", mount = "/" },
+    { file = "bsppart", serial = "bsppart" },
+    { file = "otncabi", serial = "otncabi", mount = "/mnt/otncabi" },
+    { file = "otycabi", serial = "otycabi", mount = "/mnt/otycabi" },
+    { file = "fonts", serial = "fonts", mount = "/mnt/fonts" },
+    { file = "license", serial = "license", mount = "/mnt/license" },
+]
+nvm_disks = { nvram = "8M", eeprom = "32K" }
+partmap = "o22n2-ombre"

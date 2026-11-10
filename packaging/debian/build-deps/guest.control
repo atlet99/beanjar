@@ -1,0 +1,18 @@
+Section: misc
+Priority: optional
+Package: beanjar-build-deps-guest
+Maintainer: Mariotaku <git@mariotaku.me>
+Architecture: all
+Depends: gcc-aarch64-linux-gnu,
+ linux-libc-dev-armel-cross,
+ python3-mako,
+ python3-yaml,
+ python3-packaging,
+ flex,
+ bison,
+ qemu-user,
+ rsync,
+ libglib2.0-bin,
+ librsvg2-bin,
+ fonts-dejavu-core
+Description: Beanjar guest build tools for the x86_64 workstation

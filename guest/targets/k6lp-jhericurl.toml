@@ -1,0 +1,6 @@
+models = ["W20L"]
+
+# W20L ignores builtin M-RCU motion until the native cursor-on event.
+[release]
+base = "jhericurl"
+pointer_wakeup = true

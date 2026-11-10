@@ -1,0 +1,80 @@
+drm/virtio: advertise the linear modifier when virtio_gpu.modifiers=1
+
+virtio-gpu sets fb_modifiers_not_supported, so its planes have no IN_FORMATS
+property. O22N2's stock Qt EGLFS Starfish integration reads that blob without
+a NULL check and crashes. Scanout here is linear with the client's stride, so
+with the new parameter set the planes list {LINEAR} and ADDFB2 accepts the
+LINEAR modifier (any other is rejected). Unset, nothing changes.
+
+--- a/drivers/gpu/drm/virtio/virtgpu_drv.h
++++ b/drivers/gpu/drm/virtio/virtgpu_drv.h
+@@ -467,6 +467,7 @@
+ 				uint32_t x, uint32_t y);
+ 
+ /* virtgpu_display.c */
++extern bool virtio_gpu_modifiers;
+ int virtio_gpu_modeset_init(struct virtio_gpu_device *vgdev);
+ void virtio_gpu_modeset_fini(struct virtio_gpu_device *vgdev);
+ 
+--- a/drivers/gpu/drm/virtio/virtgpu_drv.c
++++ b/drivers/gpu/drm/virtio/virtgpu_drv.c
+@@ -51,6 +51,11 @@
+ MODULE_PARM_DESC(modeset, "Disable/Enable modesetting");
+ module_param_named(modeset, virtio_gpu_modeset, int, 0400);
+ 
++bool virtio_gpu_modifiers;
++
++MODULE_PARM_DESC(modifiers, "Advertise the linear format modifier on the planes (IN_FORMATS)");
++module_param_named(modifiers, virtio_gpu_modifiers, bool, 0400);
++
+ static int virtio_gpu_pci_quirk(struct drm_device *dev)
+ {
+ 	struct pci_dev *pdev = to_pci_dev(dev->dev);
+--- a/drivers/gpu/drm/virtio/virtgpu_display.c
++++ b/drivers/gpu/drm/virtio/virtgpu_display.c
+@@ -304,6 +304,10 @@
+ 	    mode_cmd->pixel_format != DRM_FORMAT_HOST_ARGB8888)
+ 		return ERR_PTR(-ENOENT);
+ 
++	if ((mode_cmd->flags & DRM_MODE_FB_MODIFIERS) &&
++	    mode_cmd->modifier[0] != DRM_FORMAT_MOD_LINEAR)
++		return ERR_PTR(-EINVAL);
++
+ 	/* lookup object associated with res handle */
+ 	obj = drm_gem_object_lookup(file_priv, mode_cmd->handles[0]);
+ 	if (!obj)
+@@ -351,7 +355,8 @@
+ 	vgdev->ddev->mode_config.max_width = XRES_MAX;
+ 	vgdev->ddev->mode_config.max_height = YRES_MAX;
+ 
+-	vgdev->ddev->mode_config.fb_modifiers_not_supported = true;
++	/* Scanout is linear with the given stride: modifiers=1 says so (IN_FORMATS). */
++	vgdev->ddev->mode_config.fb_modifiers_not_supported = !virtio_gpu_modifiers;
+ 
+ 	for (i = 0 ; i < vgdev->num_scanouts; ++i)
+ 		vgdev_output_init(vgdev, i);
+--- a/drivers/gpu/drm/virtio/virtgpu_plane.c
++++ b/drivers/gpu/drm/virtio/virtgpu_plane.c
+@@ -41,6 +41,11 @@
+ 	DRM_FORMAT_HOST_ARGB8888,
+ };
+ 
++static const uint64_t virtio_gpu_linear_modifiers[] = {
++	DRM_FORMAT_MOD_LINEAR,
++	DRM_FORMAT_MOD_INVALID,
++};
++
+ uint32_t virtio_gpu_translate_format(uint32_t drm_fourcc)
+ {
+ 	uint32_t format;
+@@ -600,7 +605,9 @@
+ 
+ 	plane = drmm_universal_plane_alloc(dev, struct drm_plane, dev,
+ 					   1 << index, &virtio_gpu_plane_funcs,
+-					   formats, nformats, NULL, type, NULL);
++					   formats, nformats,
++					   virtio_gpu_modifiers ? virtio_gpu_linear_modifiers : NULL,
++					   type, NULL);
+ 	if (IS_ERR(plane))
+ 		return plane;
+ 

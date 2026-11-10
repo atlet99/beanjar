@@ -1,0 +1,35 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Homebrew Channel's boot (guest/layers/hbchannel), once /var and /home are bound from the state disks
+# (mount-readwrite): what a rooted TV's boot hook does, with the VM's own keys.
+#
+# - root's authorized_keys and the Dropbear host key, from the per-VM layer (the VM's identity,
+#   beanjar/keys.py), every boot: the state may have been made without them or with others. With
+#   authorized_keys present HBC's startup.sh sets no placeholder password, as on a TV with keys.
+# - webosbrew_sshd_enabled: HBC's own switch for its SSH server, which owns the guest's port 22.
+# - HBC's startup.sh, run where its dev install has it (emulator-hbchannel-install; its SERVICE_DIR
+#   default): telnetd on 23 (guest only), Dropbear on 22, its other boot work,
+#   /var/lib/webosbrew/init.d. SKIP_ELEVATION: the installed LS2 files are already elevated.
+set -eu
+SERVICE_DIR=/media/developer/apps/usr/palm/services/org.webosbrew.hbchannel.service
+KEYS=/etc/emulator/hbchannel
+
+mkdir -p /home/root/.ssh
+cp "$KEYS/authorized_keys" /home/root/.ssh/authorized_keys
+chown root:root /home/root /home/root/.ssh /home/root/.ssh/authorized_keys
+chmod go-w /home/root
+chmod 700 /home/root/.ssh
+chmod 600 /home/root/.ssh/authorized_keys
+
+# HBC's Dropbear reads its host keys from here (its webOS patch's localoptions.h); -R makes the
+# other types on demand.
+mkdir -p /var/lib/webosbrew/sshd
+cp "$KEYS/dropbear_ed25519_host_key" /var/lib/webosbrew/sshd/dropbear_ed25519_host_key
+chmod 600 /var/lib/webosbrew/sshd/dropbear_ed25519_host_key
+
+mkdir -p /var/luna/preferences
+touch /var/luna/preferences/webosbrew_sshd_enabled
+
+cd /home/root
+exec env LD_PRELOAD= SKIP_ELEVATION=true "$SERVICE_DIR/startup.sh"

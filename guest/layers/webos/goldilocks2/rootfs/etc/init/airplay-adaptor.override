@@ -1,0 +1,3 @@
+# Airplay is not started: its MFi path needs Apple keys in the TEE (none here) and the emulator has no Wi-Fi.
+# The adaptor is what starts the airplay daemon (luna ping), which crashed in TEEC_CloseSession.
+manual

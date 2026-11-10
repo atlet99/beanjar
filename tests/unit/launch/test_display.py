@@ -1,0 +1,299 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""The display set-up (display_setup.py) and qemu.py's GPU backend and GPU process."""
+
+import io
+import json
+import os
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import types
+import unittest
+from unittest import mock
+
+
+from beanjar import (
+    display_setup,
+    netns,
+    launch,
+    qemu,
+)
+
+from launchkit import TOP
+
+
+class DisplaySetupTest(unittest.TestCase):
+    def test_stock_console_protocol(self):
+        for physical_size in ((200, 500), (0, 0)):
+            with self.subTest(physical_size=physical_size):
+                self.check_stock_console_protocol(physical_size)
+
+    def check_stock_console_protocol(self, physical_size):
+        connection = mock.Mock()
+        gio = types.SimpleNamespace(
+            Cancellable=mock.Mock(),
+            DBusConnectionFlags=types.SimpleNamespace(
+                AUTHENTICATION_CLIENT=1, MESSAGE_BUS_CONNECTION=2
+            ),
+            DBusCallFlags=types.SimpleNamespace(NONE=0),
+            DBusConnection=mock.Mock(),
+        )
+        gio.DBusConnection.new_for_address_sync.return_value = connection
+        variant = mock.Mock(side_effect=lambda signature, values: (signature, values))
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "gi.repository": types.SimpleNamespace(
+                    Gio=gio, GLib=types.SimpleNamespace(Variant=variant)
+                )
+            },
+        ):
+            display_setup.set_ui_info("unix:path=bus", 1, physical_size=physical_size)
+        call = connection.call_sync.call_args.args
+        self.assertEqual(
+            call[:4],
+            ("org.qemu", "/org/qemu/Display1/Console_1", "org.qemu.Display1.Console", "SetUIInfo"),
+        )
+        self.assertEqual(call[4], ("(qqiiuu)", (*physical_size, 0, 0, 768, 2160)))
+        connection.close_sync.assert_called_once()
+
+    def test_network_off_defers_cont_until_display_setup(self):
+        class Stream(io.StringIO):
+            def readline(self):
+                return '{"return": {}}\n'
+
+            def close(self):
+                pass
+
+        stream = Stream()
+        sock = mock.MagicMock()
+        sock.__enter__.return_value = sock
+        sock.makefile.return_value = stream
+        events = []
+
+        def setup():
+            commands = [json.loads(line)["execute"] for line in stream.getvalue().splitlines()]
+            events.extend(commands)
+            events.append("display")
+
+        with mock.patch.object(netns.socket, "socket", return_value=sock):
+            netns._qmp("qmp", mock.Mock(), before_cont=setup)
+        self.assertEqual(events, ["qmp_capabilities", "set_link", "display"])
+
+    def test_explicit_pause_never_resumes(self):
+        command = mock.Mock()
+        display_setup.prepare(
+            "bus",
+            "qmp",
+            1,
+            resume=False,
+            configure=mock.Mock(),
+            command=command,
+            alive=lambda: True,
+        )
+        command.assert_not_called()
+
+    def test_console_before_resume(self):
+        for size in ((200, 500), (0, 0)):
+            with self.subTest(physical_size=size):
+                self.check_console_before_resume(size)
+
+    def check_console_before_resume(self, size):
+        events = []
+
+        def configure(address, timeout, *, physical_size):
+            self.assertEqual(physical_size, size)
+            events.append(("console", address))
+            if len(events) == 1:
+                raise OSError("console not yet exported")
+
+        def command(sock, cmd, timeout):
+            events.append(("qmp", json.loads(cmd)["execute"]))
+            return {"return": {}}
+
+        display_setup.prepare(
+            "bus",
+            "qmp",
+            1,
+            physical_size=size,
+            configure=configure,
+            command=command,
+            alive=lambda: True,
+            sleep=lambda _: None,
+        )
+        self.assertEqual(events, [("console", "bus"), ("console", "bus"), ("qmp", "cont")])
+
+    def test_timeout_never_resumes(self):
+        command = mock.Mock()
+        ticks = iter((0, 0, 1, 2, 3))
+        with self.assertRaises(display_setup.Error):
+            display_setup.prepare(
+                "bus",
+                "qmp",
+                1,
+                deadline=2,
+                configure=mock.Mock(side_effect=OSError("missing console")),
+                command=command,
+                alive=lambda: True,
+                clock=lambda: next(ticks),
+                sleep=lambda _: None,
+            )
+        command.assert_not_called()
+
+    def test_parent_exit_never_resumes(self):
+        command = mock.Mock()
+        with self.assertRaises(display_setup.Error):
+            display_setup.prepare("bus", "qmp", 1, command=command, alive=lambda: False)
+        command.assert_not_called()
+
+    def test_main_physical_size_and_pause(self):
+        for options, size, resume in (
+            ([], (200, 500), True),
+            (["--physical-size", "0", "0"], (0, 0), True),
+            (["--physical-size", "0", "0", "--keep-paused"], (0, 0), False),
+            (["--keep-paused"], (200, 500), False),
+        ):
+            with (
+                self.subTest(options=options),
+                mock.patch.object(sys, "argv", ["helper", "1", "bus", "qmp", *options]),
+                mock.patch.object(display_setup, "prepare") as prepare,
+            ):
+                self.assertEqual(display_setup.main(), 0)
+                prepare.assert_called_once_with("bus", "qmp", 1, resume=resume, physical_size=size)
+
+    def test_failure_quits_paused_vm(self):
+        with (
+            mock.patch.object(sys, "argv", ["helper", "1", "bus", "qmp"]),
+            mock.patch.object(display_setup, "prepare", side_effect=display_setup.Error("failed")),
+            mock.patch.object(launch, "qmp", return_value={"return": {}}) as command,
+        ):
+            self.assertEqual(display_setup.main(), 1)
+        self.assertEqual(json.loads(command.call_args.args[1]), {"execute": "quit"})
+
+    def test_failed_quit_terminates_original_parent(self):
+        with (
+            mock.patch.object(sys, "argv", ["helper", "123", "bus", "qmp"]),
+            mock.patch.object(display_setup, "prepare", side_effect=display_setup.Error("failed")),
+            mock.patch.object(launch, "qmp", side_effect=OSError()),
+            mock.patch.object(os, "getppid", return_value=123),
+            mock.patch.object(os, "kill") as kill,
+        ):
+            self.assertEqual(display_setup.main(), 1)
+        kill.assert_called_once_with(123, signal.SIGTERM)
+
+
+class GpuBackendTest(unittest.TestCase):
+    """beanjar.gpu_backend: the launcher's listening vhost-user socket, QEMU's one connection
+    handed to the backend as --fd, and no wait past the VM's PID."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="beanjar-gpu-")
+        self.sock = os.path.join(self.tmp, "vhost-user-gpu.sock")
+        # a stand-in backend: writes its arguments and what arrives on its --fd
+        self.backend = os.path.join(self.tmp, "backend")
+        with open(self.backend, "w") as f:
+            f.write(
+                f"#!{sys.executable}\n"
+                "import os, sys\n"
+                "fd = int(sys.argv[-1].split('=')[1])\n"
+                f"open({os.path.join(self.tmp, 'out')!r}, 'w').write(' '.join(sys.argv[1:]) + "
+                "' ' + os.read(fd, 16).decode())\n"
+            )
+        os.chmod(self.backend, 0o755)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def start(self, pid):
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listener.bind(self.sock)
+        listener.listen(1)
+        env = dict(os.environ, PYTHONPATH=os.path.join(TOP, "host", "core"))
+        child = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "beanjar.gpu_backend",
+                str(pid),
+                str(listener.fileno()),
+                self.backend,
+                "--virgl",
+                "--render-node=/dev/dri/renderD128",
+            ],
+            env=env,
+            pass_fds=(listener.fileno(),),
+            stderr=subprocess.PIPE,
+        )
+        listener.close()
+        return child
+
+    def test_qemu_connection_becomes_backend_fd(self):
+        child = self.start(os.getpid())
+        # QEMU's connect: accepted from the backlog even before the helper runs
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as qemu_end:
+            qemu_end.connect(self.sock)
+            qemu_end.sendall(b"hello")
+            self.assertEqual(child.wait(10), 0)
+        with open(os.path.join(self.tmp, "out")) as f:
+            words = f.read().split()
+        self.assertEqual(words[:2], ["--virgl", "--render-node=/dev/dri/renderD128"])
+        self.assertRegex(words[2], r"^--fd=\d+$")
+        self.assertEqual(words[3], "hello")
+
+    def test_gives_up_when_the_vm_ends(self):
+        gone = subprocess.Popen(["true"])
+        gone.wait()
+        child = self.start(gone.pid)
+        self.assertEqual(child.wait(10), 1)
+        self.assertIn(b"ended before QEMU connected", child.stderr.read())
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "out")))
+
+
+class GpuProcessTest(unittest.TestCase):
+    """qemu.gpu_process (GPU_DEVICE): auto on an aarch64 host with a GPU's
+    render node, a guest with two outputs too (its abort comes only on the way down, and a
+    restart is a new backend); asked for, with an error where it cannot run."""
+
+    def decide(self, env, machine="aarch64", node="/dev/dri/renderD128", backend=True):
+        notes = []
+        with (
+            mock.patch.object(qemu.platform, "machine", return_value=machine),
+            mock.patch.object(qemu, "is_char", side_effect=lambda p: p == "/dev/dri/renderD128"),
+            mock.patch.object(qemu, "is_vgem", return_value=False),
+            mock.patch.object(qemu.os, "access", return_value=backend),
+        ):
+            got = qemu.gpu_process(
+                dict(env, VHOST_USER_GPU="/b/vhost-user-gpu"),
+                node,
+                "q",
+                say=notes.append,
+            )
+        return got, notes
+
+    def test_auto(self):
+        """The default: the GPU process on ARM with a GPU's node, virtio-gpu-gl elsewhere."""
+        self.assertEqual(self.decide({}), (True, []))
+        self.assertEqual(self.decide({}, machine="x86_64"), (False, []))
+        self.assertFalse(self.decide({}, node="surfaceless")[0])
+        got, notes = self.decide({}, backend=False)
+        self.assertFalse(got)
+        self.assertIn("no vhost-user-gpu backend", notes[0])
+
+    def test_forced(self):
+        self.assertEqual(self.decide({"GPU_DEVICE": "vhost-user-gpu"}), (True, []))
+        self.assertEqual(
+            self.decide({"GPU_DEVICE": "vhost-user-gpu"}, machine="x86_64"), (True, [])
+        )
+        self.assertEqual(self.decide({"GPU_DEVICE": "virtio-gpu-gl"}), (False, []))
+        for env, node, backend in (
+            ({"GPU_DEVICE": "vhost-user-gpu"}, "surfaceless", True),
+            ({"GPU_DEVICE": "vhost-user-gpu"}, "/dev/dri/renderD128", False),
+            ({"GPU_DEVICE": "on"}, "/dev/dri/renderD128", True),
+        ):
+            with self.subTest(env=env, node=node, backend=backend):
+                with self.assertRaises(qemu.Error):
+                    self.decide(env, node=node, backend=backend)

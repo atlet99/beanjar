@@ -1,0 +1,114 @@
+dvb-core: LG's private frontend properties and demux ioctl
+
+LG's tuner libraries (libdvbfrontend, libdvbv5 and libdil_tu_plugin from webOS 5 on) speak to
+the frontend in properties of their own: numbered above DTV_MAX_COMMAND on webOS 5 and 6, and
+keyed by an ASCII name in the union from webOS 22, where cmd is 0 or garbage and a GET's answer
+is read from the property's first word. LG's dvb-core hands such properties to its drivers;
+mainline rejects them. A frontend may now take any property first through ops.lg_property
+(webos_tv.ko does), whole, before the core looks at it. The demux accepts LG's private
+_IOW('o', 53, 16 bytes), which legacy-broadcast issues at init and at a scan's start, and does
+nothing with it. Local only.
+
+--- a/drivers/media/dvb-core/dmxdev.c
++++ b/drivers/media/dvb-core/dmxdev.c
+@@ -1174,6 +1174,11 @@
+ 		mutex_unlock(&dmxdevfilter->mutex);
+ 		break;
+ #endif
++	/* LG's private demux ioctl, _IOW('o', 53, 16 bytes), issued at init and at a scan's start
++	 * (local patch, not upstream): accepted, with nothing to do */
++	case _IOC(_IOC_WRITE, 'o', 53, 16):
++		ret = 0;
++		break;
+ 	default:
+ 		ret = -ENOTTY;
+ 		break;
+--- a/drivers/media/dvb-core/dvb_frontend.c
++++ b/drivers/media/dvb-core/dvb_frontend.c
+@@ -1349,6 +1349,13 @@
+ 	int ncaps;
+ 	unsigned int len = 1;
+ 
++	if (fe->ops.lg_property) {
++		int r = fe->ops.lg_property(fe, tvp, false);
++
++		if (r)
++			return r < 0 ? r : 0;
++	}
++
+ 	switch (tvp->cmd) {
+ 	case DTV_ENUM_DELSYS:
+ 		ncaps = 0;
+@@ -1881,6 +1888,24 @@
+  */
+ static int dtv_property_process_set(struct dvb_frontend *fe,
+ 				    struct file *file,
++				    u32 cmd, u32 data);
++
++/* LG's private properties go to the driver first (local patch, not upstream) */
++static int dtv_property_process_set_lg(struct dvb_frontend *fe,
++				       struct file *file,
++				       struct dtv_property *tvp)
++{
++	if (fe->ops.lg_property) {
++		int r = fe->ops.lg_property(fe, tvp, true);
++
++		if (r)
++			return r < 0 ? r : 0;
++	}
++	return dtv_property_process_set(fe, file, tvp->cmd, tvp->u.data);
++}
++
++static int dtv_property_process_set(struct dvb_frontend *fe,
++				    struct file *file,
+ 				    u32 cmd, u32 data)
+ {
+ 	int r = 0;
+@@ -2169,9 +2194,8 @@
+ 			return PTR_ERR(tvp);
+ 
+ 		for (i = 0; i < tvps->num; i++) {
+-			err = dtv_property_process_set(fe, file,
+-						       (tvp + i)->cmd,
+-						       (tvp + i)->u.data);
++			err = dtv_property_process_set_lg(fe, file,
++				(struct dtv_property *)(tvp + i));
+ 			if (err < 0) {
+ 				kfree(tvp);
+ 				return err;
+@@ -2461,9 +2485,7 @@
+ 			return PTR_ERR(tvp);
+ 
+ 		for (i = 0; i < tvps->num; i++) {
+-			err = dtv_property_process_set(fe, file,
+-						       (tvp + i)->cmd,
+-						       (tvp + i)->u.data);
++			err = dtv_property_process_set_lg(fe, file, tvp + i);
+ 			if (err < 0) {
+ 				kfree(tvp);
+ 				return err;
+--- a/include/media/dvb_frontend.h
++++ b/include/media/dvb_frontend.h
+@@ -433,6 +433,12 @@
+  * @ts_bus_ctrl:	callback function used to take control of the TS bus.
+  * @set_lna:		callback function to power on/off/auto the LNA.
+  * @search:		callback function used on some custom algo search algos.
++ * @lg_property:	LG's private properties (local patch, not upstream): called
++ *			for every property of FE_SET_PROPERTY and FE_GET_PROPERTY
++ *			before the core looks at it, with the whole property, as
++ *			LG's own dvb-core passes them to its drivers. Returns 1
++ *			when the driver took it (a GET's answer written into
++ *			@tvp), 0 to leave it to the core, or a negative error.
+  * @tuner_ops:		pointer to &struct dvb_tuner_ops
+  * @analog_ops:		pointer to &struct analog_demod_ops
+  */
+@@ -495,6 +501,9 @@
+ 	 */
+ 	enum dvbfe_search (*search)(struct dvb_frontend *fe);
+ 
++	int (*lg_property)(struct dvb_frontend *fe, struct dtv_property *tvp,
++			   bool set);
++
+ 	struct dvb_tuner_ops tuner_ops;
+ 	struct analog_demod_ops analog_ops;
+ };

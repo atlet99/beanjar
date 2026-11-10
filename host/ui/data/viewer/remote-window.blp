@@ -1,0 +1,39 @@
+// SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+// SPDX-License-Identifier: GPL-2.0-or-later
+// The remote's window (beanjar_ui/viewer/remote_window.py, RemoteWindow): borderless, transparent around the
+// RemotePanel (set as its child from Python), moved by a drag on the body. The input region, the
+// key controller, the "remote" actions and the placement next to the TV window (X11) are set up in
+// Python.
+using Gtk 4.0;
+
+template $ViewerRemoteWindow: Gtk.Window {
+  title: "Remote";
+  decorated: false;
+
+  css-classes: [
+    "remote-window",
+  ];
+
+  notify::is-active => $on_active_changed();
+  close-request => $on_close_request();
+  map => $on_map();
+
+  Gtk.GestureDrag {
+    button: 1;
+    drag-begin => $on_drag_begin();
+    drag-update => $on_drag_update();
+  }
+}
+
+// The window controls on the remote's chin. Python prepends the firmware's
+// compatible remote layouts (remote.layout, a radio choice). Place Next to TV is hidden where the window cannot be placed
+// (Wayland: remote.place disabled).
+menu remote_menu {
+  section {
+    item {
+      label: "Place Next to TV";
+      action: "remote.place";
+      hidden-when: "action-disabled";
+    }
+  }
+}

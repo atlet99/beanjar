@@ -1,0 +1,75 @@
+# goldilocks: webOS 4.0-4.4 (W18R's 4.4.3, "goldilocks-gorongosa"). No smartkey pak any more
+# (W18R's squashfs fstab: p30 tvservice, p32 otncabi, p33 otycabi, p34 fonts, p36 license).
+# The BSP pak's file is bsppart-dvb.pak, but mount-bsp still looks up the partition "bsppart"
+# and overlays its bsp/ (dreadlocks' script): the lower as before. sedata-dvb (raw), boot
+# (MBoot), kernel and tzfw are not attached. The three
+# state partitions (p52-p54); W18R's table has no uhdcp.
+# The EEPROM as dreadlocks2's (tvservice's DWARF: gModelInfoDB 56 bytes, mark 0x20160630;
+# gToolOptionDB 76 bytes, mark 0x20150625; DIL_NVM_InitContinentOptionDB at 0x1C54,
+# DIL_NVM_PWRON_InitLastInfo at 0x1BC8 under dreadlocks' conditions), and the ToolOptionDB's
+# input-port bytes at +48 (EXT_VIDEO_INPUT_ADJ, 15) and +63 (EXT_AUDIO_INPUT_ADJ, 11), the user
+# input map tvservice reads with ToolOpt2's input index 0: a factory programs them (a soc file's inputs). PmLog: the client
+# whitelist is gone and the daemon's (one g_hash_table_lookup) is skipped only by configd's
+# system.collectDevLogs, so the preload again; the stock job exports LD_PRELOAD (libsystrim)
+# itself and starts at mount-readonly-volatile, earlier than the hubs, so "preload-env":
+# the webos layer's job appends $PMLOG_PRELOAD, which init sets, and the start stays stock.
+
+base = "dreadlocks2"
+version = "4"
+pmlog_mode = "preload-env"
+peripherals = [
+    "usbhid", "uhid", "joydev", "hid-dr", "hid-logitech", "hid-sony", "hid-zpff", "xpad",
+    "uvcvideo", "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii",
+    "nls_utf8", "nls_iso8859-1", "nls_cp949", "snd-usb-audio", "cdc-acm", "input-leds",
+    "hid-playstation", "ipw", "pl2303", "option", "sierra", "lgfs",
+]
+paks = [
+    { file = "rootfs", serial = "rootfs", mount = "/" },
+    { file = "bsppart-dvb", serial = "bsppart" },
+    { file = "tvservice-dvb", serial = "tvservice", mount = "/mnt/tvservice" },
+    { file = "otncabi-dvb", serial = "otncabi", mount = "/mnt/otncabi" },
+    { file = "otycabi-dvb", serial = "otycabi", mount = "/mnt/otycabi" },
+    { file = "fonts", serial = "fonts", mount = "/mnt/fonts" },
+    { file = "license", serial = "license", mount = "/mnt/license" },
+]
+# W18R's table (54 partitions, partinfo p3, the real lk5900's but for the tzfw copies) has no
+# smartkey and no uhdcp: no uhdcp disk
+state_disks = { db8 = "512M", cmn_data = "1G", appstore = "2G" }
+
+[nvm]
+eeprom = "eeprom"
+records = { pak = "tvservice-dvb", path = "/mnt/lg/tvservice/lgapp/tvservice" }
+modelinfo_offset = 0x924
+modelinfo_mark = 0x20160630
+model_field = [4, 24]
+serial_field = [28, 17]
+tooloption_offset = 0x4E4
+tool_option_words = 9
+tool_option_word_bytes = 4
+tool_option_first = 8
+tool_option_mark = 0x20150625
+continent_offset = 0x1C54
+continent_table = { symbol = "_aDefineContinent", size = 36 }
+lastinput_offset = 0x1BC8
+inputs_field = [48, 26]
+factory_offset = 0x294
+local_key = { word = 3, offset = 18, width = 2, names = ["joystick", "onekey", "ninekey"] }
+
+[partitions]
+partinfo = "partinfo"
+mapbak = "partinfo"
+authcxt = "authcxt"
+nvram = "nvram"
+sestore = "sestore"
+sedata = "sedata"
+rootfs = "rootfs"
+tvservice = "tvservice"
+otncabi = "otncabi"
+otycabi = "otycabi"
+fonts = "fonts"
+db8 = "db8"
+data = "cmn_data"
+apps = "appstore"
+bsppart = "bsppart"
+license = "license"
+wossestore = "wossestore"

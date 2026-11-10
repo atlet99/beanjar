@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# usbipdcpp (LGPL-3.0) for the virtual USB camera (host/helpers/virtcam): its USB device model and
+# UVC handlers, built as shared libraries by its own CMake (host/helpers/virtcam/build-usbipdcpp.sh).
+# Not in Debian 13. Hash: GitHub's archive of the pinned commit.
+[wrap-file]
+directory = usbipdcpp-51ec41981024250d068fda25aed88be9140af722
+source_url = https://github.com/yunsmall/usbipdcpp/archive/51ec41981024250d068fda25aed88be9140af722.tar.gz
+source_filename = usbipdcpp-51ec41981024250d068fda25aed88be9140af722.tar.gz
+source_hash = 133306048bb8a111ffd810346cf09a497f0084b04202a968fe7620f5934a4cd3
+patch_directory = source-only

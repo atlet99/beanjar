@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The web viewer (docs/dev/architecture/web-viewer.md): an aiohttp server that runs the `beanjar` CLI
+# for everything about a VM and imports nothing of it. The Debian package `beanjar-web` carries it
+# as source under /usr/lib/beanjar/web (packaging/debian/build.py).
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beanjar-web"
+dynamic = ["version"]
+description = "Beanjar's VMs in a browser: noVNC and a popup TV remote"
+license = "GPL-2.0-or-later"
+requires-python = ">=3.11"
+dependencies = ["aiohttp"]
+
+[project.scripts]
+beanjar-web = "beanjar_web.server:main"
+
+[tool.setuptools.packages.find]
+include = ["beanjar_web"]
+
+[tool.setuptools.package-data]
+beanjar_web = ["static/*"]
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }  # packaging/VERSION

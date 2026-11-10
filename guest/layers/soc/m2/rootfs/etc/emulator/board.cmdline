@@ -1,0 +1,66 @@
+# Board parameters the bootloader (MStar's MBoot, LG's build for M2) puts on the kernel command
+# line, parsed by libdile_boardinfo, tvservice, tvconfig-gen and the Upstart jobs. The initramfs
+# appends these to the real cmdline and bind-mounts the result over /proc/cmdline inside webOS.
+# Format and order follow W16R's MBoot (boot.pak) format strings; the values describe a 43LH604V,
+# a model that runs W16R, in W16R's own
+# encodings; they are not read from a real set. MBoot's kernel-only parameters (root=, CMA2=, console=,
+# rootwait, emmc_log=1, NR_BANK=, vmalloc=, LX_MEM*=, EMAC_MEM=, DRAM_LEN=, DRAM_SIZE*=,
+# KERNEL_PROTECT) are left out: libkadaptor and libmsil_m2 read the memory layout from
+# /proc/mmapger, not the cmdline. So are "quiet loglevel=0" (silent mode), swumode, snapshot,
+# art=, portProtection, factory, pwrOnly, fullverify and innolux=, which MBoot adds only for those
+# modes, and sver=/bver= (the boot versions; libdile_boardinfo then has none).
+#
+# chip=M2A0 is a constant in this MBoot (libdile_boardinfo knows M2A0, A1, B0, B1).
+# mknod.conf creates the /etc/device_table nodes only with devtmpfs.mount=1.
+ethaddr=a8:23:fe:12:34:56
+# 14 model-option straps, '0'/'1' each, as W16R's MBoot reads its GPIO pads 24 25 35 36 53 56 57 58
+# 69 70 71 72 73 74 (reproduced from the firmware's tables): pads 69/73 "01" are the DDR 1.25 GB;
+# every other strap 0, the bootloader's default (EU, panel row 0000, T2+S column 0).
+modelopt=00000000000010
+# 18 digits, as this MBoot prints them for those straps and W16R's tvconfig-gen (SystemHdrInit)
+# decodes them: EU (d0 0, {EU, CN_HK, TW_CO, AJ_JA}), panel row 0000 of MBoot's table: LVDS (d2 1),
+# FHD (d3 1), no FRC, panel type 0 (MODELOPT_PANEL_TYPE_NONE: the table has no V15/V16 row), T2+S
+# (d8 0, gmodelopt_LM15U_tuner_comb[EU][0]), DDR 1.25 GB (d11 1), graphic resolution 6 (MBoot's
+# constant for every board)
+hwopt=001100000001006000
+# M2's MBoot prints 9 tool option words (ToolOpt1..9, its "[ToolOptN] = %d"), the NVM
+# ToolOptionDB's 32-bit words (webOS 3's layout: host/core/beanjar/targets.py's Nvm), which the
+# launcher programs into a new EEPROM (host/core/beanjar/nvm.py) for tvconfig-gen and
+# tvservice. W16R's encodings (tvconfig-gen's OSA_MD_SetValueOfToolOptionN, the inch and tool type
+# tables), the values W16R's factory path (tvservice's OSA_MD_InitToolOption) programs from its
+# RELEASE.cfg, whose series is the model's (TOOL_LH60), as derived from the firmware's tables:
+#   ToolOpt1 266: eModuleInchType 10 (bits 0-4, "43"), eToolType 8 (bits 5-10, "LH60"), maker 0
+#     (LGD) and LVDS bit 0. tvconfig-gen publishes it with bit 16 set.
+#   ToolOpt2 3153959: nExtVideoInputIndex 7 (bits 0-4, tv.model.videoIndex), the row of tvservice's
+#     non-UHD input table with HDMI x3, component and AV, no SCART (the 43LH604V's rear panel; row 0 is no row), audio index 1 (bits 5-9), backlight 0 (bits 10-12,
+#     direct LED), USB field 1 (bits 13-14, two ports), HDMI switch 0, eUSB1 USB_CTL2 2 (bits
+#     21-22), eUSB2 USB_CTL1 1 (bits 23-24).
+#   ToolOpt3 33106: AMP_NTP7515_1AMP 2 (bits 0-2; RELEASE.cfg "[i2c]NTP7515:4:0x54", MStar port 0,
+#     targets.py's amp:0x0054), headphone, DVR ready, ISF, luminance up.
+#   ToolOpt4 64773: demodulators TCS_COMBO 1, DTV_SOC 1, SI2178B 4, NO_DEMOD 14 and NO_DEMOD_ANA 7
+#     (RELEASE.cfg's "NO_DEMOD" is not in _AnalogDemodType_Sub: the parser's -1, which the factory
+#     masks to the 3-bit field). No tuner or demodulator chip is modelled: the Si2178B's slave
+#     (HWI2C 0x02c0) does not acknowledge, and its driver gives up at once.
+#   ToolOpt5 34212: wifi 4 (bits 0-2, 11n only), camera 0 (bits 3-4), mouseRC 5 (bits 5-7, READY:
+#     the Magic Remote sold separately; RELEASE.cfg says OFF), TVLink 1 (bit 8), CompRCACommon
+#     (bit 10), WOL (bit 15).
+#   ToolOpt6 134667: standard backlight 80 as the factory scales it, 11; audio power 6, speaker 1,
+#     PWM2 duty 41 (2).
+#   ToolOpt7 656015: the MAC, ESN, CI and Widevine keys in the AP, EDID_DTS, the eye sensor, PWM
+#     100/120 Hz, instant boot default on.
+#   ToolOpt8 0; ToolOpt9 16: MODE_SELECT_2.
+ToolOpt=266:3153959:33106:64773:34212:134667:656015:0:16
+# 4 = EU
+countryGrp=4
+# 3 = DEBUG, 4 = EVENT, 5 = RELEASE (the lginit_app and tvservice jobs start the reboot job when
+# they end in RELEASE)
+debugMode=3
+# modelName <= 12 chars, serialNum <= 16 chars. The EEPROM's area (ContinentOptionDB) is the
+# factory's, not MBoot's: targets.py's Soc.continent.
+modelName=43LH604V-ZB serialNum=605RAXX00001
+devtmpfs.mount=1 chip=M2A0
+# 0x + 9 hex digits (MBoot's 0x%01lx%08lx); parsers drop the last 2 digits and read KB. 7.5 GB
+# eMMC, as H13's and M14's (the state disks' sizes are the launcher's, not this)
+emmc_size=0x1d2000000
+# MBoot ends with cmdEnd, and puts a space after every value.
+cmdEnd

@@ -1,0 +1,20 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Headless (no graphics yet): stands in for LG's Live TV binary (com.webos.app.livetv and the
+# other TV-input apps), bootd's first app in Normal mode, which sam launches as a native app. The
+# stock binary sets QT_QPA_PLATFORM=wayland itself (qputenv, first thing in main) and qFatal()s in
+# QWaylandDisplay, as no compositor serves /tmp/xdg/wayland-0 here: WT1H aborted with a crash
+# report every boot, the later firmwares exited 1. sam's launch, and with it bootd's
+# firstAppLaunched, stay as they are; the app then ends cleanly.
+#
+# Before it ends it sends bootd's banner-ready, as the stock app does: its first channel or input
+# banner calls com.webos.bootManager/generateSignal {"name":"banner-ready"} 0.5 s after it shows
+# (qml/TvComponent/Banner/{ChannelBanner,InputBanner}, Model/AppStatus.qml; the same QML in all
+# six firmwares). In Normal mode bootd waits 15 s for it after its launch of this app has
+# succeeded, and that wait gives init-boot-done, which holds WebAppMgr, pulseaudio, webos-jail and
+# the connman adapter. On webOS 3 and 4 bootd sends minimal-boot-done only after init-boot-done, so
+# a stand-in on minimal-boot-done always came after the 15 s; bootd keeps a signal that comes
+# before its wait (its event table: "event is already completed"), so sending at launch is safe.
+luna-send -n 1 luna://com.webos.bootManager/generateSignal '{"name":"banner-ready"}' </dev/null >/dev/null 2>&1
+exit 0

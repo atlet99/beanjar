@@ -1,0 +1,121 @@
+# Configure secure-store items
+
+Each webOS VM can supply secure-store values through `identity/sestore.toml`.
+Names are the exact strings passed to `SESTORE_ReadData`, including regional suffixes. Edit
+while the VM is off.
+There is no version header: the host validates the TOML structure directly.
+
+```toml
+missing = "fallback"
+
+[items]
+# Dummy model secret: base64 text for a 32-byte all-zero AES key.
+"1D492999" = { text = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" }
+
+# Dummy SDP common seed: 16 raw bytes.
+"3382732D" = { hex = "00000000000000000000000000000000" }
+
+# A generated PEM file beside this TOML.
+"617803D8" = { file = "dummy-public.pem" }
+
+# Manually authored YouTube credentials include an explicit trailing NUL.
+"C1FFB834" = { text = "dummy-id;dummy-secret", nul_terminated = true }
+```
+
+The root `missing` property accepts `fallback` (the default) and `error`. Fallback preserves
+the built-in synthetic model secret, generated SSG keys and the stock library where applicable. Error makes an unconfigured sestore read return `0xFFFF0002` (no such
+item), and the HAL/DILE model-key read fail. It disables synthetic fallback and
+automatic SSG key provisioning.
+Legacy files are migration inputs only; removing an entry never revives an archived key.
+
+Each entry contains exactly one of `text`, `hex`, or `file`. Text is UTF-8, hex is decoded binary,
+and a file contributes exact bytes. Relative paths resolve beside the TOML; absolute paths are
+also accepted. No newline, base64 decoding, trimming or terminator is implicit.
+`nul_terminated = true` appends one zero byte to any source. Empty generic items are supported.
+Names contain ASCII letters, digits, underscores and hyphens, start with a letter or digit, and
+are at most 64 characters. Each decoded value is limited to 65536 bytes; snapshots hold at
+most 256 items. The TOML document may be up to 64 MiB so a complete hex export fits in
+one file. Names are never hashed, renamed or uppercased.
+
+Keep the TOML and referenced files at mode `0600` inside the VM's `0700` identity directory.
+Legacy files must have owner-only permissions when importing them.
+Malformed TOML, unknown fields, multiple sources, unreadable files and invalid known formats
+stop launch. Diagnostics identify an item and reason without printing its value.
+
+| Item | Required bytes |
+| --- | --- |
+| `1D492999`, its `_a`, `_d`, `_r` variants, legacy `SDP_MODEL` | Exactly 44 canonical base64 characters encoding 32 bytes; no NUL or newline. |
+| `77D1DD90` | A usable private PEM key, at most 1999 bytes, without NUL. Launch generates its matching gateway certificate. |
+| `C1FFB834` | Nonempty printable ASCII `<part1>;<part2>` followed by one NUL or LF, at most 100 bytes including that terminator. No embedded control characters. |
+
+The observed native OLED C2 YouTube record ends in LF. Preserve that byte in an exact `hex`
+or `file` export; the stock DILE consumer replaces the final stored byte with NUL in its
+output. TOML loading and guest delivery retain the original bytes. For manually authored
+`text` credentials, use `nul_terminated = true` as above. Do not append NUL to an LF-ended
+native export, since that would leave an embedded LF.
+
+Regional model items are distinct. An exact configured suffix wins. With error, an absent
+regional item reports missing, allowing nyxCrypto's own plain-item retry. With fallback, the
+existing model shim can answer a missing regional item using the plain key. HAL/DILE use the
+plain `1D492999` entry, or legacy `SDP_MODEL`. Dummy keys exercise local code paths; external
+services may reject them.
+
+## Legacy key files
+
+Launch and model-key commands use only TOML: the legacy `model-secret`, `ssg-key` and `youtube-key` files of
+an identity are not read. `migrate-local` imports them into `sestore.toml` as part of development migration
+(`model-secret` as `1D492999` text, `ssg-key` as `77D1DD90` PEM text, `youtube-key` as `C1FFB834` text with
+`nul_terminated = true`), keeping the originals.
+
+`beanjar key model NAME install FILE` and the GUI model-key setting update TOML. Installing replaces
+configured model variants with that plain key; `--clear` removes
+those variants, retaining the policy and other items. CLI and GUI
+detect TOML-only model keys. Generated SSG keys are written directly into TOML. SSH keys, `tee-huk`
+and the proxy CA keep their existing storage.
+
+## Guest delivery
+
+The host helper resolves TOML and synthetic defaults into one little-endian
+snapshot, `etc/emulator/sestore.bin`, in the per-VM layer at mode `0600`. TOML and referenced
+paths remain on the host. The standalone compiler uses the same implementation:
+
+```sh
+PYTHONPATH=host/core python3 -m beanjar.sestore IDENTITY_DIR OUTPUT.bin
+```
+
+The initramfs loads the snapshot into `lgemu` through `/dev/lg/beanjar-sestore` before webOS
+starts. Missing or invalid provisioning stops boot. The driver publishes a complete validated
+snapshot atomically; loading requires `CAP_SYS_ADMIN`, succeeds once per module load, and rejects
+subsequent replacements. It clears item bytes at module unload. Reader access is through the
+read-only device, mode `0444`, and exposes the VM's configured items.
+
+libsestore and HAL/DILE are device clients. They never read guest key files or parse TOML.
+libsestore retains NULL-buffer size queries and its output length ABI; HAL/DILE retain capacity
+checks. A missing item follows the provisioned policy. A missing, unreadable or unprovisioned
+device fails the read; it cannot silently enable fallback. The host helper resolves synthetic
+model identity using the existing fixed value, preserving NDUID behavior.
+
+SSG's matching public certificate still enters the gateway's certificate directory. Its private
+key and YouTube credentials are supplied through the store, without compatibility key files.
+
+Native media jails that mount `/dev/lg` see the device directly. Some older browser jails,
+including WT1H's `native_builtin`, have a fixed device list; the existing jail hook exposes one
+matching character-device node there. It copies no key bytes or policy. The hook removes the
+previous Cobalt key/policy copies when an existing jail is reused. Both access paths are tested
+with ARM32 clients on the arm64 kernel, after chroot and a drop to an unprivileged UID.
+
+The fixed-width ABI is in `include/webos-sestore.h`: a bundle has an 8-byte policy/count header,
+then 72-byte item records and exact payload bytes. Limits are 256 items and 65536 bytes per value.
+Ioctl records have the same layout on ARM32 and arm64. The kernel checks names, duplicate records,
+lengths, padding and complete bundle consumption before publication.
+
+Generic entries work on webOS targets with the libsestore shim. Older HAL/DILE model paths use
+the shared reader; this device does not implement older hardware-only secure-store APIs or TEE
+operations. Non-webOS VMs ignore the configuration.
+
+The genuine kernel test runs an isolated, firmware-free QEMU guest with no network or VM state:
+
+```sh
+python3 tests/integration/securestore/check-sestore-vm.py --build build/guest-o22-queue
+python3 tests/integration/securestore/check-sestore-vm.py --build build/guest-h13-afro
+```

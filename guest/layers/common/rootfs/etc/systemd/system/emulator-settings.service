@@ -1,0 +1,13 @@
+# Emulator: its own settings choices, once per state and concern (usr/libexec/beanjar/
+# emulator-settings: the automatic power-off timers and Audio Guidance off). The systemd
+# releases' counterpart of etc/init/emulator-settings.conf; pulled in by settings-service.service
+# (settings-service.service.wants).
+[Unit]
+Description=Emulator: automatic power-off timers and Audio Guidance off
+After=settings-service.service
+
+[Service]
+Type=oneshot
+# waits for settings and the set's country by itself (emulator-settings' WAIT); nothing waits for it
+TimeoutStartSec=infinity
+ExecStart=/usr/libexec/beanjar/emulator-settings

@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<!-- SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<html><head><meta charset="utf-8"><title>LocalStorage test</title>
+<style>
+html,body{margin:0;width:100%;height:100%;background:#0d47a1;color:#fff;font-family:sans-serif}
+div{position:absolute;top:35%;width:100%;text-align:center;font-size:72px}
+</style></head>
+<body><div>LOCALSTORAGE TEST<br><span id="t" style="font-size:120px"></span></div>
+<script>
+// Each launch adds one to "count" (tests/regress/devmode/check-localstorage.sh reads it back from WAM's
+// LocalStorage database on disk).
+var n = parseInt(localStorage.getItem('count') || '0', 10) + 1;
+localStorage.setItem('count', String(n));
+localStorage.setItem('last', new Date().toISOString());
+document.getElementById('t').textContent = 'count ' + n;
+</script>
+</body></html>

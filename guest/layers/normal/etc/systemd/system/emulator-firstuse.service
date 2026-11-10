@@ -1,0 +1,18 @@
+# The normal layer's FirstUse writes, once (usr/sbin/emulator-firstuse): the state FirstUse leaves
+# besides ran-firstuse, written through settingsservice, systemservice and factorymanager before
+# settings' DB health check tests it (check_settings_db_health.py's is_db_initialized wants
+# deviceName or timeZone in com.webos.settings.system:1; it starts from settings-service's
+# ExecStartPost and tests after 13 s, or from check-settings-db-health.service).
+[Unit]
+Description=emulator - "%n"
+After=settings-service.service
+Before=check-settings-db-health.service
+
+[Service]
+Type=oneshot
+# systemservice answers late (its secure store), and the hub holds the calls until it does
+TimeoutStartSec=infinity
+# W22 ships Python 3 only; W20/W21 ship Python 2.7. The helper supports both.
+ExecStart=/bin/sh -c 'if command -v python3 >/dev/null 2>&1; then exec python3 /usr/sbin/emulator-firstuse; else exec python2 /usr/sbin/emulator-firstuse; fi'
+StandardOutput=file:/tmp/emulator-firstuse.log
+StandardError=inherit

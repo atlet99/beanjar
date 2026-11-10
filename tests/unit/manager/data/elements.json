@@ -1,0 +1,83 @@
+[
+  {
+    "id": 8,
+    "key": "button:Continue",
+    "kind": "button",
+    "group": 0,
+    "x0": 10,
+    "y0": 20,
+    "x1": 111,
+    "y1": 60,
+    "score": 0.5539083,
+    "text": "Continue",
+    "style": {
+      "background": "#0066cc",
+      "foreground": "#fefefe",
+      "contrast": 5.52,
+      "disabled": false,
+      "highlighted": true,
+      "focused": false
+    }
+  },
+  {
+    "id": 3,
+    "key": "icon@1,2",
+    "kind": "icon",
+    "group": 0,
+    "x0": 1,
+    "y0": 2,
+    "x1": 4,
+    "y1": 6,
+    "score": 0.5539083,
+    "style": {
+      "background": "#0066cc",
+      "foreground": "#fefefe",
+      "contrast": 5.52,
+      "disabled": false,
+      "highlighted": false,
+      "focused": false
+    }
+  },
+  {
+    "id": 14,
+    "key": "text:Multi Audio",
+    "kind": "text",
+    "group": 0,
+    "x0": 20,
+    "y0": 40,
+    "x1": 90,
+    "y1": 60,
+    "score": 0.5539083,
+    "text": "Multi Audio",
+    "style": {
+      "background": "#0066cc",
+      "foreground": "#fefefe",
+      "contrast": 5.52,
+      "disabled": true,
+      "highlighted": false,
+      "focused": false
+    }
+  },
+  {
+    "id": 0,
+    "key": "progress:0%",
+    "kind": "progress",
+    "group": 0,
+    "x0": 30,
+    "y0": 60,
+    "x1": 91,
+    "y1": 80,
+    "score": 0.5539083,
+    "text": "0%",
+    "style": {
+      "background": "#0066cc",
+      "foreground": "#fefefe",
+      "contrast": 5.52,
+      "disabled": false,
+      "highlighted": false,
+      "focused": true
+    },
+    "value": 0,
+    "uom": "percent"
+  }
+]

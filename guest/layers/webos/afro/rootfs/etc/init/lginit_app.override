@@ -1,0 +1,7 @@
+# Emulator: lginit_app2 initialises TV hardware. Only emit its event, after the one directory of
+# its start-up that a later job needs: tvservice touches /var/lib/eim/initdone during its own
+# start-up (tv_sysonoff_init), which begins on lginit_app-ready.
+script
+	mkdir -p /var/lib/eim
+	initctl emit --no-wait lginit_app-ready
+end script

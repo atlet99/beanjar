@@ -1,0 +1,17 @@
+cec: a prompt for the CEC core
+
+LG's libcecp (eim's HDMI-CEC) drives /dev/cec0 through the CEC framework's ioctls, and lgemu.ko
+registers the board's adapter with that framework (lgemu cec.c). CEC_CORE has no prompt: only an
+in-tree driver can select it, and none of them fits a virtual board. Showing the prompt changes
+nothing else.
+
+--- a/drivers/media/cec/Kconfig
++++ b/drivers/media/cec/Kconfig
+@@ -1,6 +1,6 @@
+ # SPDX-License-Identifier: GPL-2.0-only
+ config CEC_CORE
+-	tristate
++	tristate "HDMI CEC core"
+
+ config CEC_NOTIFIER
+ 	bool

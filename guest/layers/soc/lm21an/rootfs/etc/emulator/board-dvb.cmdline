@@ -1,0 +1,19 @@
+# W22A 43UQ80006LB: the model metadata maps this model to LM21AN.
+# hwopt/modelopt are the firmware bootloader's embedded DVB defaults; its own
+# generators decode 1.5G DDR, UD LCD/VBYONE and 1920x1080 graphics.
+# ToolOpt comes from this firmware's LLS defaults and factorymanager's 43/UQ80 fields.
+# Identity placeholders are replaced with independently generated per-VM values.
+ethaddr=a8:23:fe:12:34:56
+devtmpfs.mount=1
+modelopt=210010111
+hwopt=202200021003002010
+ToolOpt=72394:32790:69632:65:48249142:158387467
+debugMode=3
+modelName=43UQ80006LB
+serialNum=000RAXX00001
+countryGrp=4
+chip=LM21AA0
+tvregion=DVB
+# VM storage ceiling; the actual emulator partition offsets are generated at start.
+emmc_size=0x1d1fff000
+cmdEnd

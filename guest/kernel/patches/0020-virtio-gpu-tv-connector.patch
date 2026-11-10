@@ -1,0 +1,49 @@
+drm/virtio: a TV connector for the first scanout when virtio_gpu.tv_connector=1
+
+LG's queue Weston names the set's primary output after its TV connector,
+TV-1, which the stock libweston maps to fb0. Its frontend also copies every
+connector into a second head, named with connector index 2, whenever the ini
+has more than one [output] section, which its shell also needs before it
+makes the secondary window. With two Virtual connectors the copies were
+named like the secondary head, so the secondary output took the primary's
+connector and its modeset failed with EINVAL. With the new parameter set the
+first scanout's connector is a TV connector (TV-1, its copy TV-2) and the
+others stay Virtual (Virtual-1, its copy Virtual-2), so every head has a
+name of its own. Unset, nothing changes.
+
+--- a/drivers/gpu/drm/virtio/virtgpu_drv.h
++++ b/drivers/gpu/drm/virtio/virtgpu_drv.h
+@@ -468,6 +468,7 @@
+
+ /* virtgpu_display.c */
+ extern bool virtio_gpu_modifiers;
++extern bool virtio_gpu_tv_connector;
+ int virtio_gpu_modeset_init(struct virtio_gpu_device *vgdev);
+ void virtio_gpu_modeset_fini(struct virtio_gpu_device *vgdev);
+
+--- a/drivers/gpu/drm/virtio/virtgpu_drv.c
++++ b/drivers/gpu/drm/virtio/virtgpu_drv.c
+@@ -56,6 +56,11 @@
+ MODULE_PARM_DESC(modifiers, "Advertise the linear format modifier on the planes (IN_FORMATS)");
+ module_param_named(modifiers, virtio_gpu_modifiers, bool, 0400);
+
++bool virtio_gpu_tv_connector;
++
++MODULE_PARM_DESC(tv_connector, "Make the first scanout's connector a TV connector (TV-1)");
++module_param_named(tv_connector, virtio_gpu_tv_connector, bool, 0400);
++
+ static int virtio_gpu_pci_quirk(struct drm_device *dev)
+ {
+ 	struct pci_dev *pdev = to_pci_dev(dev->dev);
+--- a/drivers/gpu/drm/virtio/virtgpu_display.c
++++ b/drivers/gpu/drm/virtio/virtgpu_display.c
+@@ -276,7 +276,8 @@
+ 	drm_crtc_helper_add(crtc, &virtio_gpu_crtc_helper_funcs);
+
+ 	drm_connector_init(dev, connector, &virtio_gpu_connector_funcs,
+-			   DRM_MODE_CONNECTOR_VIRTUAL);
++			   virtio_gpu_tv_connector && index == 0 ?
++			   DRM_MODE_CONNECTOR_TV : DRM_MODE_CONNECTOR_VIRTUAL);
+ 	drm_connector_helper_add(connector, &virtio_gpu_conn_helper_funcs);
+ 	if (vgdev->has_edid)
+ 		drm_connector_attach_edid_property(connector);

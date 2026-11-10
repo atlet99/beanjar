@@ -1,0 +1,57 @@
+#!/usr/bin/python3
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Supply the genuine UTC RTC calendar to the unchanged stock early boot helper."""
+
+import calendar
+import datetime
+import fcntl
+import os
+import struct
+import sys
+
+
+# Linux 6.18.53 (subprojects/linux.wrap), include/uapi/linux/rtc.h:
+# struct rtc_time contains nine signed int fields; RTC_RD_TIME is
+# _IOR('p', 0x09, struct rtc_time). ARM and ARM64 use asm-generic/ioctl.h.
+RTC_TIME = struct.Struct("=9i")
+RTC_RD_TIME = (2 << 30) | (RTC_TIME.size << 16) | (ord("p") << 8) | 0x09
+STOCK = "/usr/sbin/starfish-global"
+
+
+def read_rtc():
+    fields = bytearray(RTC_TIME.size)
+    fd = os.open("/dev/rtc0", os.O_RDONLY | os.O_CLOEXEC)
+    try:
+        fcntl.ioctl(fd, RTC_RD_TIME, fields, True)
+    finally:
+        os.close(fd)
+    second, minute, hour, day, month, year, _, _, _ = RTC_TIME.unpack(fields)
+    # datetime rejects impossible calendars and out-of-range clock fields rather
+    # than normalizing them as mktime does. Weekday/year-day/DST are unused by RTCs.
+    date = datetime.datetime(year + 1900, month + 1, day, hour, minute, second)
+    # The stock ARM32 ELF imports mktime@GLIBC_2.4 (signed 32-bit time_t),
+    # and checkEarliestDate rejects negative results. Fail here rather than
+    # letting an unrepresentable RTC date silently disable its clock check.
+    epoch = calendar.timegm(date.timetuple())
+    if not 0 <= epoch <= 0x7FFFFFFF:
+        raise ValueError("RTC calendar outside stock mktime range")
+    return "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
+        date.year, date.month, date.day, date.hour, date.minute, date.second
+    )
+
+
+def main():
+    try:
+        date = read_rtc()
+        # Stock parses the calendar with mktime. Scope UTC to this invocation,
+        # independent of the firmware's configured timezone or system clock.
+        env = dict(os.environ, TZ="UTC")
+        os.execve(STOCK, [STOCK, "--earliest_date", date], env)
+    except (OSError, ValueError, OverflowError) as error:
+        print("starfish-global-rtc: failed: {}".format(error), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

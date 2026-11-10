@@ -1,0 +1,219 @@
+#!/usr/bin/python
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The normal layer's FirstUse writes (systemd releases). ran-firstuse alone says FirstUse finished; what FirstUse itself writes
+# on its way out is replayed here, once, through LG's own services, with the values FirstUse
+# computes from them. From W20L's com.palm.app.firstuse (main.js), on a set whose user takes every
+# screen's default with no network connected:
+#   location  the country selected is the set's own (settings' country in the list, W21P's
+#             main.js: the index of countryCode3 in countryList[0]'s countries; W20L's list has
+#             only it); one time zone for the country: onSelectTimeZone(0) by itself, which
+#             writes it when it is not the current one, to systemservice setPreferences and to
+#             settings' category time; of several, the user's: the list starts on the current
+#             zone, which stands, else the country's default zone (default_zone below, the
+#             settings app's choice on a change of country); Next: completeSetup, option
+#             smartServiceCountryCode2/3
+#             (the selected country's shortName and alpha3)
+#   connect   no write without wired Internet
+#   network   skipped
+#   eula      not shown without Internet
+#   confirm   the watch type and the zip code are the user's input; not replayed
+#   done      Jd: category network deviceName = deviceName + " " + the model's series, 25 chars
+# Not replayed: bootManager/firstUseDone (bootd's FirstUse-mode callback; this boot is not one)
+# and asc startAdvertising (no state).
+# After FirstUse, the last input (last_input below; its own mark, so a state already past the
+# writes above gets it too). W21A's com.palm.app.firstuse ends on Next with firstUseDone
+# {action "launch", params {supportOOBE}, appId com.webos.app.channelsetting for a watch type
+# TV/CABLE/BOTH, else com.webos.app.oobe}; bootd (StarfishBootSequencer::onFirstUseDone) launches
+# it; channelsetting's onclose launches com.webos.app.oobe when launched with supportOOBE; oobe
+# (main.js) on start reads category general lastInputApp and, when it is "none" (the stock
+# default), writes lastInputApp and physicalLastInputApp = com.webos.app.livetv. Without it
+# Home's ChannelInterfaces.updateLastInputChannel throws and its card row stays empty. Checked:
+# W20L, W20H, W21P, W21A, W22P/L/A/H/O, W23A/H, W24G/P ship oobe with that write; W19P has no
+# oobe (its FirstUse sends firstUseDone {} and bootd launches the last input), so the write is
+# made only where the firmware ships the oobe app. As on a set, where oobe writes it with Home
+# already resident, Home reads "none" on the boot that writes it (bootd launches Home before
+# settings-service is up, and this unit runs after it): that boot's card row stays empty until
+# Home is next launched; later boots draw it.
+# Not FirstUse's: the auto power-off timers and Audio Guidance are the common layer's
+# (usr/libexec/beanjar/emulator-settings).
+import json
+import os
+import re
+import subprocess
+import sys
+import syslog
+
+MARK = "/var/luna/preferences/emulator-firstuse"
+LASTINPUT_MARK = "/var/luna/preferences/emulator-firstuse-lastinput"
+OOBE = "/usr/palm/applications/com.webos.app.oobe"
+LIVETV = "com.webos.app.livetv"
+
+
+def call(uri, payload):
+    out = subprocess.check_output(["luna-send", "-n", "1", uri, json.dumps(payload)])
+    reply = json.loads(out)
+    if not reply.get("returnValue", False):
+        raise RuntimeError("%s %s: %s" % (uri, json.dumps(payload), out.strip()))
+    return reply
+
+
+def first(uri, payload, test):
+    # the first reply of a subscription that passes test
+    proc = subprocess.Popen(["luna-send", "-i", uri, json.dumps(payload)], stdout=subprocess.PIPE)
+    try:
+        for line in iter(proc.stdout.readline, b""):
+            reply = json.loads(line)
+            if test(reply):
+                return reply
+    finally:
+        proc.kill()
+        proc.wait()
+    raise RuntimeError("%s: ended" % uri)
+
+
+def log(msg):
+    syslog.syslog(msg)
+    sys.stdout.write(msg + "\n")
+    sys.stdout.flush()
+
+
+def settings(category, keys):
+    return call(
+        "luna://com.webos.settingsservice/getSystemSettings", {"category": category, "keys": keys}
+    )["settings"]
+
+
+def set_settings(category, values):
+    log("setSystemSettings %s %s" % (category, json.dumps(values)))
+    call(
+        "luna://com.webos.settingsservice/setSystemSettings",
+        {"category": category, "settings": values},
+    )
+
+
+def default_zone(short, zones):
+    # A country of several time zones: the one the set picks for it, as W23P's settings app
+    # (com.palm.app.settings main.js) does when the country changes: settings' category time
+    # defaultTimeZone (/etc/palm/defaultTimeZone.json) names the country's defaultZoneId; the
+    # zone whose ZoneID holds its last part, else the country's first zone
+    reply = call(
+        "luna://com.webos.settingsservice/getSystemSettingValues",
+        {"category": "time", "key": "defaultTimeZone"},
+    )
+    defaults = reply.get("defaultTimeZones", reply.get("values", {}).get("defaultTimeZones"))
+    if not isinstance(defaults, list):
+        raise RuntimeError("no defaultTimeZones in time defaultTimeZone: %s" % json.dumps(reply))
+    zone_id = next(
+        (d.get("defaultZoneId", "") for d in defaults if d.get("countryCode") == short), ""
+    )
+    city = zone_id.split("/")[-1]
+    return next((z for z in zones if city and city in z.get("ZoneID", "")), zones[0])
+
+
+def last_input():
+    # oobe's write on FirstUse's default finish (header), once
+    if os.path.exists(LASTINPUT_MARK):
+        return
+    if not os.path.isdir(OOBE):
+        log("emulator-firstuse: no %s, no last input write" % OOBE)
+    elif settings("general", ["lastInputApp"]).get("lastInputApp") == "none":
+        set_settings("general", {"lastInputApp": LIVETV, "physicalLastInputApp": LIVETV})
+    open(LASTINPUT_MARK, "a").close()
+    subprocess.call(["sync"])
+
+
+def main():
+    if os.path.exists(MARK):
+        last_input()
+        return 0
+    # FirstUse starts once the set has its country: settings' default is "other" until the
+    # set's own country reaches it (devicereset, from LLS's factory DB), a few seconds in
+    first(
+        "luna://com.webos.settingsservice/getSystemSettings",
+        {"category": "option", "keys": ["country"], "subscribe": True},
+        lambda r: r.get("settings", {}).get("country", "other") != "other",
+    )
+    option = settings("option", ["country", "localeCountryGroup", "japanCitySelection"])
+    country3 = option["country"]
+    group = option["localeCountryGroup"][-2:]
+    countries = call(
+        "luna://com.webos.settingsservice/getSystemSettingValues",
+        {"category": "option", "key": "country"},
+    )["countryList"][0]["countries"]
+    country = [c for c in countries if c["alpha3"] == country3]
+    if len(country) != 1:
+        raise RuntimeError(
+            "country %s is not once in %s" % (country3, [c["alpha3"] for c in countries])
+        )
+    short = country[0]["shortName"]
+    if group == "JA":
+        raise RuntimeError("country group JA: the region path is not replayed")
+
+    # location: Next stays disabled for JPN until the city is one of the list's
+    if country3 == "JPN":
+        cities = call(
+            "luna://com.webos.settingsservice/getSystemSettingValues",
+            {"category": "option", "key": "japanCitySelection"},
+        )
+        if option["japanCitySelection"] not in json.dumps(cities):
+            raise RuntimeError(
+                "japanCitySelection %s not in its list" % option["japanCitySelection"]
+            )
+    set_settings(
+        "option", {"smartServiceCountryCode2": short, "smartServiceCountryCode3": country3}
+    )
+
+    # done: the device name with the model's series
+    name = settings("network", ["deviceName"])["deviceName"]
+    model = call("luna://com.webos.service.factorymanager/getFactoryOpt", {"keys": ["modelName"]})[
+        "modelName"
+    ]
+    letter = re.search("[A-Za-z]", model)
+    start = letter.start() if letter else -1
+    end = model.find("-") if "-" in model else len(model)
+    series = model[min(start, end) : max(start, end)] if start >= 0 else model[:end]
+    set_settings("network", {"deviceName": (name + " " + series)[:25]})
+
+    # after FirstUse: oobe's last input, before the time zone's wait (Home reads it on launch)
+    last_input()
+
+    # location: the country's time zones; with one, it is selected by itself. Last here, as
+    # systemservice answers only once its secure store gives up; the
+    # hub holds the call until then
+    zones = [
+        z
+        for z in call("luna://com.palm.systemservice/getPreferenceValues", {"key": "timeZone"})[
+            "timeZone"
+        ]
+        if z.get("CountryCode") == short
+    ]
+    current = call("luna://com.palm.systemservice/getPreferences", {"keys": ["timeZone"]}).get(
+        "timeZone", {}
+    )
+    chosen = [z for z in zones if z.get("ZoneID") == current.get("ZoneID")]
+    if not zones:
+        raise RuntimeError("no time zone for %s" % short)
+    if len(zones) == 1:
+        selected = zones[0]
+    elif len(chosen) == 1:
+        # FirstUse's list starts on the current zone: one already chosen through LG's API stands
+        selected = chosen[0]
+    else:
+        selected = default_zone(short, zones)
+    if current.get("ZoneID") != selected.get("ZoneID"):
+        log("setPreferences timeZone %s" % json.dumps(selected))
+        call("luna://com.palm.systemservice/setPreferences", {"timeZone": selected})
+    set_settings("time", {"timeZone": selected})
+
+    open(MARK, "a").close()
+    subprocess.call(["sync"])
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception as e:
+        log("emulator-firstuse: %s" % e)
+        sys.exit(1)

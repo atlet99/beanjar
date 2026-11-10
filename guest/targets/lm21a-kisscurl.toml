@@ -1,0 +1,39 @@
+models = ["W21A"]
+bring_up = ["W21A"]
+lg_scaler = [3840, 2160]
+
+# W21A shares the release's service layout, but its shipped map puts rootfs at p27
+# and state at p52-p54. Its see-init still contains the obsolete bootstrap table.
+[release]
+base = "kisscurl"
+peripherals = [
+    "usbhid", "uhid", "joydev", "input-leds", "hid-axff", "hid-dr", "hid-logitech",
+    "hid-microsoft", "hid-pl", "hid-sony", "hid-playstation", "hid-zpff", "xpad", "uvcvideo",
+    "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii", "nls_utf8",
+    "nls_iso8859-1", "nls_cp949", "exfat", "snd-usb-audio", "cdc-acm", "ipw", "pl2303", "option",
+    "sierra", "lgfs",
+]
+state_disks = { db8 = "112M", cmn_data = "750M", appstore = "2138M", uhdcp = "5M" }
+nvm_disks = { nvram = "8M", eeprom = "32K" }
+partmap = { image = "partinfo" }
+
+[release.partitions]
+partinfo = "partinfo"
+mapbak = "partinfo"
+authcxt = "authcxt"
+nvram = "nvram"
+sestore = "sestore"
+sedata = "sedata"
+rootfs = "rootfs"
+otncabi = "otncabi"
+otycabi = "otycabi"
+fonts = "fonts"
+db8 = "db8"
+apps = "appstore"
+bsppart = "bsppart"
+license = "license"
+wossestore = "wossestore"
+uhdcp = "uhdcp"
+dbboot = "dbboot"
+efs = "efs"
+data = "cmn_data"

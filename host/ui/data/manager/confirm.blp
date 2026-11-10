@@ -1,0 +1,29 @@
+// SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+// SPDX-License-Identifier: GPL-2.0-or-later
+// The VM manager's confirmations (beanjar_ui/manager/widgets.py, Confirm): Shut Down, Delete, Wipe and Rename. Python
+// sets the heading, the body, the ok response's label and appearance, and fills the list under the
+// body (the Wipe dialog: one switch per state disk, core.STATE_PARTS; Shut Down: one radio row per
+// way to stop), which stays hidden while empty.
+using Gtk 4.0;
+using Adw 1;
+
+template $ManagerConfirm: Adw.AlertDialog {
+  close-response: "cancel";
+  default-response: "cancel";
+
+  responses [
+    cancel: "_Cancel",
+    ok: "_OK" destructive,
+  ]
+
+  extra-child: Gtk.ListBox options {
+    selection-mode: none;
+    visible: false;
+
+    styles [
+      "boxed-list",
+    ]
+  };
+
+  response => $on_response();
+}

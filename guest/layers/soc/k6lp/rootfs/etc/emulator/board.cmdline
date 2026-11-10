@@ -1,0 +1,45 @@
+# Board parameters the bootloader (Realtek's U-Boot 2012.07, LG's build for K6LP, "LGE K6L Board")
+# puts on the kernel command line; the initramfs appends these to the real cmdline and bind-mounts
+# the result over /proc/cmdline inside webOS. W20L's own values: the formats of W20L's boot.pak ("countryGrp=%s ", "modelopt=%s ", "hwopt=%s ",
+# "ToolOpt=%s:%s:%s:%s:%s:%s "), the digits chosen so that W20L's own hw-option-gen and
+# libdile_boardinfo decode them to the retail model 32LX6900PJA (32", FHD, ARIB/Japan), from W20L's
+# enum tables; they are validated against the firmware.
+#
+# The emulator's MAC; a VM's own replaces it (webos.ethaddr=)
+ethaddr=a8:23:fe:12:34:56
+# in U-Boot's template (boot.pak)
+devtmpfs.mount=1
+# The country group: libdile_boardinfo's countryGrp= (strtok, atoi; DILE_BOARDINFO_GetCountryGroupCode
+# returns it, and derives the same 18 from model_id.json's region ARIB without it). Japan (RMM group 18)
+countryGrp=18
+# modelopt=: hw-option-gen reads value[5] only, mainboardMaker 0 = LG
+modelopt=000000000
+# hwopt=, 18 hex digits (libdile_boardinfo reads value[2,3,4,7,9,11,12,13,14,15,17], hw-option-gen
+# value[0,1,4,8,10]): d2 1 panelInterface LVDS, d3 1 panelResolution FHD, d4 0 60 Hz,
+# d10 1 supportEWBS, d11 3 ddrSize 1.5G (the guest's RAM, targets.ram), d14 2 graphicResolution
+# 1920x1080; the rest 0 (pmic SiliconWorks, tuner level 0, LCD, frc_none)
+hwopt=001100000013002000
+# ToolOpt=, six words, base 10 (factorymanager.db.tooloption.json's fields): LG's own default for
+# the region (LLS's default record of this board: libmodelOpt's model_opt_getToolOptDefaultValue,
+# 0x2198e:0x4016:0x8b00:0x41:0x3ece424:0x1056cf49), with the fields the retail model fixes from
+# factorymanager's tables over it: word 1 panelInch 6 (bits 0-4, PANELINCH_STR_ENUM "32") and
+# toolType 23 (bits 5-10, PANELTOOL_STRING_ENUM "LX69", the model's series). No other field is
+# fixed by the model's spec here; 0 is no neutral value (with 0 in words 2-6 audiooutputd crashed in
+# its gain tables). The same values follow from the firmware's tables.
+ToolOpt=137958:16406:35584:65:65856548:274124617
+# The retail model (U-Boot's "modelName=%s "): libmodelOpt and libdile_boardinfo read it, and
+# without it factorymanager's modelName is libmodelOpt's default, "WEBOS5.0"
+modelName=32LX6900PJA
+# The emulator deliberately runs LG's DEBUG mode (3) on every board
+debugMode=3
+# PLACEHOLDER serial; a VM's own replaces it (webos.serial=)
+serialNum=000RAXX00001
+# a constant in this U-Boot
+chip=K6LPA0
+# The eMMC's size in bytes (U-Boot's "emmc_size=0x%01lx%08lx", in W20L's boot.pak, from the chip
+# it finds): libdile_boardinfo's DILE_BOARDINFO_GetInternalStorageSize reads it, and nyx's
+# storage_size fails without it. 0x1d2000000 as the other boards: an 8 GB part (a webOS 6 LM21A
+# set's U-Boot gives 0x1d1fff000), above the end of this target's partition map (partmap.py)
+emmc_size=0x1d2000000
+# U-Boot ends with cmdEnd
+cmdEnd

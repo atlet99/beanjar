@@ -1,0 +1,17 @@
+# W22P 04.60.90.01: 55NANO756QA candidate decoded by this firmware's generators.
+# Stock queue profile k8lp1.5G; hw-option-gen independently accepts DDR digit 3.
+# ToolOpt uses this firmware's default factory record and 55-inch NANO75 tables.
+# Identity placeholders are synthetic and overridden per VM.
+ethaddr=02:00:00:12:34:56
+devtmpfs.mount=1
+countryGrp=4
+modelopt=000000000
+hwopt=202200000003002000
+ToolOpt=66222:32790:69633:65:98837814:158584331
+modelName=55NANO756QA
+debugMode=3
+serialNum=000RAXX00001
+chip=K8LPA0
+tvregion=DVB
+emmc_size=0x1d2000000
+cmdEnd

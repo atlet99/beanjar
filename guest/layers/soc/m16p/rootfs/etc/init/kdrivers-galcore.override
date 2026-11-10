@@ -1,0 +1,6 @@
+# Emulator: no Vivante 2D module to load (bsppart's galcore.ko for LG's 4.4.3 kernel). Its users
+# are KADP's gco* paths (libhalgal, libhal_photo, the video sink); gm reaches graphics through the
+# libdile_gal shim instead.
+script
+	echo "[Upstart Job: $UPSTART_JOB] emulator: nothing to load"
+end script

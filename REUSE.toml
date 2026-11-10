@@ -1,0 +1,91 @@
+version = 1
+SPDX-PackageName = "beanjar"
+SPDX-PackageDownloadLocation = "https://github.com/mariotaku/beanjar"
+
+# Source files that can carry a comment (Python, C, shell, JavaScript, TOML, Meson, units, ...)
+# carry their own SPDX header. The entries below cover what cannot, or what a header would only
+# clutter: data, images, documentation, patches, and one-line configuration files.
+
+[[annotations]]
+path = [
+  "**.json",
+  "**.csv",
+  "**.txt",
+  "**.sum",
+  "**.replay",
+  "**.list",
+  "**.cmdline",
+  "**.fstab",
+  "**.override",
+  "**.conf",
+  "**.env",
+  "**.xml",
+  "**.ini",
+  "**.in",
+  "**.config",
+  "**.service",
+  "**.control",
+  "**.md",
+  "**.svg",
+  "**.png",
+  "**.webp",
+  "**.pak",
+  "**.pa",
+  "**.map",
+  "**.diff",
+  "**.iobench",
+  "**.cfg",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Mariotaku <git@mariotaku.me> and the Beanjar contributors"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+# Patches carry the licence of the project they patch.
+[[annotations]]
+path = [
+  "guest/kernel/patches/**.patch",
+  "subprojects/packagefiles/linux/**.patch",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Mariotaku <git@mariotaku.me> and the Beanjar contributors"
+SPDX-License-Identifier = "GPL-2.0-only"
+
+[[annotations]]
+path = [
+  "guest/layers/gl/patches/mesa/**.patch",
+  "guest/layers/gl/patches/wayland/**.patch",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Mariotaku <git@mariotaku.me> and the Beanjar contributors"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = [
+  "host/tools/build/qemu/patches/**.patch",
+  "scripts/neatvnc-local/patches/**.patch",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Mariotaku <git@mariotaku.me> and the Beanjar contributors"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+# The landing page's stylesheet is Bootstrap's Cover example without the unused button rules.
+[[annotations]]
+path = "site/site.css"
+precedence = "override"
+SPDX-FileCopyrightText = "2011-2025 The Bootstrap Authors"
+SPDX-License-Identifier = "MIT"
+
+# Data and generated files whose exact bytes matter, or that a header would only clutter.
+[[annotations]]
+path = [
+  "guest/targets/**.toml",
+  "guest/layers/hbchannel/versions/**",
+  "guest/layers/soc/*/base",
+  "guest/layers/webos/*/base",
+  "guest/kernel/configs/webos_virt_defconfig",
+  "packaging/VERSION",
+  "host/ui/beanjar_ui/viewer/_core_abi.py",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Mariotaku <git@mariotaku.me> and the Beanjar contributors"
+SPDX-License-Identifier = "GPL-2.0-or-later"

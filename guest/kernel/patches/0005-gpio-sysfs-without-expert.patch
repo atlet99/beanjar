@@ -1,0 +1,19 @@
+gpio: the sysfs interface's prompt without EXPERT
+
+W19P's libdile_gpio reads and drives its pins through /sys/class/gpio (export, then gpio<N>'s
+direction and value), which rtk.ko serves with a fixed-base chip. GPIO_SYSFS has a prompt only
+under EXPERT, and EXPERT changes far more than it shows: NAMESPACES and DEBUG_MEMORY_INIT default
+off under it (webos-start needs the pid/uts/ipc namespaces) and it selects DEBUG_KERNEL, with
+FTRACE, DEBUG_MISC and RCU_TRACE defaulting on. Showing this one prompt changes nothing else.
+
+--- a/drivers/gpio/Kconfig
++++ b/drivers/gpio/Kconfig
+@@ -62,7 +62,7 @@
+ 	  that are most common when setting up new platforms or boards.
+ 
+ config GPIO_SYSFS
+-	bool "/sys/class/gpio/... (sysfs interface)" if EXPERT
++	bool "/sys/class/gpio/... (sysfs interface)"
+ 	depends on SYSFS
+ 	select GPIO_CDEV # We need to encourage the new ABI
+ 	help

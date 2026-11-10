@@ -1,0 +1,14 @@
+# gl layer, systemd releases: the DRM render nodes open to the Wayland clients, as the Upstart
+# gl-devperms.conf (start on stopped mknod) does. devtmpfs makes /dev/dri/renderD128 0600 root;
+# WebAppMgr and its renderers run as wam:compositor, and Mesa would fall back to software for them.
+# card0 stays root's (the compositor).
+[Unit]
+Description=emulator - "%n"
+DefaultDependencies=no
+After=mknod.service
+Before=basic.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'for n in /dev/dri/renderD*; do [ -c "$n" ] && chmod 0666 "$n"; done; true'

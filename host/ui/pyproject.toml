@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The desktop windows: the VM manager's (beanjar_ui.manager) and the viewer's (beanjar_ui.viewer),
+# GTK 4 and libadwaita over the core package beanjar. Their layouts are the host build's GResource
+# bundles (data/), and the viewer draws through the native libbeanjar-viewer-core.so
+# (host/viewer). The Debian package `beanjar-ui` carries it as source under /usr/lib/beanjar/ui
+# (packaging/debian/build.py); `beanjar` keeps the beanjar-viewer launcher, which runs the
+# headless viewer without this package and its window with it.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beanjar-ui"
+dynamic = ["version"]
+description = "Beanjar's desktop windows: the VM manager and the viewer (GTK 4, libadwaita)"
+license = "GPL-2.0-or-later"
+requires-python = ">=3.11"
+dependencies = ["beanjar", "PyGObject"]
+
+[project.gui-scripts]
+beanjar-ui = "beanjar_ui.manager.gui:main"
+
+[tool.setuptools.packages.find]
+include = ["beanjar_ui", "beanjar_ui.*"]
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }  # packaging/VERSION

@@ -1,0 +1,16 @@
+# LM21A's public board-option encodings for the retail 65UP7560AUD.
+# MAC and serial here are synthetic placeholders, replaced by the managed VM's
+# independently generated identity at launch. No physical TV identity is copied.
+ethaddr=a8:23:fe:12:34:56
+devtmpfs.mount=1
+modelopt=000050100
+hwopt=502200000003002001
+ToolOpt=6894:32790:71168:65:14694710:158387971
+debugMode=3
+modelName=65UP7560AUD
+serialNum=000RAXX00001
+countryGrp=2
+chip=LM21AA0
+tvregion=ATSC
+emmc_size=0x1d1fff000
+cmdEnd

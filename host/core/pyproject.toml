@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The core package: the VM library, the CLI and the host runtime; no GTK (packaging/debian/README.md).
+# The Debian package `beanjar` carries it as source under /usr/lib/beanjar/core, with launchers
+# for the scripts below (packaging/debian/build.py).
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beanjar"
+dynamic = ["version"]
+description = "Beanjar: webOS TV firmware in QEMU virtual machines, the core and its command line"
+readme = "README.md"
+license = "GPL-2.0-or-later"
+requires-python = ">=3.11"
+dependencies = [
+  "tomlkit",
+  "pyelftools",
+  "dnspython",
+  # Gio (PyGObject) for the VMs' private D-Bus (beanjar/dbus.py), imported only when used
+  "PyGObject",
+]
+
+[project.scripts]
+beanjar = "beanjar.cli:main"
+
+# Not on PATH: the Debian package puts these in /usr/libexec/beanjar.
+[tool.beanjar.libexec]
+vm-launcher = "beanjar.launch:main"
+mitmproxy-setup = "beanjar.mitmsetup:main"
+
+[tool.setuptools.packages.find]
+include = ["beanjar", "beanjar.*"]
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }  # packaging/VERSION

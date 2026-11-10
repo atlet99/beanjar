@@ -1,0 +1,82 @@
+virgl: gl_FragColor to explicit outputs, at most four draw buffers.
+
+On a ROCK Pi 4 (RK3399, Mali-T860, panfrost on Midgard, Mesa 25.0.7 and 26.1.6, a desktop GL 3.1
+core context) every guest texture comes out with red 0: the WT1H launcher's tiles and icons,
+white text cyan. tests/virgl/tex-formats, the guest PoC, loses red for every image format;
+tests/virgl/host-swizzle, run on the host with no VM, shows why: panfrost on Midgard zeroes red
+of colour 0 when a fragment shader writes seven or more colour outputs (six and fewer are right,
+eight declared and one written is right). The PC (d3d12, llvmpipe) and the Pi 5 (V3D) are
+right with the same calls.
+
+The seven come from virgl: a guest shader that writes gl_FragColor reaches the host as TGSI with
+FS_COLOR0_WRITES_ALL_CBUFS (nir_to_tgsi), and virglrenderer 1.1.0 turns that into one output per
+host draw buffer (GL_MAX_DRAW_BUFFERS, 8 on panfrost), fsout_c1..7 copied from fsout_c0,
+whatever the guest has bound.
+
+So the guest offers four draw buffers, the minimum GLES 3 allows (GL_MAX_DRAW_BUFFERS 4 in the
+guest), and lowers gl_FragColor to gl_FragData[0..3] itself (nir_lower_fragcolor): the host sees
+at most four explicit outputs and no broadcast, on every host, and the broadcast still reaches
+every draw buffer the guest can bind. With a dual-source gl_SecondaryFragColorEXT, which allows
+one draw buffer, it goes to gl_FragData[0] only.
+--- a/src/gallium/drivers/virgl/virgl_context.c
++++ b/src/gallium/drivers/virgl/virgl_context.c
+@@ -725,6 +725,20 @@
+ 
+       nir_shader *s = shader->ir.nir;
+ 
++      /* gl_FragColor as explicit outputs, one per draw buffer the guest has
++       * (VIRGL_GUEST_MAX_RENDER_TARGETS), so the host does not broadcast it
++       * to all of its own. With a dual-source gl_SecondaryFragColorEXT only
++       * one draw buffer can be bound. */
++      if (s->info.stage == MESA_SHADER_FRAGMENT &&
++          (s->info.outputs_written & BITFIELD64_BIT(FRAG_RESULT_COLOR))) {
++         unsigned n = ctx->screen->caps.max_render_targets;
++         nir_foreach_shader_out_variable(var, s) {
++            if (var->data.index)
++               n = 1;
++         }
++         NIR_PASS(_, s, nir_lower_fragcolor, n);
++      }
++
+       /* The host can't handle certain IO slots as separable, because we can't assign
+        * more than 32 IO locations explicitly, and with varyings and patches we already
+        * exhaust the possible ways of handling this for the varyings with generic names,
+--- a/src/gallium/drivers/virgl/virgl_screen.c
++++ b/src/gallium/drivers/virgl/virgl_screen.c
+@@ -191,7 +191,8 @@
+ 
+       switch (i) {
+       case MESA_SHADER_FRAGMENT:
+-         caps->max_outputs = vscreen->caps.caps.v1.max_render_targets;
++         caps->max_outputs = MIN2(vscreen->caps.caps.v1.max_render_targets,
++                                  VIRGL_GUEST_MAX_RENDER_TARGETS);
+          break;
+       case MESA_SHADER_TESS_CTRL:
+          if (vscreen->caps.caps.v2.host_feature_check_version >= 19) {
+@@ -278,7 +279,8 @@
+    caps->fragment_shader_texture_lod = true;
+    caps->fragment_shader_derivatives = true;
+    caps->anisotropic_filter = vscreen->caps.caps.v2.max_anisotropy > 1.0;
+-   caps->max_render_targets = vscreen->caps.caps.v1.max_render_targets;
++   caps->max_render_targets = MIN2(vscreen->caps.caps.v1.max_render_targets,
++                                   VIRGL_GUEST_MAX_RENDER_TARGETS);
+    caps->max_dual_source_render_targets =
+       vscreen->caps.caps.v1.max_dual_source_render_targets;
+    caps->occlusion_query = vscreen->caps.caps.v1.bset.occlusion_query;
+--- a/src/gallium/drivers/virgl/virgl_screen.h
++++ b/src/gallium/drivers/virgl/virgl_screen.h
+@@ -46,6 +46,14 @@
+ extern const struct debug_named_value virgl_debug_options[];
+ extern int virgl_debug;
+ 
++/* The colour buffers offered to the guest. vrend expands a gl_FragColor shader (TGSI
++ * FS_COLOR0_WRITES_ALL_CBUFS) to one output per host draw buffer, whatever is bound, and
++ * panfrost on Midgard (Mali-T860, Mesa 25 and 26) zeroes red of colour 0 in a shader that writes
++ * seven or more colour outputs. With four, the minimum GLES 3 allows, virgl_shader_encoder lowers
++ * gl_FragColor to four explicit outputs and no guest shader writes more than four.
++ */
++#define VIRGL_GUEST_MAX_RENDER_TARGETS 4
++
+ struct virgl_screen {
+    struct pipe_screen base;
+ 

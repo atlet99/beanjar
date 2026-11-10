@@ -1,0 +1,49 @@
+Accept non-constant initializers of GLSL ES globals under allow_glsl_relaxed_es, and turn the
+option on by default.
+
+GLSL ES 1.00 section 4.3 requires the initializer of a global without a storage qualifier to be
+a constant expression, and Mesa rejects anything else. The PowerVR SGX compiler on the WT1H
+accepted it, and firmware QML relies on that: StarfishComponents/Parallelogram.qml (the launcher's
+slanted panels) and Eos/Items/Parallelogram.qml declare, at global scope,
+
+    highp float blurR = 1.0 - blur;          // blur is a uniform
+    highp float x = qt_TexCoord0.x;          // a varying
+
+On Mesa the ShaderEffect fails to compile, and Qt 5.0's QQuickCustomMaterialShader falls back to
+"gl_FragColor = vec4(1., 0., 1., 1.)": the panels come out solid #FF00FF.
+
+With the option on, such a global is handled as in desktop GLSL 1.20: the initializer runs at the
+top of main(). The option's existing effects (precision mismatches of uniforms across stages,
+mixed ES versions in one program, dFdx/dFdy without OES_standard_derivatives) are leniencies the
+SGX driver had as well. Set allow_glsl_relaxed_es=false in the environment to get stock Mesa.
+
+--- a/src/compiler/glsl/ast_to_hir.cpp
++++ b/src/compiler/glsl/ast_to_hir.cpp
+@@ -4790,10 +4790,15 @@
+     *     executed.  Such initializers must be a constant expression."
+     *
+     * The same section of the GLSL ES 3.00.4 spec has similar language.
++    *
++    * allow_glsl_relaxed_es lifts that rule for globals without a storage
++    * qualifier, as desktop GLSL 1.20 does: the initializer runs at the top of
++    * main(). Some GLSL ES compilers (PowerVR SGX) accept such shaders.
+     */
+    if (type->qualifier.flags.q.constant
+        || type->qualifier.flags.q.uniform
+-       || (state->es_shader && state->current_function == NULL)) {
++       || (state->es_shader && state->current_function == NULL &&
++           !state->consts->AllowGLSLRelaxedES)) {
+       ir_rvalue *new_rhs = validate_assignment(state, initializer_loc,
+                                                lhs, rhs, true);
+       if (new_rhs != NULL) {
+--- a/src/gallium/auxiliary/pipe-loader/driinfo_gallium.h
++++ b/src/gallium/auxiliary/pipe-loader/driinfo_gallium.h
+@@ -20,7 +20,7 @@
+    DRI_CONF_ALLOW_GLSL_120_SUBSET_IN_110(false)
+    DRI_CONF_ALLOW_GLSL_EMBEDDED_STRUCTURE_DECLARATIONS(false)
+    DRI_CONF_ALLOW_GLSL_BUILTIN_CONST_EXPRESSION(false)
+-   DRI_CONF_ALLOW_GLSL_RELAXED_ES(false)
++   DRI_CONF_ALLOW_GLSL_RELAXED_ES(true)
+    DRI_CONF_ALLOW_GLSL_BUILTIN_VARIABLE_REDECLARATION(false)
+    DRI_CONF_ALLOW_GLSL_CROSS_STAGE_INTERPOLATION_MISMATCH(false)
+    DRI_CONF_DO_DCE_BEFORE_CLIP_CULL_ANALYSIS(false)

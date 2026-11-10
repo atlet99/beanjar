@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Stand-in for host/scripts/vm-launcher in the manager tests: `fake-vm start|stop|status|prepare --dir VM-DIR [words]`.
+start runs qemu-system-fake the way the launcher runs QEMU - through the real beanjar.unit, as the
+transient user service ${FAKE_UNIT_PREFIX:-beanjar-vm-test-}<vm> (in its slice, vmunits.unit_slice) with a private D-Bus beside it
+(DISPLAY_BACKEND=dbus), or, without a user systemd (VM_SYSTEMD=0), in a session of its own - and
+waits for its pidfile; the fake QEMU's FAKE_* knobs reach it as the caller's own variables (unit.start's
+keep); stop stops the unit (or SIGTERMs the session); status as the launcher's."""
+
+import argparse
+import os
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "host", "core"))
+from beanjar import core, unit, vmunits  # noqa: E402
+
+p = argparse.ArgumentParser()
+p.add_argument("cmd", choices=("start", "stop", "status", "prepare"))
+p.add_argument("--dir", required=True)
+p.add_argument("--force", action="store_true")
+p.add_argument("words", nargs="*")
+a = p.parse_args()
+d = a.dir
+run, logs = os.path.join(d, "run"), os.path.join(d, "logs")
+pidfile = os.path.join(run, "qemu.pid")
+env = {k: v for k, v in os.environ.items() if k not in ("QEMU_PIDFILE", "SOCK", "LOG")}
+env.update(
+    RUN_DIR=run,
+    LOG_DIR=logs,
+    RUN=os.path.join(HERE, "qemu-system-fake"),
+    FAKE_VM_DIR=d,
+    DISPLAY_BACKEND="dbus",
+)
+KEEP = ("FAKE_VM_DIR", "FAKE_BOOT_DELAY", "FAKE_QMP_STATUS")  # qemu-system-fake's
+
+
+def rm(path):
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+
+
+if a.cmd == "prepare":
+    # the board data's preparation (prepare.py): each call noted in VM-DIR/prepared.calls, with
+    # the vm.toml serial it saw; VM-DIR/fail-prepare (or the library's) makes it fail;
+    # FAKE_PREPARE_DELAY seconds make it slow
+    if any(
+        os.path.exists(os.path.join(x, "fail-prepare"))
+        for x in (d, os.path.dirname(os.path.dirname(d)))
+    ):
+        print("fake-vm: prepare failing on purpose")
+        sys.exit(1)
+    time.sleep(float(os.environ.get("FAKE_PREPARE_DELAY", "0")))  # a slow one (RK3399: ~17 s)
+    serial = (core.vmconfig.read(os.path.join(d, "vm.toml")) or {}).get("serial", "")
+    with open(os.path.join(d, "prepared.calls"), "a") as f:
+        f.write(f"{'force' if a.force else 'ensure'} {serial}\n")
+    print(f"fake-vm: prepare {d}", flush=True)
+    sys.exit(0)
+
+if a.cmd == "start":
+    if os.path.exists(os.path.join(d, "fail-start")):
+        print("fake-vm: failing on purpose")
+        sys.exit(1)
+    for sub in ("run", "logs", "state"):
+        os.makedirs(os.path.join(d, sub), exist_ok=True)
+    rm(os.path.join(run, "unit"))
+    rm(os.path.join(run, "launcher.pid"))
+    print(f"fake-vm: start {d} {' '.join(a.words)}", flush=True)
+    if unit.available(env):
+        name = os.environ.get("FAKE_UNIT_PREFIX", "beanjar-vm-test-") + os.path.basename(d)
+        if not unit.start(name, env, a.words, keep=KEEP):
+            sys.exit(1)
+        with open(os.path.join(run, "unit"), "w") as f:
+            f.write(name + "\n")
+        print(f"fake-vm: unit {name}")
+    else:
+        with open(os.path.join(run, "launcher.pid"), "w") as f:
+            f.write(f"{unit.spawn(env, a.words, keep=KEEP)}\n")
+    end = time.monotonic() + 10
+    while not (os.path.exists(pidfile) and os.path.getsize(pidfile)) and time.monotonic() < end:
+        time.sleep(0.05)
+    print(f"fake-vm: pid {core.read_pid(pidfile)}")
+elif a.cmd == "stop":
+    print(f"fake-vm: stop {d} SAVE_LOGS={os.environ.get('SAVE_LOGS', '1')}", flush=True)
+    try:
+        with open(os.path.join(run, "unit")) as f:
+            vmunits.systemctl("stop", f.read().strip() + ".service", timeout=30)
+    except OSError:
+        pass
+    for f in (os.path.join(run, "launcher.pid"), pidfile):
+        pid = core.read_pid(f)
+        if pid is None:
+            continue
+        unit.kill_session(pid)
+        for _ in range(10):
+            if not unit.alive(pid):
+                break
+            time.sleep(0.1)
+        rm(f)
+else:
+    pid = core.read_pid(pidfile)
+    if unit.alive(pid):
+        print(f"running {pid}")
+    else:
+        print("off")
+        sys.exit(3)

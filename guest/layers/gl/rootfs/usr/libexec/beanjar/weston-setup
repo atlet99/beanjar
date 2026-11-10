@@ -1,0 +1,47 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Configure the stock Weston shell for the emulator's two real virtual heads.
+# Keep the firmware's shell/modules; never ship a firmware-derived ini.
+set -eu
+source_ini=/usr/share/weston/weston.ini
+runtime=/run/beanjar/weston
+mkdir -p "$runtime"
+if [ ! -f "$runtime/stock.ini" ]; then
+	cp "$source_ini" "$runtime/stock.ini"
+fi
+sed -e 's/^gbm-format=.*/gbm-format=xrgb8888/' \
+	-e 's/^override-output-from-env=.*/override-output-from-env=false/' \
+	"$runtime/stock.ini" > "$runtime/emulator.ini"
+# With more than one [output] section the stock frontend sets the flag its
+# shell needs for the secondary window, and its DRM backend then adds a copy
+# of every connector, named with index 2. The primary is the kernel's
+# TV connector (virtio_gpu.tv_connector=1): TV-1, the name stock libweston
+# maps to fb0, and its copy TV-2. The secondary scanout is Virtual-1 (fb1),
+# its copy Virtual-2. The copies stay off: the virtual heads each have their
+# own CRTC, and a copy on another output fails its modeset.
+cat >> "$runtime/emulator.ini" <<'EOF'
+
+[output]
+name=TV-1
+mode=1920x1080
+buffer_size=1920x1080
+
+[output]
+name=TV-2
+mode=off
+
+[output]
+name=Virtual-1
+mode=768x2160
+buffer_size=768x2160
+
+[output]
+name=Virtual-2
+mode=off
+EOF
+# The stock launcher selects its user ini first, then this default. Bind our
+# runtime hardware configuration over the default without changing the firmware.
+if ! mountpoint -q "$source_ini"; then
+	mount --bind "$runtime/emulator.ini" "$source_ini"
+fi

@@ -1,0 +1,33 @@
+# 27ART10AKPL, LG's StanbyME (27" Full HD, touch screen, tunerless) as a UK set, on the global
+# N21D webOS 24 firmware. The models DB lists this OTA ID
+# only on StanbyMEs: the Korean 27ART10AKPL/CKPL/CMPL/DKPL/DQPL/DSPL and the UK 27ART10AKPL.AEKW,
+# .AEUW and .AVSW; no US set, so the UK model (the one EU country digit) is the board.
+# Values from this firmware's own tables (27ART10AKPL with
+# countryType=EU panelResolution=FHD ddrSize=2G graphicResolution=1920x1080), not W21U's:
+# hwopt: digit 0 2, hw-option-gen's countryType EU (nyx-option-gen DVB); digit 3 1, FHD; digit 11
+# 4, DDR 2 GB; digit 14 2, the 1920x1080 graphic plane; every other digit hw-option-gen's 0.
+# modelopt: digit 8 1, tv.hw.supportNMRM, as configd's tooltype/ART10 layer marks the series
+# (com.webos.app.home's supportNMRM); msc reads its accelerometer only with it. Every other digit
+# 0: digit 0's 0 is supportNMRMBattery true, the StanbyME's battery (configd's product/stanbyme
+# profile lists "battery"; boot.pak's DTB default modelopt=210010111 would make it false).
+# tunerless MODEL_NMRM: the bare tokens boot.pak's U-Boot appends for an NMRM set; bootd then
+# runs its NmrmBootSequencer, which launches Home and answers firstAppId "".
+# ToolOpt: this firmware's LLS default record (libmodelOpt) with toolOpt1's panelInch 4 ("27")
+# and toolType 24 ("ART10": configd's tooltype/ART10 layer). countryGrp 4: configd's GBR RMM
+# grpCode. chip LM21UA0: boot.pak's. emmc_size: LM21A's (no LM21U value exists). MAC and serial
+# are placeholders, replaced by the VM's own identity at launch.
+ethaddr=a8:23:fe:12:34:56
+devtmpfs.mount=1
+modelopt=000000001
+hwopt=200100000004002000
+ToolOpt=772:22:79872:64:98829367:271633672
+debugMode=3
+modelName=27ART10AKPL
+serialNum=000RAXX00001
+countryGrp=4
+chip=LM21UA0
+tvregion=DVB
+emmc_size=0x1d1fff000
+tunerless
+MODEL_NMRM
+cmdEnd

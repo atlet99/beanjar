@@ -1,0 +1,18 @@
+# The jail hooks for native apps (guest/layers/common/jail/sam.override.in): webOS 4's stock
+# job exports LD_PRELOAD (libsystrim) in its script, which an env stanza could not survive, so
+# this is the stock script (W18R's and W19P's, the same) with the hooks after libsystrim. The job's
+# other stanzas are stock. Built by the layer that owns the hooks (common, or gl above it).
+script
+    # Adjust OOM score to protect it from OOM killer
+    echo "-17" > /proc/$$/oom_adj
+
+    DIR="/tmp"
+    if [ -e $DIR/sam-respawned ] ; then
+        KEY="\"\@system_native_app\""
+        echo `pgrep -lf $KEY -P 1`
+        exec `pkill -sigkill -f $KEY -P 1`
+    fi
+
+    export LD_PRELOAD=/usr/lib/libsystrim.so.3:@JAIL_PRELOAD@
+    exec /usr/sbin/sam
+end script

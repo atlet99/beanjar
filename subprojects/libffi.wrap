@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# libffi 3.0.13 (SONAME libffi.so.6, the firmware's ABI): link-time only, for Wayland (guest/layers/gl/mesa).
+[wrap-file]
+directory = libffi-3.0.13
+source_url = https://sourceware.org/pub/libffi/libffi-3.0.13.tar.gz
+source_filename = libffi-3.0.13.tar.gz
+source_hash = 1dddde1400c3bcb7749d398071af88c3e4754058d2d4c0b3696c2f82dc5cf11c
+patch_directory = source-only

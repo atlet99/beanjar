@@ -1,0 +1,62 @@
+# Board parameters the bootloader (MStar's MBoot, LG's build for M3) puts on the kernel command
+# line, parsed by libdile_boardinfo, tvservice, tvconfig-gen and the Upstart jobs. The initramfs
+# appends these to the real cmdline and bind-mounts the result over /proc/cmdline inside webOS.
+# Format and order follow W18R's MBoot (boot.pak) format strings, which are W16R's; the values
+# describe a 32LK6100PLB, a model that runs W18R 05.50.70, in W18R's own encodings; they are not read from a real set. MBoot's kernel-only
+# parameters (root=, console=, LX_MEM*=, CMA*=, vmalloc=, ssc_enable, ...) are left out as on M2:
+# libkadaptor reads the memory layout from /proc/mmapger.
+#
+# chip=M3A0 is a constant in this MBoot.
+# mknod.conf creates the /etc/device_table nodes only with devtmpfs.mount=1.
+ethaddr=a8:23:fe:12:34:56
+# 15 model-option straps, '0'/'1' each, as W18R's U-Boot reads its GPIO pins 81 83 0 0 59 62 63 64
+# 75 76 77 78 79 80 48 (reproduced from the firmware's tables): pins 63/64 "11" T2+S (column 3),
+# pins 75/79 high the DDR 1.5 GB, pin 48 high the external micom (the board the emulator presents:
+# lgemu's I2C micom, W18R's MICOM_NEC); every other strap 0, the bootloader's default (EU, panel
+# row 00).
+modelopt=000000111000101
+# 18 digits, as this U-Boot prints them for those straps (%x each) and W18R's tvconfig-gen
+# (SystemHdrInit) decodes them: EU (d0 0, {EU, CN_HK, TW_CO, AJ_JA}), panel row 00: LVDS (d2 1),
+# FHD (d3 1), no FRC (d4 0), panel type 0 (MODELOPT_PANEL_VER_NONE: every row U-Boot can select
+# has it), DVB-T2 + S (d8 3, gmodelopt_MSD94BCG_tuner_comb[EU][3]), DDR 1.5 GB (d11 3), graphic
+# resolution 6 (U-Boot's constant), external micom (d15 0)
+hwopt=001100003003006000
+# M3's MBoot prints 9 tool option words (ToolOpt1..9), the NVM ToolOptionDB's 32-bit words, which
+# the launcher programs into a new EEPROM (host/core/beanjar/nvm.py). W18R's encodings
+# (tvconfig-gen's DWARF TOOL_OPTIONn_T and enums) with W18R's RELEASE.cfg, whose defaults are the
+# LK61 32":
+#   ToolOpt1 6566: eModelInchType INCH_32 6 (bits 0-4), eModelToolType TOOL_LK61 13 (bits 5-10),
+#     eModelModuleType MODULE_BOE 3 (bits 11-15), nLVDSBit 0 (bit 16).
+#   ToolOpt2 12615713: nExtVideoInputIndex 1, nExtAudioInputIndex 1 (bits 5-9), eBackLight
+#     BL_DIRECT_L 0 (bits 10-14), nNumOfUSBInput 1 (bits 15-16, two ports), HDMI switch none,
+#     eUSB1 USB_CTL2 2 (bits 21-22), eUSB2 USB_CTL1 1 (bits 23-24). Video input index 1 is row 1
+#     of tvservice's video_external_input_adjust (tv.model.videoIndex): HDMI1-3, COMP, AV, the
+#     inputs tvservice lists; index 0 would take the ToolOptionDB's port bytes (targets.py,
+#     Soc.inputs) instead.
+#   ToolOpt3 426311: AMP_DTA2010AM_1AMP 7 (bits 0-2; DIL_AUDIO's "DTA2010AM" in the DILE_I2C map,
+#     bus 0 / 0x2a: lgemu's amp), DVR ready, ISF, luminance up, ATV AV DVR, LOCAL_KEY_TYPE_ONEKEY;
+#     no headphone.
+#   ToolOpt4 64773: demodulators TCS_COMBO 1, DTV_SOC 1, SI2178B 4, NO_DEMOD 14, NO_DEMOD_ANA 7.
+#     No tuner or demodulator chip is modelled.
+#   ToolOpt5 34085: WIFI_11AC_COMBO_MTK 5, no camera, MOTION_REMOCON_ON 1 (bits 5-7), TVLink 1
+#     (bit 8), CompRCACommon 1 (bit 10), WOL 1 (bit 15).
+#   ToolOpt6 138764: standard backlight 85 as the factory scales it, 12; AUDIO_POWER_13V 6,
+#     AUDIO_SPEAKER_5W 3, PWM2 duty 41 (2).
+#   ToolOpt7 656015: the MAC, ESN, CI and Widevine keys in the AP, EDID_DTS, the eye sensor, PWM
+#     100/120 Hz, instant boot default on.
+#   ToolOpt8 0; ToolOpt9 131088: MODE_SELECT_2, HDR (bit 17).
+ToolOpt=6566:12615713:426311:64773:34085:138764:656015:0:131088
+# 4 = EU
+countryGrp=4
+# 3 = DEBUG, 4 = EVENT, 5 = RELEASE (the lginit_app and tvservice jobs start the reboot job when
+# they end in RELEASE)
+debugMode=3
+# modelName, serialNum. The EEPROM's area (ContinentOptionDB) is the factory's, not MBoot's:
+# targets.py's Soc.continent.
+modelName=32LK6100PLB serialNum=805RAXX00001
+devtmpfs.mount=1 chip=M3A0
+# 0x + 9 hex digits (MBoot's 0x%01lx%08lx); parsers drop the last 2 digits and read KB. 7.5 GB
+# eMMC, as M2's (the state disks' sizes are the launcher's, not this)
+emmc_size=0x1d2000000
+# MBoot ends with cmdEnd, and puts a space after every value.
+cmdEnd

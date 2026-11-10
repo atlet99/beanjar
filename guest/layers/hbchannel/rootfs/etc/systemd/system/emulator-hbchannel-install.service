@@ -1,0 +1,13 @@
+# Homebrew Channel (guest/layers/hbchannel): the systemd twin of emulator-hbchannel-install.conf,
+# after mount-readwrite and before sam (sam.service.d/beanjar-hbchannel.conf).
+[Unit]
+Description=Emulator Homebrew Channel install
+DefaultDependencies=no
+Wants=mount-readwrite.service
+After=mount-readwrite.service
+Before=sam.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/beanjar/hbchannel-install

@@ -1,0 +1,50 @@
+# Board parameters the LG bootloader (lxboot) puts on the kernel command line, parsed by
+# libdile_boardinfo, tvservice and the Upstart jobs. The initramfs appends these to the real
+# cmdline and bind-mounts the result over /proc/cmdline inside webOS.
+# Formats and order follow the H13 lxboot format strings; the values describe a 49UB850V, a model
+# that runs WT1H, in WT1H's own encodings;
+# they are not read from a real set. lxboot's kernel-only parameters (root=, mem=, ddr*mem=,
+# resume=, rootwait, console=ttyAMA0,115200n81) are left out: nothing in userland reads them.
+#
+# rev=1 and bver=3.04.06 are constants in this lxboot. chip= is <family><rev> from
+# {L8,L9,H13,H14,M14} x {A0,A1,B0,B1,B2}; WT1H is H13 (LG1154).
+# mknod.conf creates the /etc/device_table nodes only with devtmpfs.mount=1.
+ethaddr=a8:23:fe:12:34:56 rev=1 bver=3.04.06 chip=H13B0 devtmpfs.mount=1
+# 0x + 9 hex digits; parsers drop the last 2 digits and read KB. 7.5 GB eMMC
+emmc_size=0x1d2000000
+# 11 model-option straps, '0'/'1' each: bits of the I2C slave 0x28's registers 30/31, as WT1H's
+# lxboot reads them (reproduced from the firmware's tables). Strap 2 '0' is the UHD path; straps
+# 0-1 "10" EU, 6-7 "01" T2+S; every strap the spec does not fix is 0, the bootloader's default.
+# Nothing in userland or the H13 kernel reads modelopt=.
+modelopt=10000001000
+# 18 digits, as this lxboot prints them for those straps (its UHD path fixes all but the straps'),
+# and as WT1H's tvservice (SystemHdrInit) decodes them: EU (d0 2, {TW_CO, CN_HK, EU, AJ_JA}), LVDS
+# (d2 1), UD panel (d3 2), no FRC (d4 0), panel type 4 (MODELOPT_PANEL_TYPE_NONE: no "paneltype"
+# env, which only lxboot's own shell command sets), T2+S (d8 1, gmodelopt_tuner_comb[EU]), DDR 3 GB
+# (d11 4: the UHD path's constant; the guest's RAM, targets.ram), graphic resolution 1920x1080 (d14
+# 2: the OSD plane stays FHD), URSA7 (d17 1: strap 5 '0'). libdile_boardinfo reads the panel as
+# 3840x2160, and the H13 kernel's CHIP_PLT from d3 (targets.py's lg115x platform=0x2000).
+hwopt=201204001004002001
+# exactly 7 decimal fields, decoded as tvservice's API_SUMDSVC_GetToolOptionN does (16-bit words),
+# as derived from the firmware's tables for the 49UB850V: the model's inch and tool type, the
+# camera READY (the 49UB850V has none built in), the rest RELEASE.cfg's values, the firmware's
+# factory default (OSA_MD_InitToolOption), whose series is the UB97, not a UB85's own record:
+# Opt1 33764 = inch index 4 (49), tool type 31 (UB85), maker 0 (LGD), LVDS bit 1;
+# Opt2 29201 = external video input row 1 of the UHD table (HDMI x4, component, SCART, AV: the
+# 49UB850V's rear panel), audio index 1, backlight 2 (edge LED), USB field 2 (three ports),
+# HDMI switch 3 (MN864778); Opt3 25261 = NTP 3-amp, headphone, DVR ready, ISF, dual view, local
+# dimming and its menu; Opt4 64797 = demodulators TCS combo (S), SI2169B, SI2178B, no sub ones;
+# Opt5 10790 = wifi combo, camera ready, MR14 (the AN-MR500), component/RCA common, passive 3D,
+# scanning backlight; Opt6 2376 = backlight level 8 (RELEASE.cfg's 65 as the factory scales it),
+# motion eye care MIDDLE1, audio power 1, speaker wattage 1; Opt7 48271 = the MAC, ESN, CI and
+# Widevine keys, EDID DTS, PSU power board, edge LED bar 6, 100/120 Hz PWM.
+ToolOpt=33764:29201:25261:64797:10790:2376:48271
+# 4 = EU (18 = JP switches the Japanese paths)
+countryGrp=4
+# 3 = DEBUG, 4 = EVENT, 5 = RELEASE (panic_on_oom)
+debugMode=3
+# modelName <= 12 chars, serialNum <= 16 chars (lxboot field sizes)
+modelName=49UB850V-ZA serialNum=405RAXX00001
+# lxboot always ends with cmdEnd. It also guarantees a space after every value: tvservice and
+# libdile_crypto copy emmc_size= and ethaddr= up to the next space.
+cmdEnd

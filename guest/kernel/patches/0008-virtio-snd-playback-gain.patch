@@ -1,0 +1,84 @@
+virtio-snd: a playback gain set by the board's sound controls
+
+On an LG TV the SoC's sound engine applies the master volume and the speaker mute after the
+PCM that PulseAudio writes (the OSD volume, LGSE FN009, and the output mute). The emulator's
+stand-ins for those drivers (lgemu.ko's sound controls, fed by the SoC modules and the card's
+LG control elements) set one linear gain with virtsnd_set_playback_gain(); every playback chunk
+is scaled by it (S16_LE and S32_LE) as it is handed to the device, in the ack path, so written
+and mmapped data alike. Unity, the default, leaves the data untouched.
+
+--- a/sound/virtio/virtio_pcm.h
++++ b/sound/virtio/virtio_pcm.h
+@@ -119,6 +119,8 @@
+ 
+ void virtsnd_pcm_msg_free(struct virtio_pcm_substream *vss);
+ 
++void virtsnd_set_playback_gain(u32 q16);
++
+ int virtsnd_pcm_msg_send(struct virtio_pcm_substream *vss, unsigned long offset,
+ 			 unsigned long bytes);
+ 
+--- a/sound/virtio/virtio_pcm_ops.c
++++ b/sound/virtio/virtio_pcm_ops.c
+@@ -465,11 +465,61 @@
+ 		vss->hw_ptr);
+ }
+ 
++/*
++ * Playback gain, unity (0x10000) unless a driver of the board's sound controls sets it
++ * (virtsnd_set_playback_gain): the gain the SoC's sound engine applies after the PCM on the
++ * set the guest's firmware was made for. Applied to each chunk as it is handed to the device.
++ */
++static u32 virtsnd_playback_gain = 0x10000;
++
++/**
++ * virtsnd_set_playback_gain() - Set the gain of every playback stream.
++ * @q16: Linear gain, 0x10000 = unity (0 dB), 0 = silence; larger values are taken as unity.
++ *
++ * Context: Any context. Takes effect from the next data the application commits.
++ */
++void virtsnd_set_playback_gain(u32 q16)
++{
++	WRITE_ONCE(virtsnd_playback_gain, min_t(u32, q16, 0x10000));
++}
++EXPORT_SYMBOL_GPL(virtsnd_set_playback_gain);
++
++static void virtsnd_pcm_gain(struct snd_pcm_runtime *runtime, void *data,
++			     size_t bytes, u32 gain)
++{
++	size_t i;
++
++	switch (runtime->format) {
++	case SNDRV_PCM_FORMAT_S16_LE: {
++		__le16 *s = data;
++
++		for (i = 0; i < bytes / 2; i++)
++			s[i] = cpu_to_le16((s16)(((s64)(s16)le16_to_cpu(s[i]) * gain) >> 16));
++		break;
++	}
++	case SNDRV_PCM_FORMAT_S32_LE: {
++		__le32 *s = data;
++
++		for (i = 0; i < bytes / 4; i++)
++			s[i] = cpu_to_le32((s32)(((s64)(s32)le32_to_cpu(s[i]) * gain) >> 16));
++		break;
++	}
++	default:
++		/* other formats are played as they are */
++		break;
++	}
++}
++
+ static void virtsnd_pcm_trans_copy(struct snd_pcm_substream *substream,
+ 				   struct snd_pcm_indirect *rec, size_t bytes)
+ {
+ 	struct virtio_pcm_substream *vss = snd_pcm_substream_chip(substream);
++	u32 gain = READ_ONCE(virtsnd_playback_gain);
+ 
++	if (vss->direction == SNDRV_PCM_STREAM_PLAYBACK && gain != 0x10000)
++		virtsnd_pcm_gain(substream->runtime,
++				 substream->runtime->dma_area + rec->sw_data,
++				 bytes, gain);
+ 	virtsnd_pcm_msg_send(vss, rec->sw_data, bytes);
+ }
+ 

@@ -1,0 +1,60 @@
+# jhericurl: webOS 5.x (W20L's 5.6.1, "jhericurl-jimna"), the first systemd release. No tvservice
+# pak (legacy-broadcast in the rootfs is the TV service); the paks are -arib on W20L, at the mount
+# points of its etc/systemd/system/mount-readonly-volatile.d/00-partinfo.squashfs.fstab (p30
+# otncabi, p31 otycabi, p32 fonts, p34 license; p14 ciplus/cert has no pak), and bsppart-arib's
+# bsp/ as the lower (the layer's drop-in keeps mount-bsp.service from mounting it again).
+# sedata-arib (raw), bspfw, intmicom, boot, kernel and tzfw are not attached (the map takes the
+# sizes of all but sedata-arib). The four state partitions of its mount-readwrite.d/00-partinfo.ext4.fstab (p57
+# db8, p58 cmn_data, p59 apps at /mnt/lg/appstore, p50 uhdcp). The eMMC "nvram" partition (6 MiB,
+# see-init's) is legacy-broadcast's NVM. The I2C EEPROM is lowlevelstorage's (decision B): a new one gets LLS's own default records,
+# made by running W20L's code on the board's command line (beanjar/lls.py). PmLog: the stock unit
+# pm-log-daemon.service (preload-systemd). Both trust bundles and the hashed directory are in its
+# rootfs. Its hw-option-gen's ddrSize digit: 768M, 1G, 1.25G, 1.5G, 2G, 2.5G, 3G, 2G_ADV, 2G_STD,
+# 4G, 5G (scratch/w20l-model-values.md, measured with W20L's own generator).
+
+base = "goldilocks2"
+version = "5"
+init_system = "systemd"
+pmlog_mode = "preload-systemd"
+pmlog_job = "pm-log-daemon"
+ddr_sizes = [768, 1024, 1280, 1536, 2048, 2560, 3072, 2048, 2048, 4096, 5120]
+ssg_key = true
+paks = [
+    { file = "rootfs", serial = "rootfs", mount = "/" },
+    { file = "bsppart-arib", serial = "bsppart" },
+    { file = "otncabi-arib", serial = "otncabi", mount = "/mnt/otncabi" },
+    { file = "otycabi-arib", serial = "otycabi", mount = "/mnt/otycabi" },
+    { file = "fonts", serial = "fonts", mount = "/mnt/fonts" },
+    { file = "license", serial = "license", mount = "/mnt/license" },
+]
+nvm_disks = { nvram = "6M", eeprom = "32K" }
+emmc_disks = ["partinfo", "authcxt", "sestore", "wossestore", "sedata", "dbboot", "efs"]
+partmap = "jhericurl"
+
+[nvm]
+eeprom = "eeprom"
+lls = "/usr/sbin/lowlevelstorage"
+
+# The map's partitions (partmap/jhericurl.toml) W20L's boot path finds by name: as goldilocks2's (no tvservice
+# pak), the data partition named cmn_data (mount-readwrite.sh's RW_LIST), and dbboot,
+# lowlevelstorage's BOOTDB (LLSBootDB::getBootDBPart)
+[partitions]
+partinfo = "partinfo"
+mapbak = "partinfo"
+authcxt = "authcxt"
+nvram = "nvram"
+sestore = "sestore"
+sedata = "sedata"
+rootfs = "rootfs"
+otncabi = "otncabi"
+otycabi = "otycabi"
+fonts = "fonts"
+db8 = "db8"
+apps = "appstore"
+bsppart = "bsppart"
+license = "license"
+wossestore = "wossestore"
+uhdcp = "uhdcp"
+cmn_data = "cmn_data"
+dbboot = "dbboot"
+efs = "efs"

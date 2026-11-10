@@ -1,0 +1,345 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""What a VM's start needs from its firmware, its model's board and its board settings, worked out
+ahead (docs/dev/architecture/manager.md, "Prepared board data"): when the VM is made (newvm.create),
+when a setting it depends on changes (core.Library.configure: fw, broadcast, debug_mode, serial;
+identity renew; a local clone), or with `beanjar prepare NAME`. A start only reads it.
+
+It is kept in the VM's directory, <vm>/prepared/ (the parent of its RUN_DIR: the checkout's
+development VMs and the regress instances have one too):
+  prepared.json   what it was made from (inputs, files) and what start reads besides the images:
+                  the viewer's local key (lls.local_key) and the chip modules' parameters and host
+                  share files from the firmware (targets.derived_params, targets.derived_files), with
+                  lgemu's light sensor and ToF motion sensor where the board's tool options have
+                  them (targets.light_dev, targets.tof_dev)
+  partinfo.img    the firmware's eMMC partition map as the partinfo disk holds it (partmap.build,
+                  whose cache, the VM's FW_CACHE, keeps the original)
+  eeprom.img      what a blank EEPROM state disk becomes (nvm.new_chip), when there is a chip
+  records.txt     LLS's probe output for the board (webOS 5 on): the debugstatus item a programmed
+                  chip takes when the VM's debug mode changes
+
+What it depends on, and how a start tells it is stale without reading the firmware: the inputs
+(this module's VERSION and lls.VERSION, the firmware's directory, the target, the effective
+broadcast standard, the VM's serial and debug mode, and a digest of the target's table rows), all
+cheap to work out; and the size and mtime of every file it came from: each pak of the firmware,
+the board's board.cmdline and the helpers whose code ran (lls.py's probe and, where the firmware's
+LLS is a nyx module, the guest kernel, initramfs and lgemu.ko, which lls.cache_dir keys its run
+on; rpc-table.py, mmap-table.py and the files they made). A
+stat of each, no reads. Paths in the VM's directory are kept relative to it, so a renamed VM's
+record holds.
+
+A start (qemu.plan, ensure) whose record is missing or stale prepares it again first, and says so
+and why: the development and regress VMs have no create step, and an update of the tree (a
+board.cmdline, a guest build) changes the inputs of every VM at once. It is never silent.
+
+  python3 -m beanjar.prepare VM-DIR      prepare a VM of a library (what `beanjar prepare` runs)
+"""
+
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+from . import fwcache, lls, nvm, targets, partmap, paths
+
+VERSION = 1
+DIR = "prepared"
+RECORD = "prepared.json"
+PARTINFO = "partinfo.img"
+EEPROM = "eeprom.img"
+RECORDS = "records.txt"
+
+
+class Error(Exception):
+    pass
+
+
+class Job:
+    """One VM's preparation: its firmware (fw, fw_name, target, broadcast), its board settings
+    (serial, debug_mode: DEBUG_MODES' number or None), its FW_CACHE (cache), its directory (vm_dir:
+    RUN_DIR's parent) and the tree."""
+
+    def __init__(self, env, tree=paths.TREE):
+        self.tree = tree
+        self.fw, self.fw_name = tree.firmware(env.get("FW"))
+        try:
+            self.target = paths.firmware_target(self.fw, self.fw_name)
+        except ValueError as e:
+            raise Error(str(e)) from None
+        try:
+            self.broadcast = targets.board_broadcast(self.target, self.fw, env.get("BROADCAST"))
+            self.debug_mode = nvm.debug_mode_number(env.get("DEBUG_MODE"))
+        except (targets.Error, nvm.Error) as e:
+            raise Error(str(e)) from None
+        self.serial = env.get("SERIAL") or ""
+        self.cache = env.get("FW_CACHE") or fwcache.default_cache(tree)
+        run_dir = os.path.join(tree.top, env.get("RUN_DIR") or "build")
+        self.vm_dir = os.path.dirname(os.path.abspath(run_dir))
+        self.dir = os.path.join(self.vm_dir, DIR)
+
+    def rel(self, path):
+        """path relative to the VM's directory if it is in it, else absolute."""
+        path = os.path.abspath(path)
+        inside = os.path.relpath(path, self.vm_dir)
+        return path if inside.startswith("..") else inside
+
+    def abs(self, path):
+        return os.path.normpath(os.path.join(self.vm_dir, path))
+
+    def inputs(self):
+        """What the record depends on but its files: cheap, nothing of the firmware read."""
+        rel = targets.release(self.target, self.fw)
+        s = targets.soc(self.target)
+        rows = repr(
+            (
+                rel.partmap,
+                rel.nvm,
+                rel.paks,
+                rel.pak_lowers,
+                targets.state_disks(self.target),
+                targets.emmc_disks(self.target),
+                s.modules,
+                s.continent,
+                s.inputs,
+                s.light_bus,
+                s.tof_bus,
+            )
+        )
+        return {
+            "version": VERSION,
+            "lls": lls.VERSION,
+            "firmware": self.rel(self.fw),
+            "firmware_name": self.fw_name,
+            "target": targets.name(self.target),
+            "broadcast": self.broadcast or "",
+            "serial": self.serial,
+            "debug_mode": self.debug_mode,
+            "tables": hashlib.sha256(rows.encode()).hexdigest()[:16],
+        }
+
+    def base_files(self):
+        """The files every record depends on: the firmware's paks and the board's board.cmdline."""
+        out = [os.path.join(self.fw, n) for n in targets.firmware_paks(self.fw)]
+        out.append(self.tree.src(targets.board_cmdline_src(self.target, self.broadcast)))
+        return out
+
+    def stamps(self, files):
+        """{path (rel): [size, mtime_ns]} of files; a missing one is [-1, 0]."""
+        out = {}
+        for f in files:
+            try:
+                st = os.stat(f)
+                out[self.rel(f)] = [st.st_size, st.st_mtime_ns]
+            except OSError:
+                out[self.rel(f)] = [-1, 0]
+        return out
+
+
+def _read(job):
+    try:
+        with open(os.path.join(job.dir, RECORD)) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def stale(job):
+    """Why the VM's prepared board data cannot be used as it is (a short phrase), or None."""
+    record = _read(job)
+    if not record:
+        return "missing"
+    old = record.get("inputs") or {}
+    new = job.inputs()
+    changed = [k for k in new if old.get(k) != new[k]]
+    if changed:
+        names = {"tables": "the target's table rows", "lls": "lls.py's VERSION"}
+        return "made with another " + ", ".join(names.get(k, k) for k in changed)
+    recorded = record.get("files") or {}
+    now = job.stamps([job.abs(p) for p in recorded] + job.base_files())
+    if now != recorded:
+        diff = sorted(set(now) ^ set(recorded)) or sorted(
+            p for p in now if now[p] != recorded.get(p)
+        )
+        return "made from other files (" + ", ".join(os.path.basename(p) for p in diff[:3]) + ")"
+    for name in [PARTINFO] + [n for n in (EEPROM, RECORDS) if record.get(n)]:
+        if not os.path.isfile(os.path.join(job.dir, name)):
+            return f"missing its {name}"
+    return None
+
+
+class Prepared:
+    """A VM's prepared board data, as a start reads it."""
+
+    def __init__(self, job, record):
+        self.dir = job.dir
+        self.partmap = os.path.join(job.dir, PARTINFO)
+        self.local_key = record.get("local_key")
+        self.derived_params = {k: tuple(v) for k, v in (record.get("derived_params") or {}).items()}
+        self.derived_files = dict(record.get("derived_files") or {})
+        image = records = None
+        if record.get(EEPROM):
+            with open(os.path.join(job.dir, EEPROM), "rb") as f:
+                image = f.read()
+        if record.get(RECORDS):
+            with open(os.path.join(job.dir, RECORDS)) as f:
+                records = f.read()
+        self.chip = nvm.Chip(image, records, record.get("eeprom_note"))
+
+
+def _helpers(job, nyx):
+    """The tree's files whose code ran to make the record (a change makes it stale)."""
+    out = []
+    if targets.release(job.target).nvm.lls:
+        out.append(job.tree.build("lls", "lls-probe"))
+        if nyx:
+            out += [
+                job.tree.build("Image"),
+                job.tree.build("initramfs.cpio.gz"),
+                job.tree.build("lgemu.ko"),
+            ]
+    derived = {m.derived for m in targets.soc(job.target).modules if m.derived}
+    if "rpc-table" in derived:
+        out.append(targets.RPC_TABLE)
+    if "mstar-mmap" in derived:
+        out.append(targets.MMAP_TABLE)
+    return out
+
+
+def make(job, say=print):
+    """Work out the VM's board data from its firmware and store it in job.dir (replacing what was
+    there as a whole). Error if a start could not use it either."""
+    os.makedirs(job.vm_dir, exist_ok=True)
+    with paths.file_lock(job.dir + ".lock"):
+        new = job.dir + ".new"
+        shutil.rmtree(new, ignore_errors=True)
+        os.makedirs(new)
+        try:
+            record = _make(job, new, say)
+            with open(os.path.join(new, RECORD), "w") as f:
+                json.dump(record, f, indent=1, sort_keys=True)
+                f.write("\n")
+            shutil.rmtree(job.dir, ignore_errors=True)
+            os.replace(new, job.dir)
+        finally:
+            shutil.rmtree(new, ignore_errors=True)
+    return Prepared(job, record)
+
+
+def _make(job, new, say):
+    try:
+        src = partmap.build(job.fw, job.target, job.cache, job.tree)
+        shutil.copyfile(src, os.path.join(new, PARTINFO))
+    except (partmap.Error, fwcache.Error, OSError) as e:
+        raise Error(f"partition map: {e}") from None
+    chip = nvm.new_chip(
+        job.fw,
+        job.target,
+        job.serial,
+        job.tree,
+        say,
+        job.fw_name,
+        broadcast=job.broadcast,
+        debug_mode=job.debug_mode,
+    )
+    record = {"eeprom_note": chip.note}
+    if chip.image is not None:
+        with open(os.path.join(new, EEPROM), "wb") as f:
+            f.write(chip.image)
+        record[EEPROM] = True
+    if chip.records is not None:
+        with open(os.path.join(new, RECORDS), "w") as f:
+            f.write(chip.records)
+        record[RECORDS] = True
+    rel = targets.release(job.target)
+    if rel.nvm.lls or rel.nvm.local_key:
+        try:
+            record["local_key"] = lls.local_key(
+                job.fw, job.target, job.tree, broadcast=job.broadcast
+            )
+        except (lls.Error, OSError, subprocess.SubprocessError, ValueError, KeyError) as e:
+            raise Error(f"the model's local key option: {e}") from None
+    try:
+        record["derived_params"] = {
+            k: list(v) for k, v in targets.derived_params(job.target, job.fw, job.fw_name).items()
+        }
+        files = targets.derived_files(job.target, job.fw, job.fw_name)
+    except targets.Error as e:
+        raise Error(str(e)) from None
+    record["derived_files"] = files
+    # the board's own light sensor: where its tool options say the set has one (targets.light_dev)
+    if targets.soc(job.target).light_bus is not None:
+        try:
+            eye = lls.digital_eye(job.fw, job.target, job.tree, broadcast=job.broadcast)
+        except (lls.Error, OSError, subprocess.SubprocessError, ValueError, KeyError) as e:
+            raise Error(f"the model's light sensor option: {e}") from None
+        light = targets.light_dev(job.target, eye)
+        if light:
+            record["derived_params"].setdefault("lgemu", []).append("i2c_dev=" + light)
+    # the board's own ToF motion sensor: where its tool options name one (targets.tof_dev)
+    if targets.soc(job.target).tof_bus is not None:
+        try:
+            sensor = lls.motion_sensor(job.fw, job.target, job.tree, broadcast=job.broadcast)
+        except (lls.Error, OSError, subprocess.SubprocessError, ValueError, KeyError) as e:
+            raise Error(f"the model's motion sensor option: {e}") from None
+        tof = targets.tof_dev(job.target, sensor)
+        if tof:
+            record["derived_params"].setdefault("lgemu", []).append("i2c_dev=" + tof)
+    # lls.cache_dir keys its run on these helpers where the firmware's LLS is a nyx module
+    nyx = bool(rel.nvm.lls) and lls.Root(job.fw, job.target, job.tree).read(lls.NYX_LLS) is not None
+    record["inputs"] = job.inputs()
+    record["files"] = job.stamps(job.base_files() + _helpers(job, nyx) + list(files.values()))
+    return record
+
+
+def ensure(job, say=print, why=None):
+    """The VM's Prepared board data: as stored if it is current, else made again first, with a line
+    to say so and why (why: the caller's own reason, e.g. "the firmware changed")."""
+    reason = stale(job)
+    if reason is None:
+        return Prepared(job, _read(job))
+    if reason != "missing" or why:
+        say(f"prepared board data {why or reason}: preparing it again")
+    else:
+        say("prepared board data missing: preparing it (the firmware's partition map and EEPROM)")
+    return make(job, say)
+
+
+def vm_env(vm_dir):
+    """The environment a library VM's preparation needs (its vm.toml's FW, FW_CACHE, SERIAL,
+    BROADCAST, DEBUG_MODE, and its RUN_DIR)."""
+    from . import core
+
+    try:
+        env = core.vm_launcher_env(os.path.join(vm_dir, "vm.toml"))
+    except core.Error as e:
+        raise Error(str(e)) from None
+    env["RUN_DIR"] = os.path.join(os.path.abspath(vm_dir), "run")
+    return env
+
+
+def vm(vm_dir, say=print, tree=paths.TREE, force=False):
+    """Prepare the library VM in vm_dir if it needs it (force: always); its Prepared."""
+    job = Job(vm_env(vm_dir), tree)
+    if force:
+        say("preparing the board data (the firmware's partition map and EEPROM)")
+        return make(job, say)
+    return ensure(job, say)
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if len(argv) != 1:
+        print("usage: python3 -m beanjar.prepare VM-DIR", file=sys.stderr)
+        return 2
+    try:
+        vm(argv[0], lambda line: print(line, file=sys.stderr, flush=True), force=True)
+    except (Error, nvm.Error) as e:
+        print(f"prepare: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

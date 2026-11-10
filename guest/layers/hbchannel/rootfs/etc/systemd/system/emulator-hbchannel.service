@@ -1,0 +1,13 @@
+# Homebrew Channel (guest/layers/hbchannel): the systemd twin of emulator-hbchannel.conf. HBC's
+# startup.sh leaves telnetd and Dropbear running in this unit's cgroup, so the unit stays active
+# after it ends (RemainAfterExit), and nothing waits for it.
+[Unit]
+Description=Emulator Homebrew Channel startup
+DefaultDependencies=no
+Wants=emulator-hbchannel-install.service
+After=emulator-hbchannel-install.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/beanjar/hbchannel-start

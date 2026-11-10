@@ -1,0 +1,16 @@
+# W22P mullet-mole 7.6: glibc 2.31, systemd 244.5, stock state pins
+# p57 DB8 / p58 common data / p59 apps. Its global paks share the W21P layout.
+# Its product.env selects imspecialkeys cursor visibility; libim handles native
+# M-RCU keys 0x4ae/0x4af. Set the wakeup pulse before starting the input bridge.
+
+base = "kisscurl"
+version = "7"
+paks = [
+    { file = "rootfs", serial = "rootfs", mount = "/" },
+    { file = "bsppart", serial = "bsppart" },
+    { file = "otncabi-global", serial = "otncabi", mount = "/mnt/otncabi" },
+    { file = "otycabi-global", serial = "otycabi", mount = "/mnt/otycabi" },
+    { file = "fonts-global", serial = "fonts", mount = "/mnt/fonts" },
+    { file = "license", serial = "license", mount = "/mnt/license" },
+]
+partmap = "mullet"

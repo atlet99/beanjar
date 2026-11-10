@@ -1,0 +1,379 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Exercise the shipped native bootstrap without touching a real mount or ini."""
+
+import importlib.util
+import os
+import shutil
+from pathlib import Path
+import subprocess
+
+import pytest
+
+TOP = Path(__file__).resolve().parents[3]
+HELPER = TOP / "guest/layers/gl/native-rootfs/usr/libexec/beanjar/native-weston-format"
+STOCK = (
+    b"# stock configuration\n[core]\ngbm-format=abgr8888\n"
+    b"override-output-from-env=true\n[shell]\nmodules=stock.so\n"
+    b"[output]\nname=TV-1\nmode=1920x1080\n"
+    b"[other]\ngbm-format=abgr8888\n"
+)
+OUTPUTS = (
+    b"\n[output]\nname=Virtual-1\nmode=1920x1080\nbuffer_size=1920x1080\n"
+    b"\n[output]\nname=Virtual-2\nmode=768x2160\nbuffer_size=768x2160\n"
+)
+spec = importlib.util.spec_from_file_location(
+    "gl_integration", TOP / "tests/integration/layers/check-gl-integration.py"
+)
+integration = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(integration)
+
+
+class TestNativeWestonFormatTest:
+    @pytest.fixture(autouse=True)
+    def setup(self, tmp_path):
+        self.root = tmp_path
+        self.ini = self.root / "usr/share/weston/weston.ini"
+        self.ini.parent.mkdir(parents=True)
+        self.ini.write_bytes(STOCK)
+        self.runtime = self.root / "run/beanjar/native-weston"
+        self.commands = self.root / "commands"
+        self.commands.mkdir()
+        # Emulate a bind by retaining the source's contents and mount ownership.
+        # No root privilege, real mount, firmware or device is needed.
+        for name, body in {
+            "mountpoint": '[ -f "$2.bound" ]',
+            "mount": 'printf "%s\\n" "$*" >> "$MOUNT_LOG"\ncp "$2" "$3"\ntouch "$3.bound"',
+        }.items():
+            command = self.commands / name
+            command.write_text("#!/bin/sh\nset -eu\n" + body + "\n")
+            command.chmod(0o755)
+        self.env = dict(
+            os.environ,
+            PATH=str(self.commands) + os.pathsep + os.environ["PATH"],
+            MOUNT_LOG=str(self.root / "mount.log"),
+        )
+
+    def set_profile(self, target):
+        profile = self.root / "usr/share/beanjar/native-weston-target"
+        profile.parent.mkdir(parents=True, exist_ok=True)
+        profile.write_text(target + "\n")
+
+    def run_helper(self, check=True):
+        return subprocess.run(
+            ["/bin/sh", str(HELPER), str(self.root)],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=check,
+        )
+
+    def test_changes_only_core_format_and_restarts_idempotently(self):
+        self.run_helper()
+        expected = STOCK.replace(b"gbm-format=abgr8888", b"gbm-format=xrgb8888", 1)
+        assert (self.runtime / "stock.ini").read_bytes() == STOCK
+        assert (self.runtime / "virtio.ini").read_bytes() == expected
+        assert self.ini.read_bytes() == expected
+        mount_log = (self.root / "mount.log").read_bytes()
+        self.run_helper()
+        assert (self.root / "mount.log").read_bytes() == mount_log
+        assert (self.runtime / "stock.ini").read_bytes() == STOCK
+        assert self.ini.read_bytes() == expected
+
+    def test_spacebuns_matching_modes_and_buffers_restart_idempotently(self):
+        self.set_profile("o22n2-spacebuns")
+        self.run_helper()
+        expected = STOCK.replace(b"gbm-format=abgr8888", b"gbm-format=xrgb8888", 1) + OUTPUTS
+        assert self.ini.read_bytes() == expected
+        assert (self.runtime / "stock.ini").read_bytes() == STOCK
+        mount_log = (self.root / "mount.log").read_bytes()
+        self.run_helper()
+        assert self.ini.read_bytes() == expected
+        assert (self.root / "mount.log").read_bytes() == mount_log
+        assert not (self.runtime / "virtio.ini.tmp").exists()
+
+    def test_spacebuns_accepts_already_adjusted_format(self):
+        self.set_profile("o22n2-spacebuns")
+        adjusted = STOCK.replace(b"gbm-format=abgr8888", b"gbm-format=xrgb8888", 1)
+        self.ini.write_bytes(adjusted)
+        self.run_helper()
+        assert self.ini.read_bytes() == adjusted + OUTPUTS
+        assert (self.runtime / "stock.ini").read_bytes() == adjusted
+
+    @pytest.mark.parametrize(
+        "target",
+        ("k8hp-queue", "o22n2-ombre", "k8hp-spacebuns"),
+        ids=["k8hp-queue", "o22n2-ombre", "k8hp-spacebuns"],
+    )
+    def test_other_targets_keep_format_only_behavior(self, target):
+        self.set_profile(target)
+        self.ini.write_bytes(STOCK)
+        Path(str(self.ini) + ".bound").unlink(missing_ok=True)
+        self.run_helper()
+        assert self.ini.read_bytes() == STOCK.replace(
+            b"gbm-format=abgr8888", b"gbm-format=xrgb8888", 1
+        )
+
+    @pytest.mark.parametrize(
+        "data",
+        (
+            STOCK.replace(b"override-output-from-env=true", b"override-output-from-env=false"),
+            STOCK.replace(b"override-output-from-env=true\n", b""),
+            STOCK.replace(b"gbm-format=abgr8888", b"gbm-format=rgb565", 1),
+            STOCK.replace(
+                b"gbm-format=abgr8888\n", b"gbm-format=abgr8888\ngbm-format=xrgb8888\n", 1
+            ),
+            STOCK + b"[output]\nname=Virtual-1\nmode=800x600\n",
+            STOCK + b"[output]\nname=Virtual-2\nmode=800x600\n",
+        ),
+        ids=[
+            "env-override-false",
+            "env-override-missing",
+            "format-rgb565",
+            "format-twice",
+            "output-1-mode",
+            "output-2-mode",
+        ],
+    )
+    def test_spacebuns_rejects_unsupported_defaults_without_binding(self, data):
+        self.set_profile("o22n2-spacebuns")
+        self.ini.write_bytes(data)
+        result = self.run_helper(check=False)
+        assert result.returncode != 0
+        assert self.ini.read_bytes() == data
+        assert not (self.root / "mount.log").exists()
+        assert not (self.runtime / "virtio.ini").exists()
+        assert not (self.runtime / "virtio.ini.tmp").exists()
+
+    def test_mount_failure_can_retry_from_original(self):
+        self.set_profile("o22n2-spacebuns")
+        mount = self.commands / "mount"
+        original = mount.read_text()
+        mount.write_text("#!/bin/sh\nexit 1\n")
+        assert self.run_helper(check=False).returncode != 0
+        assert self.ini.read_bytes() == STOCK
+        mount.write_text(original)
+        self.run_helper()
+        assert (
+            self.ini.read_bytes()
+            == STOCK.replace(b"gbm-format=abgr8888", b"gbm-format=xrgb8888", 1) + OUTPUTS
+        )
+
+    def test_user_configuration_takes_precedence_without_mutation(self):
+        self.set_profile("o22n2-spacebuns")
+        user = self.root / "var/luna/preferences/weston.ini"
+        user.parent.mkdir(parents=True)
+        custom = b"[core]\ngbm-format=argb8888\n# user output policy\n"
+        user.write_bytes(custom)
+        self.run_helper()
+        assert user.read_bytes() == custom
+        assert self.ini.read_bytes() == STOCK
+        assert not self.runtime.exists()
+        assert not (self.root / "mount.log").exists()
+
+    def test_unexpected_default_does_not_mount(self):
+        self.ini.write_bytes(STOCK.replace(b"gbm-format=abgr8888", b"gbm-format=rgb565"))
+        result = self.run_helper(check=False)
+        assert result.returncode != 0
+        assert not (self.root / "mount.log").exists()
+
+    def test_existing_foreign_mount_is_preserved(self):
+        self.set_profile("o22n2-spacebuns")
+        Path(str(self.ini) + ".bound").touch()
+        result = self.run_helper(check=False)
+        assert result.returncode != 0
+        assert "another owner" in result.stderr
+        assert self.ini.read_bytes() == STOCK
+        assert not self.runtime.exists()
+
+
+class TestGlIntegrationBoundaryTest:
+    @pytest.fixture(autouse=True)
+    def setup(self, tmp_path):
+        self.layer = tmp_path / "gl"
+        self.layer.mkdir()
+        for name in (
+            "libEGL.so.1",
+            "libGLESv2.so.2",
+            "libGLESv1_CM.so.1",
+            "libgbm.so.1",
+            "libdrm.so.2",
+        ):
+            path = self.layer / "usr/lib" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+        for relative in integration.PERMISSIONS:
+            target = self.layer / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(integration.ROOTFS / relative, target)
+
+    def native(self, target):
+        shutil.copytree(integration.NATIVE_ROOTFS, self.layer, dirs_exist_ok=True)
+        if target == integration.NATIVE_CURSOR_TARGET:
+            shutil.copytree(integration.NATIVE_CURSOR_ROOTFS, self.layer, dirs_exist_ok=True)
+            (self.layer / integration.CURSOR_LIBRARY).touch()
+        profile = self.layer / "usr/share/beanjar/native-weston-target"
+        profile.parent.mkdir(parents=True, exist_ok=True)
+        profile.write_text(target + "\n")
+
+    def test_native_profile_and_owned_output_helper(self):
+        self.native("o22n2-spacebuns")
+        integration.check(self.layer, "native", target="o22n2-spacebuns")
+        with pytest.raises(ValueError, match="target marker"):
+            integration.check(self.layer, "native", target="o22n2-ombre")
+        extra = self.layer / "etc/output-policy"
+        extra.write_text("mode=768x2160\n")
+        with pytest.raises(ValueError, match="outside owned bootstrap"):
+            integration.check(self.layer, "native", target="o22n2-spacebuns")
+
+    def test_native_helper_mutation_is_rejected(self):
+        self.native("o22n2-spacebuns")
+        helper = self.layer / integration.NATIVE_BOOTSTRAP[0]
+        helper.write_text(helper.read_text().replace("mode=768x2160", "mode=1920x1080"))
+        with pytest.raises(ValueError, match="changed native format bootstrap"):
+            integration.check(self.layer, "native", target="o22n2-spacebuns")
+
+    def test_native_spacebuns_requires_unchanged_cursor_route(self):
+        self.native("o22n2-spacebuns")
+        library = self.layer / integration.CURSOR_LIBRARY
+        library.unlink()
+        with pytest.raises(ValueError, match="lost measured cursor bridge"):
+            integration.check(self.layer, "native", target="o22n2-spacebuns")
+        library.touch()
+        launcher = self.layer / integration.NATIVE_CURSOR[0]
+        launcher.chmod(0o644)
+        with pytest.raises(ValueError, match="launcher is not executable"):
+            integration.check(self.layer, "native", target="o22n2-spacebuns")
+        launcher.chmod(0o755)
+        launcher.write_text(launcher.read_text().replace("${LD_PRELOAD:+:$LD_PRELOAD}", ""))
+        with pytest.raises(ValueError, match="changed native cursor launch contract"):
+            integration.check(self.layer, "native", target="o22n2-spacebuns")
+
+    @pytest.mark.parametrize(
+        "target",
+        ("k8hp-spacebuns", "o22n2-ombre", "k8hp-queue"),
+        ids=["k8hp-spacebuns", "o22n2-ombre", "k8hp-queue"],
+    )
+    def test_other_native_targets_do_not_acquire_cursor_bridge(self, target):
+        self.native(target)
+        integration.check(self.layer, "native", target=target)
+        library = self.layer / integration.CURSOR_LIBRARY
+        library.touch()
+        with pytest.raises(ValueError, match="other native target acquired cursor bridge"):
+            integration.check(self.layer, "native", target=target)
+        library.unlink()
+        shutil.copytree(integration.NATIVE_CURSOR_ROOTFS, self.layer, dirs_exist_ok=True)
+        with pytest.raises(ValueError, match="other native target acquired cursor bridge"):
+            integration.check(self.layer, "native", target=target)
+        for relative in integration.NATIVE_CURSOR:
+            (self.layer / relative).unlink()
+
+    @pytest.mark.parametrize(
+        "relative", integration.ADAPTERS + ("usr/lib/libkms-native-input-qt.so",)
+    )
+    def test_native_spacebuns_still_rejects_scanout_and_input_preloads(self, relative):
+        self.native("o22n2-spacebuns")
+        path = self.layer / relative
+        path.touch()
+        with pytest.raises(ValueError, match="native compositor acquired adapter"):
+            integration.check(self.layer, "native", target="o22n2-spacebuns")
+        path.unlink()
+
+    def test_native_accepts_only_the_known_jail_preload(self):
+        self.native("o22n2-spacebuns")
+        dropin = self.layer / integration.JAIL_DROPIN
+        dropin.parent.mkdir(parents=True, exist_ok=True)
+        dropin.write_bytes(b"[Service]\n" + integration.JAIL_PRELOAD)
+        integration.check(self.layer, "native", target="o22n2-spacebuns")
+        for body in (
+            b"[Service]\nEnvironment=LD_PRELOAD=/usr/lib/libevil.so\n",
+            b"[Service]\n" + integration.JAIL_PRELOAD + integration.JAIL_PRELOAD,
+            b"[Service]\n" + integration.JAIL_PRELOAD + b"Environment=DISPLAY_ID=1\n",
+        ):
+            dropin.write_bytes(body)
+            with pytest.raises(ValueError, match="policy overridden"):
+                integration.check(self.layer, "native", target="o22n2-spacebuns")
+        dropin.unlink()
+        other = self.layer / "etc/other.conf"
+        other.write_bytes(integration.JAIL_PRELOAD)
+        with pytest.raises(ValueError, match="policy overridden"):
+            integration.check(self.layer, "native", target="o22n2-spacebuns")
+
+    def test_adapted_queue_and_ombre_contract(self):
+        shutil.copytree(integration.ROOTFS, self.layer, dirs_exist_ok=True)
+        for name in ("libegl-kms.so", "libkms-cursor-compat.so", "libstarfishsurface.so.0"):
+            (self.layer / "usr/lib" / name).touch()
+        for target in ("k8hp-queue", "o22n2-ombre"):
+            integration.check(self.layer, "adapted", target=target)
+        profile = self.layer / "usr/share/beanjar/native-weston-target"
+        profile.parent.mkdir(parents=True, exist_ok=True)
+        profile.write_text("o22n2-spacebuns\n")
+        with pytest.raises(ValueError, match="native target marker"):
+            integration.check(self.layer, "adapted", target="k8hp-queue")
+
+
+def test_profile_preload_and_stock_launcher_contract(tmp_path):
+    root = tmp_path
+    library = root / "cursor.so"
+    stock = root / "stock.so"
+    source = root / "empty.c"
+    source.write_text("int fixture(void) { return 0; }\n")
+    subprocess.run(["cc", "-shared", "-fPIC", str(source), "-o", str(library)], check=True)
+    shutil.copy2(library, stock)
+    profile = root / "target"
+    launcher = root / "launch"
+    launcher.write_text(
+        (integration.NATIVE_CURSOR_ROOTFS / integration.NATIVE_CURSOR[0])
+        .read_text()
+        .replace("/usr/share/beanjar/native-weston-target", str(profile))
+        .replace("/usr/lib/libkms-cursor-compat.so", str(library))
+    )
+    # The measured stock surface-manager.sh appends libsystrim before
+    # exec. Use a harmless host DSO to exercise that exact env behavior.
+    compositor = root / "stock-launch"
+    compositor.write_text(
+        "#!/bin/sh\n"
+        "export LD_PRELOAD=$LD_PRELOAD:" + str(stock) + "\n"
+        'printf "%s\\n" "$LD_PRELOAD" "$WEBOS_COMPOSITOR_GEOMETRY" "$@"\n'
+        "exit 17\n"
+    )
+    compositor.chmod(0o755)
+    for target in ("o22n2-spacebuns", "k8hp-spacebuns", "o22n2-ombre", "k8hp-queue"):
+        profile.write_text(target + "\n")
+        for inherited in (None, str(stock), str(stock) + " " + str(stock)):
+            env = dict(os.environ, WEBOS_COMPOSITOR_GEOMETRY="1920x1080+0+0r0s1")
+            env.pop("LD_PRELOAD", None)
+            if inherited is not None:
+                env["LD_PRELOAD"] = inherited
+            result = subprocess.run(
+                [
+                    "/bin/sh",
+                    str(launcher),
+                    str(compositor),
+                    "--socket=wayland-0",
+                    "argument with spaces",
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            assert result.returncode == 17, result.stderr
+            prefix = inherited or ""
+            if target == integration.NATIVE_CURSOR_TARGET:
+                prefix = str(library) + (":" + prefix if prefix else "")
+            assert result.stdout.splitlines() == [
+                prefix + ":" + str(stock),
+                env["WEBOS_COMPOSITOR_GEOMETRY"],
+                "--socket=wayland-0",
+                "argument with spaces",
+            ]
+            assert result.stderr == ""
+    profile.write_text("o22n2-spacebuns\n")
+    library.unlink()
+    result = subprocess.run(
+        ["/bin/sh", str(launcher), str(compositor)], capture_output=True, timeout=5
+    )
+    assert result.returncode != 0
+    assert result.stdout == b""

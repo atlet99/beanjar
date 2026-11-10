@@ -1,0 +1,9 @@
+{
+  "id": "com.example.tvsuite",
+  "version": "1.0.0",
+  "vendor": "Beanjar",
+  "type": "web",
+  "main": "index.html",
+  "title": "TV Suite",
+  "icon": "icon.png"
+}

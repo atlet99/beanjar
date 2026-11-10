@@ -1,0 +1,21 @@
+# Developer mode key server on port 9991 (guest/layers/devmode): systemd twin of
+# emulator-devmode-keyserver.conf, which only Upstart releases run.
+#
+# Like the Developer Mode app's KeyServer, GET /webos_rsa returns the developer
+# key for `ares-novacom --getkey` (see /usr/libexec/emulator-devmode/keyserver.sh);
+# busybox tcpsvd runs one handler per connection. It runs alongside the devmode
+# job: after it and only in developer mode, mirroring `start on started devmode`
+# / `stop on stopping devmode` (Upstart's respawn is Restart=always here).
+# devmode.service is Type=simple, so After= does not mean start-devmode.sh has
+# written the key yet: wait-key.sh waits for it, at most 30 s, before serving.
+[Unit]
+Description=Emulator developer mode key server on port 9991
+DefaultDependencies=no
+Requires=devmode.service
+After=devmode.service
+ConditionPathExists=/var/luna/preferences/devmode_enabled
+
+[Service]
+ExecStartPre=/usr/libexec/emulator-devmode/wait-key.sh 30
+ExecStart=/usr/bin/tcpsvd -E 0.0.0.0 9991 /usr/libexec/emulator-devmode/keyserver.sh
+Restart=always

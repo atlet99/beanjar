@@ -1,0 +1,21 @@
+# gl layer: the stock compositor on Mesa. Same script as surface-manager.conf, plus
+#   LD_PRELOAD=/usr/lib/libegl-kms.so: the default EGL display becomes a GBM display on
+#   /dev/dri/card0 and the compositor's native windows (0xFFFF0001, 0xFFFF0002) become gbm
+#   surfaces page-flipped on the CRTC (guest/layers/gl/src/egl-kms.c). It drops LD_PRELOAD from the
+#   environment again once loaded, so nothing the compositor starts inherits it.
+# Optional settings for it are read from /etc/default/egl-kms. The stock job's other stanzas
+# (start on, env, respawn, pre-start) are unchanged.
+script
+    if [ -e "/var/luna/preferences/directrendering_enabled" ] ; then
+        export STARFISH_DIRECT_RENDERING=1
+    fi
+    export LD_PRELOAD=/usr/lib/libegl-kms.so
+    [ -f /etc/default/egl-kms ] && . /etc/default/egl-kms
+    # SM_LOG=<file> in /etc/default/egl-kms keeps the compositor's stdout/stderr
+    [ -n "$SM_LOG" ] && exec >> "$SM_LOG" 2>&1
+
+    if [ -f /etc/init.d/webos-nicer.sh ] ; then
+        . /etc/init.d/webos-nicer.sh
+    fi
+    exec $WEBOS_NICE /usr/bin/surface-manager-starfish -platform starfish
+end script

@@ -1,0 +1,8 @@
+# The jail hooks for native apps: LG's jailer, which sam starts for every jailed app,
+# inherits sam's environment, and the hooks act at its chroot into the app's jail
+# (guest/layers/gl/src/jail-gpu.c: the VM's render node; guest/layers/common/src/jail-trust.c:
+# the proxy CA's trust and the kernel store device). This release's stock job preloads nothing,
+# so an env stanza is all it takes; the job's stanzas and script stay stock.
+# Built from guest/layers/common/jail/sam.override.in by the layer that owns the hooks: the common
+# layer's names libjail-trust, the gl layer's (above it, so its file wins) adds libjail-gpu.
+env LD_PRELOAD=@JAIL_PRELOAD@

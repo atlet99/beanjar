@@ -1,0 +1,4 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# btmtk_usb.ko: MediaTek's Bluetooth driver's netlink family with no adapter, one file.
+obj-m := btmtk_usb.o

@@ -1,0 +1,6 @@
+# Emulator: no Mali kernel modules (bsppart's lib/modules/4.4.84-p.649.grampians.k5lp.1/kernel:
+# dma_buf_lock.ko, dma-buf-gm-exporter.ko, mali_kbase.ko, built for Realtek's 4.4 kernel). Kept as a
+# no-op task because surface-manager starts on "stopped gpu-libs".
+script
+	echo "[Upstart Job: $UPSTART_JOB] emulator: no Mali driver"
+end script

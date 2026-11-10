@@ -1,0 +1,40 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The guest's screen rotation to the host, on a model that turns to portrait (the launcher adds the
+# webos.rotation port for targets.Soc.portrait: the StanbyME). webOS turns its UI by the orientation
+# its motion sensor service msc derives from the accelerometer (lgemu's accel device, which `beanjar
+# rotate` turns), and msc publishes it: getOrientationInfo, the compositor's own subscription. Each
+# orientation msc reports goes to the host as a line "rotation=N" at the angle the compositor turns
+# the UI by (StarfishImageSplash.qml: landscape 0, reversed_portrait 90, reversed_landscape 180,
+# portrait 270; rotation.py's ORIENTATIONS). It is what the firmware did, not the angle the sensor
+# was given: N21D's webOS 24 msc keeps its orientation at 180. The host's file of the port
+# (run/rotation) is what `beanjar sensor rotate` waits for and the viewers turn the picture by
+# (host/core/beanjar/rotation.py). Inside webOS through webos-enter; again a few seconds after
+# the subscription ends (msc not up yet, restarted).
+#
+# beanjar-rotation --parse: the reports for msc's replies on stdin, to stdout (the unit test's).
+parse() {
+	while IFS= read -r line; do
+		case $(printf '%s\n' "$line" | sed -n 's/.*"orientation" *: *"\([a-z_]*\)".*/\1/p') in
+		landscape) echo rotation=0 ;;
+		reversed_portrait) echo rotation=90 ;;
+		reversed_landscape) echo rotation=180 ;;
+		portrait) echo rotation=270 ;;
+		esac
+	done
+}
+[ "$1" = --parse ] && { parse; exit 0; }
+port=
+for n in /sys/class/virtio-ports/*/name; do
+	[ "$(cat "$n" 2>/dev/null)" = webos.rotation ] || continue
+	port=${n%/name}
+	port=/dev/${port##*/}
+done
+[ -n "$port" ] || { echo "beanjar-rotation: no webos.rotation port" >&2; exit 1; }
+exec 3>"$port" || exit 1
+while :; do
+	webos-enter luna-send -i luna://com.webos.service.msc/getOrientationInfo \
+		'{"subscribe":true}' </dev/null 2>&1 | parse >&3
+	sleep 3
+done

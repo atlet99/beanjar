@@ -1,0 +1,536 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""The host's tuner (beanjar/tuner.py, tuner_stream.py) without a VM: the wire frames of
+include/webos-tuner.h, the guest's tune frames taken apart at any split, a stream looped at its mux
+rate without nulls and with the STT set to now (its CRC made again), the map kept in the VM's
+state, the US channel frequencies, the guide's events and the independent section check; the
+split between the feeder beside QEMU and a generator elsewhere (a feed) over sockets, with no
+TSDuck, ffmpeg or ssh, and the CLI's remote map and unmap against a fake host."""
+
+import contextlib
+import io
+import json
+import os
+import socket
+import struct
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from unittest import mock
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "host", "core"))
+
+from beanjar import ares, cli, remote, tuner, tuner_stream  # noqa: E402
+
+
+def section(table_id, body, long=True):
+    """A PSI section with its CRC (long) of table_id and body (after the 3-byte header)."""
+    length = len(body) + (4 if long else 0)
+    head = bytes([table_id, (0xB0 if long else 0x30) | (length >> 8), length & 0xFF])
+    sec = head + body
+    return sec + (tuner_stream.crc32_mpeg(sec).to_bytes(4, "big") if long else b"")
+
+
+def packet(pid, payload=b"", start=True):
+    head = bytes([0x47, (0x40 if start else 0) | (pid >> 8), pid & 0xFF, 0x10])
+    data = (b"\x00" if start else b"") + payload
+    return head + data + b"\xff" * (184 - len(data))
+
+
+def stt(gps):
+    # table_id_extension 0, version 0xC1, section 0, last 0, protocol 0, time, offset 18, DS 0
+    return section(0xCD, b"\x00\x00\xc1\x00\x00\x00" + gps.to_bytes(4, "big") + b"\x12\x00\x00")
+
+
+class WireTest(unittest.TestCase):
+    def test_map_and_ts_frames(self):
+        f = tuner.map_frame([177000000, 473000000])
+        self.assertEqual(struct.unpack_from("<IIII", f), (0x4E555457, 1, 0, 16))
+        self.assertEqual(struct.unpack_from("<IIII", f, 16), (177000000, 11, 473000000, 11))
+        pkts = packet(0) * 1100
+        frames = tuner.ts_frames(177000000, pkts)
+        lens, at = [], 0
+        while at < len(frames):
+            magic, kind, freq, n = struct.unpack_from("<IIII", frames, at)
+            self.assertEqual((magic, kind, freq), (0x4E555457, 2, 177000000))
+            lens.append(n)
+            at += 16 + n
+        self.assertEqual(lens, [512 * 188, 512 * 188, 76 * 188])
+
+    def test_tune_reader_any_split(self):
+        data = b"xx" + struct.pack("<IIIII", 0x4E555457, 3, 0, 4, 0)
+        data += struct.pack("<IIIII", 0x4E555457, 3, 177000000, 4, 11)
+        for step in (1, 3, 7, len(data)):
+            r = tuner.TuneReader()
+            for i in range(0, len(data), step):
+                r.feed(data[i : i + step])
+            self.assertEqual((r.tuned, r.delsys), (177000000, 11))
+
+    def test_find_tolerance(self):
+        streams = {177000000: "s7"}
+        self.assertEqual(tuner.find(streams, 177000000), "s7")
+        self.assertEqual(tuner.find(streams, 177310000), "s7")
+        self.assertIsNone(tuner.find(streams, 183000000))
+        self.assertIsNone(tuner.find(streams, 0))
+
+
+class StreamTest(unittest.TestCase):
+    def test_pacing_nulls_and_stt(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "s.ts")
+            pkts = [packet(0, section(0x00, b"\x03\xef\xc1\x00\x00\x00\x01\xe0\x20"))]
+            pkts += [packet(0x1FFF)] * 8
+            pkts += [packet(0x1FFB, stt(1000))]
+            with open(path, "wb") as f:
+                f.write(b"".join(pkts))
+            s = tuner.Stream(path, rate=188 * 8 * 100)  # 100 packets a second
+            out = s.next(0.1, now=tuner_stream.GPS_EPOCH + 5000 - 18)  # 10 packets: one loop
+            got = [out[i : i + 188] for i in range(0, len(out), 188)]
+            self.assertEqual(len(got), 2)  # the nulls dropped
+            self.assertEqual(got[0], pkts[0])
+            sec = got[1][5 : 5 + 20]
+            self.assertEqual(int.from_bytes(sec[9:13], "big"), 5000)
+            self.assertEqual(tuner_stream.crc32_mpeg(sec), 0)
+            self.assertEqual(s.next(0.005), b"")  # half a packet owed
+            self.assertEqual(len(s.next(0.005)), 188)
+
+    def test_validate(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "s.ts")
+            good = section(0x00, b"\x03\xef\xc1\x00\x00\x00\x01\xe0\x20")
+            bad = bytearray(good)
+            bad[-1] ^= 1
+            with open(path, "wb") as f:
+                f.write(packet(0, good) + packet(0, bytes(bad)) + packet(0x1FFB, stt(7)))
+            r = tuner_stream.validate(path)
+            self.assertEqual((r["ok_crc"], r["bad_crc"]), (2, 1))
+            self.assertEqual(r["tables"], {"PAT": 2, "STT": 1})
+
+    def test_mgt_versions(self):
+        def mgt(v):
+            entry = (
+                b"\x01\x00" + bytes([0xFD, 0x00, 0xE0 | v]) + (100).to_bytes(4, "big") + b"\xf0\x00"
+            )
+            return section(0xC7, b"\x00\x00\xc1\x00\x00\x00\x00\x01" + entry + b"\xf0\x00")
+
+        def eit(v):
+            return section(0xCB, b"\x1b\x59" + bytes([0xC1 | v << 1]) + b"\x00\x00\x00\x00")
+
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "s.ts")
+            for listed, carried, want in (
+                (5, 5, []),
+                (28, 3, ["PID 0x1D00: MGT v28, sections v3"]),
+            ):
+                with open(path, "wb") as f:
+                    f.write(packet(0x1FFB, mgt(listed)) + packet(0x1D00, eit(carried)))
+                r = tuner_stream.validate(path)
+                self.assertEqual((r["bad_crc"], r["mgt_mismatch"]), (0, want))
+
+
+class LineupTest(unittest.TestCase):
+    def test_frequencies(self):
+        self.assertEqual(tuner_stream.rf_center_hz(2), 57000000)
+        self.assertEqual(tuner_stream.rf_center_hz(7), 177000000)
+        self.assertEqual(tuner_stream.rf_center_hz(14), 473000000)
+        self.assertEqual(tuner_stream.rf_center_hz(33), 587000000)
+        with self.assertRaises(tuner_stream.Error):
+            tuner_stream.rf_center_hz(37)
+        with self.assertRaises(tuner_stream.Error):
+            tuner_stream.channel(8)
+
+    def test_events_cover_now(self):
+        svc = tuner_stream.channel(7)["services"][0]
+        now = 1_800_000_000
+        for t in range(now, now + 86400, 1800):
+            on_air = tuner_stream.events(svc, t, t + 1)
+            self.assertEqual(len(on_air), 1, t)
+            start, minutes, _title, _text = on_air[0]
+            self.assertTrue(start <= t < start + minutes * 60)
+
+    def test_map_kept(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(tuner.mapped(d), [])
+            tuner.save_map(d, [14, 7, 14])
+            self.assertEqual(tuner.mapped(d), [7, 14])
+
+
+def fake_make(cache, ch, now):
+    """tuner_stream.make without the tools: the stream if it is in cache."""
+    path = tuner_stream.stream_path(cache, ch, now)
+    if os.path.exists(path):
+        return path
+    raise tuner_stream.Error("no tsp, tstabcomp, ffmpeg on this host: install TSDuck and ffmpeg")
+
+
+def put_stream(cache, ch):
+    os.makedirs(cache, exist_ok=True)
+    pkts = [packet(0x31, b"video")] * 40 + [packet(0x1FFF)] * 10
+    with open(tuner_stream.stream_path(cache, ch, time.time()), "wb") as f:
+        f.write(b"".join(pkts))
+
+
+class Guest:
+    """QEMU's end of the tuner port, as the guest's pump would answer: the frames it gets."""
+
+    def __init__(self, sock):
+        self.sock = sock
+        self.reader = tuner.FrameReader()
+        self.maps = []
+        self.ts = 0
+        self.ts_freqs = set()
+        self.lock = threading.Lock()
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self):
+        with contextlib.suppress(OSError):
+            self._take()
+
+    def _take(self):
+        while data := self.sock.recv(65536):
+            with self.lock:
+                for kind, freq, payload in self.reader.feed(data):
+                    if kind == tuner.MAP:
+                        self.maps.append(tuner.map_freqs(payload))
+                    elif kind == tuner.TS:
+                        self.ts += len(payload) // 188
+                        self.ts_freqs.add(freq)
+
+    def tune(self, freq):
+        self.sock.sendall(tuner.tune_frame(freq, tuner.SYS_ATSC))
+
+
+def until(check, timeout=10.0):
+    deadline = time.monotonic() + timeout
+    while not check():
+        if time.monotonic() > deadline:
+            raise AssertionError("timed out")
+        time.sleep(0.02)
+
+
+class FeedTest(unittest.TestCase):
+    """The feeder beside QEMU (no tools, no streams) and a feed elsewhere with rf7's stream."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+        for d in ("run", "state", "host-cache", "pc-cache"):
+            os.makedirs(os.path.join(self.tmp, d))
+        put_stream(os.path.join(self.tmp, "pc-cache"), 7)
+        patch = mock.patch.object(tuner_stream, "make", fake_make)
+        patch.start()
+        self.addCleanup(patch.stop)
+        tuner.save_map(os.path.join(self.tmp, "state"), [7, 14])
+        self.feeder = tuner.Tuner(
+            os.path.join(self.tmp, "run"),
+            os.path.join(self.tmp, "state"),
+            os.path.join(self.tmp, "host-cache"),
+        )
+        self.feeder.log = lambda text: None
+        self.feeder.player.log = self.feeder.log
+        self.path = self.feeder.listen()
+        self.addCleanup(self.feeder.listener.close)
+        host, guest = socket.socketpair()
+        self.guest = Guest(guest)
+        session = threading.Thread(target=self.feeder.session, args=(host,), daemon=True)
+        session.start()
+
+        def end():
+            guest.shutdown(socket.SHUT_RDWR)
+            session.join(5)
+            host.close()
+            guest.close()
+
+        self.addCleanup(end)
+
+    def status(self):
+        with open(os.path.join(self.tmp, "run", tuner.STATUS)) as f:
+            return json.load(f)
+
+    def test_feeder_alone_has_no_signal(self):
+        until(lambda: self.guest.maps)
+        self.assertEqual(self.guest.maps[0], [])  # no tools here, nothing made
+        until(lambda: os.path.exists(os.path.join(self.tmp, "run", tuner.STATUS)))
+        self.assertFalse(self.status()["fed"])
+
+    def test_a_feed_brings_the_tuned_channel_and_ends_cleanly(self):
+        rf7, rf14 = tuner_stream.rf_center_hz(7), tuner_stream.rf_center_hz(14)
+        until(lambda: self.guest.maps)
+        conn = socket.socket(socket.AF_UNIX)
+        conn.connect(self.path)
+        logs = []
+        result = {}
+
+        def feed():
+            result["sent"] = tuner.feed_session(
+                conn, tuner.Player(os.path.join(self.tmp, "pc-cache"), logs.append), logs.append
+            )
+
+        t = threading.Thread(target=feed, daemon=True)
+        t.start()
+        # the feed's map: of the wanted rf7 and rf14, the one it has a stream of
+        until(lambda: self.guest.maps[-1] == [rf7])
+        self.assertEqual(self.guest.ts, 0)  # nothing tuned yet
+        self.guest.tune(rf7)
+        until(lambda: self.guest.ts >= 50)
+        self.assertEqual(self.guest.ts_freqs, {rf7})
+        until(lambda: self.status()["fed"] and self.status()["sent_packets"] > 0)
+        self.assertEqual(self.status()["map_hz"], [rf7])
+        self.assertEqual(self.status()["tuned_hz"], rf7)
+        # the map changes on the feeder's host: the feed follows
+        tuner.save_map(os.path.join(self.tmp, "state"), [14])
+        until(lambda: self.guest.maps[-1] == [])
+        put_stream(os.path.join(self.tmp, "pc-cache"), 14)
+        until(lambda: self.guest.maps[-1] == [rf14])
+        # the feeder ends the feed (its VM stopped): the feed returns, the feeder is alone again
+        self.feeder.drop_feed(self.feeder.feed)
+        t.join(5)
+        self.assertFalse(t.is_alive())
+        self.assertGreater(result["sent"], 0)
+        until(lambda: not self.status()["fed"])
+        conn.close()
+
+    def test_a_new_feed_replaces_the_old(self):
+        a = socket.socket(socket.AF_UNIX)
+        a.connect(self.path)
+        until(lambda: self.feeder.feed is not None)
+        b = socket.socket(socket.AF_UNIX)
+        b.connect(self.path)
+        self.assertEqual(a.recv(4096)[:4], struct.pack("<I", tuner.MAGIC))  # its hello
+        until(lambda: a.recv(4096) == b"")  # then the end
+        hello = tuner.TuneReader()
+        while hello.wanted is None:
+            hello.feed(b.recv(4096))
+        self.assertEqual(
+            hello.wanted, [tuner_stream.rf_center_hz(7), tuner_stream.rf_center_hz(14)]
+        )
+        a.close()
+        b.close()
+        until(lambda: self.feeder.feed is None)
+
+    def test_a_feed_with_no_feeder_fails(self):
+        a, b = socket.socketpair()
+        b.close()
+        with self.assertRaises(tuner.Error):
+            tuner.feed_session(a, tuner.Player(self.tmp, print), lambda t: None, wait=1)
+        a.close()
+
+
+class FeedProcessTest(unittest.TestCase):
+    """feed_main, start_feed and stop_feed with a fake forward and process."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+        patch = mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": self.tmp})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_feed_main_forwards_to_the_socket_and_cleans_up(self):
+        forwards = []
+
+        class Forward:
+            def __init__(self, host, uri, address, to_port, record):
+                forwards.append((host, uri, address, to_port, os.path.basename(record)))
+                self.record = record
+
+            def __enter__(self):
+                ares.write_private(self.record, b"{}")
+                return 4242
+
+            def __exit__(self, *exc):
+                forwards.append("cancelled")
+
+        a, b = socket.socketpair()
+        seen = {}
+
+        def connect(addr):
+            seen["addr"] = addr
+            seen["dirs"] = [e for e in os.listdir(self.tmp) if e.startswith(tuner.FEED_PREFIX)]
+            b.sendall(tuner.map_frame([]))
+            threading.Timer(0.3, b.close).start()
+            return a
+
+        with mock.patch.object(ares, "Forward", Forward), \
+             contextlib.redirect_stdout(io.StringIO()):  # fmt: skip
+            rc = tuner.feed_main(["pi", "ssh://pi", "tv", "/l/tv/run/tuner-feed.sock", self.tmp],
+                                 connect=connect)  # fmt: skip
+        self.assertEqual(rc, 0)
+        self.assertEqual(seen["addr"], ("127.0.0.1", 4242))
+        self.assertEqual(
+            forwards[0], ("pi", "ssh://pi", "/l/tv/run/tuner-feed.sock", None, ares.FORWARD_RECORD)
+        )
+        self.assertEqual(forwards[-1], "cancelled")
+        self.assertEqual(len(seen["dirs"]), 1)
+        self.assertEqual([e for e in os.listdir(self.tmp) if e.startswith(tuner.FEED_PREFIX)], [])
+
+    def test_start_reuses_a_running_feed_and_stop_ends_it(self):
+        spawned = []
+
+        class Proc:
+            pid = os.getpid()
+
+            def poll(self):
+                return None
+
+        def spawn(argv, **kw):
+            spawned.append(argv)
+            d = tempfile.mkdtemp(prefix=f"{tuner.FEED_PREFIX}{os.getpid()}-", dir=self.tmp)
+            info = {"host": "pi", "name": "tv", "pid": os.getpid(), "connected": True}
+            with open(os.path.join(d, tuner.FEED_INFO), "w") as f:
+                json.dump(info, f)
+            return Proc()
+
+        info = tuner.start_feed("pi", "ssh://pi", "tv", "/l/s.sock", self.tmp, spawn=spawn)
+        self.assertEqual(info["pid"], os.getpid())
+        self.assertEqual(spawned[0][-6:], ["feed", "pi", "ssh://pi", "tv", "/l/s.sock", self.tmp])
+        tuner.start_feed("pi", "ssh://pi", "tv", "/l/s.sock", self.tmp, spawn=spawn)
+        self.assertEqual(len(spawned), 1)  # it runs: not a second one
+        self.assertIsNone(tuner.find_feed("pi", "other"))
+        alive = mock.patch.object(tuner, "_alive", side_effect=[True, False])
+        with mock.patch.object(tuner.os, "kill") as kill, alive:
+            self.assertTrue(tuner.stop_feed("pi", "tv"))
+        kill.assert_called_once_with(os.getpid(), tuner.signal.SIGTERM)
+
+    def test_start_reports_a_feed_that_ends(self):
+        class Proc:
+            pid = 1 << 22
+            returncode = 1
+
+            def poll(self):
+                return 1
+
+        def spawn(argv, stdout=None, **kw):
+            stdout.write(b"12:00:00 feed pi/tv: no tuner answered in 15 s\n")
+            return Proc()
+
+        with self.assertRaises(tuner.Error) as e:
+            tuner.start_feed("pi", "ssh://pi", "tv", "/l/s.sock", self.tmp, spawn=spawn)
+        self.assertIn("no tuner answered", str(e.exception))
+
+
+class RemoteCliTest(unittest.TestCase):
+    """beanjar io tuner HOST/NAME map and unmap: the host keeps the map (--fed), a feed here."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        env = {
+            "XDG_CONFIG_HOME": os.path.join(tmp.name, "config"),
+            "BEANJAR_LIBRARY": os.path.join(tmp.name, "lib"),
+            "XDG_RUNTIME_DIR": tmp.name,
+        }
+        patch = mock.patch.dict(os.environ, env)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.calls = []
+        self.mapped = []
+        self.connected = True
+        for name, fake in (("transport", self.transport),):
+            patch = mock.patch.object(remote, name, fake)
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.made = mock.patch.object(tuner, "make").start()
+        self.start = mock.patch.object(tuner, "start_feed").start()
+        self.stop = mock.patch.object(tuner, "stop_feed").start()
+        self.addCleanup(mock.patch.stopall)
+        remote.add_host("pi", "ssh://pi.example")
+
+    def transport(self, argv, stdin=None, on_stderr=None, timeout=None):
+        words = argv[argv.index("--") + 2].split()[1:]
+        self.calls.append(words)
+        verb = words[3] if len(words) > 3 and not words[3].startswith("-") else "list"
+        rest = [w for w in words[4:] if not w.startswith("-")]
+        if verb == "map":
+            self.mapped = sorted(set(self.mapped + [int(w) for w in rest]))
+        elif verb == "unmap":
+            self.mapped = [] if rest == ["all"] else [c for c in self.mapped if str(c) not in rest]
+        data = {
+            "name": "tv",
+            "tuner": True,
+            "channels": [
+                {"channel": c, "center_hz": tuner_stream.rf_center_hz(c),
+                 "mapped": c in self.mapped, "services": []}
+                for c in (7, 14, 33)
+            ],
+            "tuned_hz": None,
+            "sent_packets": 0,
+            "connected": self.connected,
+            "fed": False,
+            "feed_socket": "/l/tv/run/tuner-feed.sock",
+        }  # fmt: skip
+        return 0, json.dumps(data).encode(), ""
+
+    def beanjar(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                rc = cli.main(list(argv))
+            except SystemExit as e:
+                rc = e.code
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_map_makes_here_and_starts_the_feed(self):
+        rc, out, err = self.beanjar("io", "tuner", "pi/tv", "map", "7", "14")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(
+            self.calls[-1], ["io", "tuner", "local/tv", "map", "7", "14", "--fed", "--json"]
+        )
+        self.assertEqual(self.made.call_args.args[1], [7, 14])
+        host, uri, name, address, _cache = self.start.call_args.args
+        self.assertEqual((host, uri, name, address), ("pi", "ssh://pi.example", "tv",
+                                                       "/l/tv/run/tuner-feed.sock"))  # fmt: skip
+        self.assertIn("RF7", out)
+
+    def test_map_of_a_stopped_vm_starts_no_feed(self):
+        self.connected = False
+        rc, _out, err = self.beanjar("io", "tuner", "pi/tv", "map", "7")
+        self.assertEqual(rc, 0, err)
+        self.start.assert_not_called()
+        self.assertIn("not running", err)
+
+    def test_unmap_to_nothing_stops_the_feed(self):
+        self.mapped = [7, 14]
+        self.assertEqual(self.beanjar("io", "tuner", "pi/tv", "unmap", "7")[0], 0)
+        self.stop.assert_not_called()
+        self.assertEqual(self.beanjar("io", "tuner", "pi/tv", "unmap", "all", "--json")[0], 0)
+        self.assertEqual(
+            self.calls[-1], ["io", "tuner", "local/tv", "unmap", "all", "--fed", "--json"]
+        )
+        self.stop.assert_called_once_with("pi", "tv")
+        self.made.assert_not_called()
+
+    def test_list_and_bad_channels(self):
+        self.assertEqual(self.beanjar("io", "tuner", "pi/tv")[0], 0)
+        self.assertEqual(self.calls[-1], ["io", "tuner", "local/tv", "--json"])
+        self.calls.clear()
+        rc, _o, err = self.beanjar("io", "tuner", "pi/tv", "map", "8")
+        self.assertEqual(rc, 1)
+        self.assertIn("no physical channel 8", err)
+        self.assertEqual(self.calls, [])
+
+
+class FrameTest(unittest.TestCase):
+    def test_reader_frames_and_wanted(self):
+        data = b"junk" + tuner.map_frame([473000000, 177000000]) + tuner.ts_frames(1, packet(0))
+        data += tuner.tune_frame(177000000, 11)
+        r = tuner.TuneReader()
+        kinds = []
+        for i in range(0, len(data), 5):
+            kinds += [k for k, _f, _p in r.feed(data[i : i + 5])]
+        self.assertEqual(kinds, [tuner.MAP, tuner.TS, tuner.TUNE])
+        self.assertEqual(r.wanted, [177000000, 473000000])
+        self.assertEqual((r.tuned, r.delsys), (177000000, 11))
+
+    def test_channels_of(self):
+        self.assertEqual(tuner.channels_of([473000000, 177200000, 999000000]), [7, 14])
+
+
+if __name__ == "__main__":
+    unittest.main()

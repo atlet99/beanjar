@@ -1,0 +1,36 @@
+virtio-snd: pcm_device_base, an offset for the ALSA PCM device numbers
+
+The ALSA device number of a virtio-snd PCM is the function node ID of its streams, which QEMU
+always sets to 0, so the card's one PCM is hw:0,0. LG's webOS TV firmware opens its speaker
+output by a fixed name: the stock /etc/pulse/system.pa loads module-alsa-sink with
+device=hw:0,6 (the LG SoC card's PCM 6). With virtio_snd.pcm_device_base=6 on the kernel
+cmdline, the PCM is created as device 6 (/dev/snd/pcmC0D6p) and the stock file runs unmodified.
+
+Only the ALSA device number moves. The node ID used to match streams, jacks and channel maps,
+and the PCM's name ("VirtIO PCM 0"), are unchanged. The default, 0, keeps mainline behaviour.
+
+--- a/sound/virtio/virtio_pcm.c
++++ b/sound/virtio/virtio_pcm.c
+@@ -28,6 +28,10 @@
+ module_param(pcm_period_ms_max, uint, 0644);
+ MODULE_PARM_DESC(pcm_period_ms_max, "Maximum PCM period time in milliseconds");
+ 
++static u32 pcm_device_base;
++module_param(pcm_device_base, uint, 0444);
++MODULE_PARM_DESC(pcm_device_base, "ALSA device number of the PCM with function node ID 0");
++
+ /* Map for converting VirtIO format to ALSA format. */
+ static const snd_pcm_format_t g_v2a_format_map[] = {
+ 	[VIRTIO_SND_PCM_FMT_IMA_ADPCM] = SNDRV_PCM_FORMAT_IMA_ADPCM,
+@@ -426,8 +430,9 @@
+ 		if (!npbs && !ncps)
+ 			continue;
+ 
+-		rc = snd_pcm_new(snd->card, VIRTIO_SND_CARD_DRIVER, vpcm->nid,
+-				 npbs, ncps, &vpcm->pcm);
++		rc = snd_pcm_new(snd->card, VIRTIO_SND_CARD_DRIVER,
++				 pcm_device_base + vpcm->nid, npbs, ncps,
++				 &vpcm->pcm);
+ 		if (rc) {
+ 			dev_err(&vdev->dev, "snd_pcm_new[%u] failed: %d\n",
+ 				vpcm->nid, rc);

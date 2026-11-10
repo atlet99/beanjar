@@ -1,0 +1,9 @@
+models = ["W22H"]
+bring_up = ["W22H"]
+
+# W22H's stock state pins differ from W22P/L: no hist slot. Its global firmwares (AFADATAA,
+# AFABATPU) name the paks -global as W22P's do; its Japanese ones (AFADJAAA, AFABJAPU) name the
+# same paks -arib, which a VM of such a firmware takes instead (targets.release).
+[release]
+base = "mullet"
+partmap = "k8hp-mullet"

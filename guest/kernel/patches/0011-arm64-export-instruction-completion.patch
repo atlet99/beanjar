@@ -1,0 +1,11 @@
+--- a/arch/arm64/kernel/traps.c
++++ b/arch/arm64/kernel/traps.c
+@@ -375,6 +375,8 @@ void arm64_skip_faulting_instruction(struct pt_regs *regs, unsigned long size)
+ 		regs->pstate &= ~PSR_BTYPE_MASK;
+ }
+ 
++EXPORT_SYMBOL_GPL(arm64_skip_faulting_instruction);
++
+ static int user_insn_read(struct pt_regs *regs, u32 *insnp)
+ {
+ 	u32 instr;

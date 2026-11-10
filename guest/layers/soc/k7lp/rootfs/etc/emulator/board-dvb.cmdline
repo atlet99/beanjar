@@ -1,0 +1,53 @@
+# Board parameters the bootloader (Realtek's U-Boot, LG's build for K7LP, "LGE K7 Board") puts on
+# the kernel command line; the initramfs appends these to the real cmdline and bind-mounts the
+# result over /proc/cmdline inside webOS. W21P's own values:
+# the words W21P's boot.pak prints, in its order ("modelopt=%s ", "hwopt=%s ",
+# "ToolOpt=%s:%s:%s:%s:%s:%s ", "debugMode=%d ", "modelName=%s ", "serialNum=%s ",
+# "countryGrp=%s ", "chip=K7LPA0", "tvregion=%s ", "cmdEnd"), the digits chosen so that W21P's own
+# hw-option-gen, nyx-option-gen and libdile_boardinfo decode them to the retail model 43UP77009LB
+# (43", UHD, DVB, a German set), from W21P's enum tables; they are validated
+# against the firmware.
+#
+# The emulator's MAC; a VM's own replaces it (webos.ethaddr=)
+ethaddr=a8:23:fe:12:34:56
+# in U-Boot's template (boot.pak)
+devtmpfs.mount=1
+# modelopt=: no position reaches tv.hw.json on W21P (hw-option-gen's sweep); mainboardMaker LG
+modelopt=000000000
+# hwopt=, 18 hex digits: d0 2 the area option, DVB/EU (libdile_tvregion: region DVB, country
+# group 4; hw-option-gen: countryType EU, supportT2Tuner, supportSatellite, supportDualTuner,
+# supportNewDualTuner), d2 2 panelInterface VBYONE (U-Boot's default panel mode
+# LG_4K2K60Hz_VBY1_Default), d3 2 panelResolution UD, d4 0 60 Hz, d11 3 ddrSize 1.5G (the guest's
+# RAM, targets.ram), d14 2 graphicResolution 1920x1080; the rest 0 (pmic SiliconWorks, tuner level
+# 0, LCD, frc_none)
+hwopt=202200000003002000
+# ToolOpt=, six words, base 10 (factorymanager.db.tooloption.json's fields): LG's own default for
+# the region (LLS's default record of this board: libmodelOpt's model_opt_getToolOptDefaultValue,
+# the DVB row 0x111d0:0x8016:0x11000:0x41:0x5e40837:0x973ce0b), with the fields the retail model
+# fixes from factorymanager's tables over it: word 1 panelInch 10 (bits 0-4, PANELINCH_STR_ENUM "43") and toolType
+# 22 (bits 5-10, PANELTOOL_STRING_ENUM "UP77", the model's series). No other field is fixed by the
+# model's spec. The same values follow from the firmware's tables.
+ToolOpt=70346:32790:69632:65:98830391:158584331
+# The emulator deliberately runs LG's DEBUG mode (3) on every board
+debugMode=3
+# The retail model (U-Boot's "modelName=%s "): libmodelOpt, libdile_boardinfo and LLS's factory
+# DB (the factory line's, beanjar/lls.py); without it factorymanager's modelName is "WEBOS5.0"
+modelName=43UP77009LB
+# PLACEHOLDER serial; a VM's own replaces it (webos.serial=)
+serialNum=000RAXX00001
+# The country group: libdile_boardinfo's countryGrp= (atoi; DILE_BOARDINFO_GetCountryGroupCode
+# returns it, and derives the same 4 from libdile_tvregion's region DVB without it). Europe (RMM
+# group 4, EU)
+countryGrp=4
+# a constant in this U-Boot
+chip=K7LPA0
+# The TV region (libdile_tvregion's TVRegionHWOptionParser reads it after hwopt='s area option):
+# the area option's, DVB
+tvregion=DVB
+# The eMMC's size in bytes (U-Boot's "emmc_size=0x%01lx%08lx", in W21P's boot.pak, from the chip
+# it finds): libdile_boardinfo's DILE_BOARDINFO_GetInternalStorageSize reads it, and nyx's
+# storage_size fails without it. 0x1d2000000 as the other boards: an 8 GB part (a webOS 6 LM21A
+# set's U-Boot gives 0x1d1fff000), above the end of this target's partition map (partmap.py)
+emmc_size=0x1d2000000
+# U-Boot ends with cmdEnd
+cmdEnd

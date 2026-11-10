@@ -1,0 +1,20 @@
+# OLED55C2PJA, the Japanese 55" C2 (models DB: HE_DTV_W22O_AFABJAPU), for W22O's ARIB firmware
+# (targets.Soc.broadcast_boards). Its own generators decode it (lls.tvconfig).
+# hwopt: board-dvb.cmdline's (OLED55C21LA) with the country digit 0 at 0, JP: countryType JP, ARIB,
+# and every other tv.hw field as the global line decodes it (but the tuner flags the country sets).
+# countryGrp 18: libdile_boardinfo's group of this line, configd's JP RMM group (JPN).
+# ToolOpt: this firmware's LLS default record (libmodelOpt) with its 55" and C2 enum values.
+# Identity is synthetic; A0 is a virtual revision.
+ethaddr=02:00:00:12:34:56
+devtmpfs.mount=1
+countryGrp=18
+modelopt=000000000
+hwopt=000210000105102000
+ToolOpt=1048718:19:1314890:65:16377395:825678601
+modelName=OLED55C2PJA
+debugMode=3
+serialNum=000RAXX00001
+chip=O22A0
+tvregion=ARIB
+emmc_size=0x1d2000000
+cmdEnd

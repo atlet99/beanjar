@@ -1,0 +1,56 @@
+# MStar's drivers under KADP: M2's
+# two 512 MiB MIUs, MIU1 at MStar's MIU_INTERVAL, their ARM bus addresses; LG's mmapger has
+# 89 records (KADP's MAdp_SYS_GetMMAP takes ids 0-88), LX_MEM is id 1 and LX_MEM2 id 67
+# (MAdp_MPool_Init), each record gets 8 MiB (the emulator's layout, not a firmware's); W16R's
+# MAdp_MPool_Init adds 0x40000000 to SYS_INFO's LX_MEM2_ADDR before it compares (lx_mem2_bias).
+# Registers read back what was written, 0 before; beyond that (MStar's register interface,
+# RIU: PM at 0x1f000000, non-PM at 0x1f200000): reg_init, the CPU clock non-PM 0x10cc0-2
+# (HAL_CPU_QueryClock divides 0xa2000008 by it; this is 1 GHz), and the CI slot empty: PCMCIA's
+# card-detect pins, bits 2 and 3 of non-PM 0x3449 (bank 0x3440's READ_DATA_DONE_BUS_IDLE),
+# high; KADP's MAdp_CI_Init calls MDrv_PCMCIA_Init(FALSE), an active-low detect, so the 0 of
+# a register never written is a CAM in slot A; reg_autoclear, the efuse read triggers PM 0x2000 and 0x204c bit 0
+# (HAL_SYS_ReadEfuseHDCPKey sets one and waits for it to clear), and XC's PQ SRAM write
+# strobe, bit 8 of 0x132382 (XC's registers are addressed flat from the PM base, 0x130000 +
+# bank << 8 + offset: this is bank 0x23's 0x82; Hal_PQ_set_y/c_sram_table write an entry, set
+# the bit and wait for it to clear before the next), and XC's menu load busy bit, bit 15 of
+# 0x131f04 (bank 0x1f's 0x04: MDrv_XC_MLoad_Fire sets it and waits for it to clear).
+# The board's I2C devices lgemu.ko models on HWI2C, device:SlaveCfg (port << 8 | slave; LG's
+# MAdp_IIC_* take the port from the HAL's channel, _IIC_CheckPhyPort: 1 -> 4, 2 -> 0): W16R's
+# RELEASE.cfg "[i2c]MICOM:1:0x52:0" and "[i2c]NVM:2:0xA0:1", and the NTP7515 ToolOpt3 selects
+# (AMP_NTP7515_1AMP, "[i2c]NTP7515:4:0x54:1": channel 4 is port 0), which its driver only
+# writes (init, volume, mute); a slave not listed does not acknowledge (mstar-utopia/hwi2c.c).
+# adv_fn009: the OSD volume, kernel-mode AUDIO (module 45) command 90, MApi_AUDIO_ADVSOUND_SetParam2
+# of LGSEFN009_VARIABLES (186), passed to lgemu's playback gain.
+# xc_window: XC's kernel-mode window commands (W16R's Utopia numbering: SetWindow 19,
+# GenerateBlackVideo 52, ..ForBothWin 50, EnableMainWindow 245, DisableSubWindow 247,
+# EnableWindow 193), the scaler windows the viewer draws the media in (mstar-utopia/utopia.c); W16R's
+# XC is user-mode, so they come from the libkadaptor shim, and the registers its unblank reads
+# back (the black screen, the VSD line counters) are kept in the register store (xc_riu: the
+# PM RIU base and XC's flat base).
+
+board_cmdline = "/etc/emulator/board.cmdline"
+# The 43LH604V's area, a German set's (W16R's RELEASE.cfg nContinentIdx 50, "DE" in
+# tvservice's _aDefineContinent; eLanguageCountry LANG_COUNTRY_EU = 24, eHWSettingGroup
+# HWSETTING_EU = 0, the enums' values in its DWARF)
+continent = [50, 24, 0]
+
+[[modules]]
+name = "mstar-utopia"
+params = [
+    "miu_interval=0x80000000",
+    "miu_len=0x20000000",
+    "miu0_bus=0x20000000",
+    "miu1_bus=0xa0000000",
+    "mmap_ids=89",
+    "mmap_slot=0x800000",
+    "lx_mem_id=1",
+    "lx_mem2_id=67",
+    "lx_mem2_bias=0x40000000",
+    "reg_init=0x1f200000:0x10cc0:0x78d5,0x1f200000:0x10cc2:0x29,0x1f200000:0x3448:0xc00",
+    """reg_autoclear=0x1f000000:0x2000:0x1,0x1f000000:0x204c:0x1,0x1f000000:0x132382:0x100,\
+        0x1f000000:0x131f04:0x8000""",
+    "i2c=micom:0x0452,nvm:0x00a0,amp:0x0054",
+    "adv_fn009=45:90:186",
+    "xc_window=19,52,50,245,247,193",
+    "xc_riu=0x1f000000:0x130000",
+]

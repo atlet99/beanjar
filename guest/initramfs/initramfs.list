@@ -1,0 +1,67 @@
+# The initramfs, build/initramfs.cpio.gz, in the format of the kernel's usr/gen_init_cpio (its
+# -h; Documentation/driver-api/early-userspace/early_userspace_support.rst). meson/initramfs.py
+# replaces ${NAME} with the path meson.build gives it (${SRC} is rootfs/) and packs it:
+# every owner, mode and device node is the one written here, every timestamp is 0. A file added
+# to rootfs/ must be listed here.
+#
+# file <name> <location> <mode> <uid> <gid>
+# dir <name> <mode> <uid> <gid>
+# nod <name> <mode> <uid> <gid> <dev_type> <maj> <min>
+# slink <name> <target> <mode> <uid> <gid>
+
+# the root (the kernel's rootfs is a tmpfs, mode 1777 until this entry sets it)
+dir . 0755 0 0
+file /init ${SRC}/init 0755 0 0
+
+dir /bin 0755 0 0
+file /bin/busybox ${BUSYBOX} 0755 0 0
+# the one applet link /init needs to start; /init installs the others (busybox --install -s /bin)
+slink /bin/sh busybox 0777 0 0
+file /bin/webos-enter ${SRC}/bin/webos-enter 0755 0 0
+file /bin/webos-start ${SRC}/bin/webos-start 0755 0 0
+file /bin/beanjar-eswap ${SRC}/bin/beanjar-eswap 0755 0 0
+file /bin/firmware-prepare ${SRC}/bin/firmware-prepare 0755 0 0
+file /bin/beanjar-rotation ${SRC}/bin/beanjar-rotation 0755 0 0
+# the pointer bridge and the IR pump (src/)
+file /bin/virtio-pointer ${VIRTIO_POINTER} 0755 0 0
+file /bin/virtio-touch ${VIRTIO_TOUCH} 0755 0 0
+file /bin/virtio-ir ${VIRTIO_IR} 0755 0 0
+file /bin/virtio-tuner ${VIRTIO_TUNER} 0755 0 0
+file /bin/virtio-video ${VIRTIO_VIDEO} 0755 0 0
+file /bin/virtio-meminfo ${VIRTIO_MEMINFO} 0755 0 0
+file /bin/virtio-capture ${VIRTIO_CAPTURE} 0755 0 0
+file /bin/sestore-load ${SESTORE_LOAD} 0755 0 0
+# SimpleSmart's GOP planes on virtio-gpu (src/gop-present.c)
+file /bin/gop-present ${GOP_PRESENT} 0755 0 0
+# the boot splash (src/splash.c) and its picture (meson/splash.py)
+file /bin/splash ${SPLASH} 0755 0 0
+dir /sbin 0755 0 0
+
+dir /etc 0755 0 0
+file /etc/profile ${SRC}/etc/profile 0644 0 0
+file /etc/splash.ppm ${SPLASH_PPM} 0644 0 0
+
+# /init's stdin, stdout and stderr (the kernel's built-in initramfs has the same node; devtmpfs
+# is mounted over /dev by /init)
+dir /dev 0755 0 0
+nod /dev/console 0600 0 0 c 5 1
+dir /proc 0755 0 0
+dir /sys 0755 0 0
+dir /run 0755 0 0
+dir /tmp 0755 0 0
+
+# out-of-tree kernel modules (guest/kernel/modules/<name>), which /init insmods; each is a '--var' in
+# meson.build
+dir /lib 0755 0 0
+dir /lib/modules 0755 0 0
+file /lib/modules/lgemu.ko ${LGEMU_KO} 0644 0 0
+file /lib/modules/media-pool.ko ${MEDIA_POOL_KO} 0644 0 0
+file /lib/modules/mstar-utopia.ko ${MSTAR_UTOPIA_KO} 0644 0 0
+file /lib/modules/lg115x.ko ${LG115X_KO} 0644 0 0
+file /lib/modules/rtk.ko ${RTK_KO} 0644 0 0
+file /lib/modules/btmtk_usb.ko ${BTMTK_USB_KO} 0644 0 0
+file /lib/modules/webos_tv.ko ${WEBOS_TV_KO} 0644 0 0
+file /lib/modules/dtv_soc.ko ${DTV_SOC_KO} 0644 0 0
+# the kernel's own modules, /lib/modules/<release>/kernel/... with depmod's modules.dep, which /init
+# loads with busybox modprobe (boot.conf's PERIPHERAL_MODULES; meson/initramfs.py expands the line)
+tree /lib/modules ${KERNEL_MODULES} 0755 0644 0 0

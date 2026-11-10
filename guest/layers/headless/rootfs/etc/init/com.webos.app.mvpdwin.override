@@ -1,0 +1,14 @@
+# Headless (no graphics yet): needs the compositor, so it does not run. It is one of the four
+# snapshot-boot components (with tvservice, WebAppMgr and inputcommon; the last two are not
+# started headless either), and the first of them to be ready emits snapshot-component-ready,
+# on which snapshot-boot-sync emits snapshot-resume-done and mount-readwrite runs. LG's tvservice
+# waits for mount-readwrite's flag before it announces itself (libsnapshot-boot's
+# snapshot_boot_ready), so without a graphical component nothing would. Stand in for this one,
+# on the stock `start on lsm-ready`. The stock `stop on` includes `stopping surface-manager`,
+# which headless (a one-shot job that only emits lsm-ready) does at once: that stopped this task
+# before it had emitted.
+stop on starting start_update
+task
+script
+	initctl emit --no-wait snapshot-component-ready SNAPSHOT_COMPONENT=mvpdwin
+end script

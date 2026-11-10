@@ -1,0 +1,13 @@
+# Board parameters for NetCast 4.5 on LM14 (docs/dev/architecture/netcast45.md). The launcher puts them on
+# the kernel command line, first (Release.board_in_kernel), for rc.local, lginit and RELEASE.
+# The partitions the bootloader hands over (LM14's boot.pak bootargs): the root, p16 (the
+# emulator's root is the initramfs's overlay of it), and lginit, p17, which rc.local runs for
+# bootmode=auto from bootdev=emmc.
+console=ttyS0,115200 lginit=/dev/mmcblk0p17 root=/dev/mmcblk0p16 rootfstype=squashfs
+bootdev=emmc bootmode=auto
+# 3 = DEBUG (the emulator's boards boot LG's debug mode)
+debugMode=3
+# The set's MAC address, which LM14's MBoot appends as macadr= (from the macadr partition, else
+# its default ethaddr); libafcommon's AF_UTIL_GetMacAddressFromCmdline reads it, and appctrl and
+# upctrl crashed formatting a NULL one without it. The launcher replaces it with the VM's MAC.
+macadr=a8:23:fe:12:34:56

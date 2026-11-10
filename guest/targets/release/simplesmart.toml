@@ -1,0 +1,84 @@
+# simplesmart: LG's SimpleSmart (NetCast line; SS1A's 04.10.06, "HE_LCD_SS1A_AFAAAIAA"), not webOS
+# (docs/dev/architecture/simplesmart.md): stated whole, nothing of the webOS releases'. sysvinit 2.86 and
+# glibc 2.19 on LG's 3.10 kernel; rcS and rc.local run the static lginit, whose lginit_app mounts
+# the paks itself from /dev/mmcblk0pN (its mount tables), and procmgr starts RELEASE. So init
+# mounts only the root (root.pak, p18, LZO) and lginit (lgin.pak, p19, where the bootloader's
+# lginit= puts it); every other pak is attached and has its node. The paks are epk2extract's
+# four-letter names of the EPK2. No tplist, preload, emanual or cert pak ships: their partitions
+# have no node, and their mounts fail as on a set whose partition is empty. The partition map is
+# lginit_app's own `partinfo` (65 entries, partinfo p3: part.pak byte for byte). The read-write
+# partitions RELEASE formats and mounts (OSA_MountRWFS: system_app p58, data p59; apps p60) at
+# the map's sizes; the eMMC NVM (nvram p13, RELEASE's "NAND NVM" ring of three blocks) and the I2C
+# EEPROM (32 KiB) start blank, and RELEASE writes its own default records to both (its "First
+# BootUp Detect"): no records of ours. authcxt, sestore and sedata start blank too. No PmLog, no
+# trust stores, no network layers.
+
+platform = "SimpleSmart"
+always_layers = ["simplesmart"]
+init_system = "sysvinit"
+# LG's 3.10 kernel (SS1A's kern.pak, 3.10.23): CAP_LAST_CAP CAP_BLOCK_SUSPEND
+cap_last_cap = 36
+# SS1A's DDR is not an hwopt digit the launcher decodes (its DDR_SIZE_TYPE is not recovered):
+# dram, the 1 GiB of its two 512 MiB MIUs (vend.pak's mmap.ini MIU_DRAM_LEN 0x40000000)
+ddr_sizes = []
+dram = 1024
+board_in_kernel = true
+screen = "panel"
+# SS1A's kernel strings: UVC, USB storage, CDC ACM and USB serial (pl2303, option, sierra); the
+# filesystems as webOS 4.5's (no data on its own). Its RELEASE insmods lgli.pak's tfat.ko and
+# tntfs.ko and mounts with those names: lgfs
+peripherals = [
+    "uvcvideo", "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii",
+    "nls_utf8", "nls_iso8859-1", "nls_cp949", "exfat", "cdc-acm", "pl2303", "option", "sierra",
+    "lgfs",
+]
+paks = [
+    { file = "root", serial = "rootfs", mount = "/" },
+    { file = "lgin", serial = "lginit", mount = "/mnt/lg/lginit" },
+    { file = "lgap", serial = "lgapp" },
+    { file = "lgre", serial = "lgres" },
+    { file = "lgli", serial = "lglib" },
+    { file = "lgfo", serial = "lgfont" },
+    { file = "open", serial = "opensrc" },
+    { file = "base", serial = "base" },
+    { file = "patc", serial = "patch" },
+    { file = "pqld", serial = "pqldb" },
+    { file = "extr", serial = "extra" },
+    { file = "vend", serial = "vendor" },
+    { file = "estr", serial = "estreamer" },
+    { file = "mode", serial = "model" },
+    { file = "swue", serial = "swue" },
+]
+state_disks = { system_app = "130M", data = "290M", apps = "1520M" }
+nvm_disks = { nvram = "6M", eeprom = "32K" }
+emmc_disks = ["partinfo", "authcxt", "sestore", "sedata"]
+partmap = { pak = "lgin", path = "/lginit_app" }
+
+[nvm]
+eeprom = "eeprom"
+
+[partitions]
+partinfo = "partinfo"
+mapbak = "partinfo"
+swue = "swue"
+authcxt = "authcxt"
+nvram = "nvram"
+model = "model"
+sestore = "sestore"
+sedata = "sedata"
+rootfs = "rootfs"
+lginit = "lginit"
+lgapp = "lgapp"
+lgres = "lgres"
+lglib = "lglib"
+lgfont = "lgfont"
+opensrc = "opensrc"
+base = "base"
+patch = "patch"
+pqldb = "pqldb"
+extra = "extra"
+vendor = "vendor"
+estreamer = "estreamer"
+system_app = "system_app"
+data = "data"
+apps = "apps"

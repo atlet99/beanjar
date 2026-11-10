@@ -1,0 +1,19 @@
+models = ["W22O"]
+bring_up = ["W22O"]
+lg_scaler = [3840, 2160]
+de_histogram = true
+
+# W22O ponytail (33.31.68) and queue (43.21.89) keep number1's fstab pins (uhdcp p49, DB8/common
+# data/apps p54-p56) and global paks, but name the fonts pak fonts-global again; queue's added
+# appackage.pak has no fstab mount. Queue's kernel is 6.12 (cap_last_cap 40, as release/queue.toml's).
+[release]
+base = "ponytail"
+peripherals = [
+    "usbhid", "uhid", "joydev", "input-leds", "hid-axff", "hid-dr", "hid-logitech",
+    "hid-microsoft", "hid-pl", "hid-sony", "hid-playstation", "hid-zpff", "xpad", "uvcvideo",
+    "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii", "nls_utf8",
+    "nls_iso8859-1", "nls_cp949", "exfat", "snd-usb-audio", "cdc-acm", "pl2303", "option",
+    "sierra", "lgfs", "ftdi_sio",
+]
+nvm_disks = { nvram = "8M", eeprom = "32K" }
+partmap = "o22-ponytail"

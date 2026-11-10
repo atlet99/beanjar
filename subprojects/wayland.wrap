@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Wayland 1.26 clients for Mesa (guest/layers/gl/mesa). Patches: guest/layers/gl/patches/wayland. Hash: upstream .sha256sum.
+[wrap-file]
+directory = wayland-1.26.0
+source_url = https://gitlab.freedesktop.org/wayland/wayland/-/releases/1.26.0/downloads/wayland-1.26.0.tar.xz
+source_filename = wayland-1.26.0.tar.xz
+source_hash = 64176eaa46e4969903e286f8e5ef8331affc17fdf03ac9b58381d2b23162b7a3
+diff_files = wayland/0001-legacy-untimed-dispatch.patch, wayland/0002-array-release-no-poison.patch

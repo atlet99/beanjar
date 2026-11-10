@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# webos_tv.ko: LG's WDVB/WFM tuner driver, one file, on the built-in DVB core. Counts through
+# lgemu.ko's helpers (lgemu-drv.h; kbuild.sh gives modpost lgemu's Module.symvers).
+obj-m := webos_tv.o
+ccflags-y := -I$(src)/../lgemu

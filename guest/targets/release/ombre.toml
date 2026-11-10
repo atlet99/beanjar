@@ -1,0 +1,5 @@
+# W22H ombre retains number1's paks and stock p56-p58 state pins.
+# Its stock libc is 2.35 and systemd 250.5; the Qt daemon route and LLS interface remain.
+
+base = "number1"
+version = "24"

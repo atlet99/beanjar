@@ -1,0 +1,14 @@
+# Emulator: raise the PmLog contexts listed in webos.pmlog_debug=ctx1,ctx2 on the kernel cmdline
+# (PMLOG_DEBUG="ctx1 ctx2" for the launchers) to debug level before PmLogDaemon starts, and turn
+# off libPmLogLib's client whitelist for that boot (usr/libexec/beanjar/pmlog-debug --devmode).
+# The systemd releases' counterpart of etc/init/emulator-pmlog-debug.conf; pulled in by
+# pm-log-daemon.service (pm-log-daemon.service.wants), and does nothing without the list.
+[Unit]
+Description=Emulator: debug-level PmLog contexts from the kernel cmdline
+DefaultDependencies=no
+Before=pm-log-daemon.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/beanjar/pmlog-debug --devmode
+RemainAfterExit=yes

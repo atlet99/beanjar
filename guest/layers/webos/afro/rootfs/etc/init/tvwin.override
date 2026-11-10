@@ -1,0 +1,13 @@
+# tvservice layer: the stock job's script (factory boots only), with tvservice's private view of
+# the OS (/usr/lib/libtvservice-private.so) LD_PRELOADed into tvwin, which links libhal_lg115x too;
+# the library drops itself from LD_PRELOAD once loaded. The job's other stanzas are unchanged.
+script
+	# check factory mode
+	if ! grep -q -w "factory" /proc/cmdline
+	then
+		exit 0
+	fi
+
+	export LD_PRELOAD=/usr/lib/libtvservice-private.so
+	exec /usr/sbin/tvwin factory-mode
+end script

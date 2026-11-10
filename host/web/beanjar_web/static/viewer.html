@@ -1,0 +1,131 @@
+<!doctype html>
+<!-- SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Beanjar</title>
+<link rel="stylesheet" href="/style.css">
+<script type="module" src="/viewer.js"></script>
+</head>
+<body class="viewer">
+<!-- Secondary controls share More on desktop and portrait. Portrait also folds
+     Fullscreen into More and moves the controls to the bottom toolbar. -->
+<header class="bar">
+<div class="start">
+<a id="vm-list" href="/" class="flat" title="All VMs" aria-label="All VMs"><i class="bi" style="--i: url(/icons/grid-3x3-gap.svg)"></i></a>
+<div class="linked" role="group" aria-label="TV system keys">
+<button class="ir" data-key="BACK" aria-label="Back" title="Back (Escape)"><i class="bi" style="--i: url(/icons/chevron-left.svg)"></i></button>
+<button class="ir" data-key="HOME" aria-label="Home" title="Home (Super)"><i class="bi" style="--i: url(/icons/house.svg)"></i></button>
+<button class="ir" data-key="MENU" aria-label="Settings" title="Settings"><i class="bi" style="--i: url(/icons/gear.svg)"></i></button>
+</div>
+</div>
+<div class="titles"><div id="title"></div><div id="sub"></div></div>
+<div class="end" role="group" aria-label="Viewer controls">
+<button id="sound" class="flat toggle" aria-pressed="false" title="Sound off: click to hear the VM" aria-label="Sound"><i class="bi" style="--i: url(/icons/volume-mute.svg)"></i></button>
+<button id="remote" class="flat toggle" aria-pressed="false" title="Show or hide the TV remote" aria-label="TV remote" aria-controls="remote-pop"><i class="bi" style="--i: url(/tv-remote.svg)"></i></button>
+<button id="full" class="flat" title="Fullscreen" aria-label="Fullscreen"><i class="bi" style="--i: url(/icons/fullscreen.svg)"></i><span class="control-label">Fullscreen</span></button>
+<div id="viewer-more" popover role="menu" aria-label="More viewer controls">
+<button id="quality-button" class="flat toggle" role="menuitem" aria-pressed="false" aria-expanded="false" aria-haspopup="dialog" popovertarget="quality-pop" title="Picture Quality" aria-label="Picture Quality"><i class="bi" style="--i: url(/icons/badge-hd.svg)"></i><span class="control-label">Quality</span></button>
+<button id="planes-button" class="flat toggle" role="menuitem" aria-pressed="false" aria-expanded="false" aria-haspopup="dialog" popovertarget="planes-pop" title="Planes: show or hide the UI, the video and the cursor" aria-label="Planes"><i class="bi" style="--i: url(/icons/layers.svg)"></i><span class="control-label">Planes</span></button>
+<button id="shot" class="flat" role="menuitem" title="Save Screenshot" aria-label="Save Screenshot"><i class="bi" style="--i: url(/icons/camera.svg)"></i><span class="control-label">Save Screenshot</span></button>
+<button id="stats-button" class="flat toggle" role="menuitemcheckbox" aria-checked="false" aria-pressed="false" aria-controls="stats-overlay" title="Stats for nerds" aria-label="Stats for nerds"><i class="bi" style="--i: url(/icons/bar-chart.svg)"></i><span class="control-label">Stats for nerds</span></button>
+<button id="rotate" class="flat toggle" role="menuitemcheckbox" hidden aria-checked="false" aria-pressed="false" title="Portrait" aria-label="Portrait"><i class="bi" style="--i: url(/icons/arrow-clockwise.svg)"></i><span class="control-label">Portrait</span></button>
+<button id="full-remote" class="flat" role="menuitem" hidden title="Full remote" aria-label="Full remote" aria-controls="remote-pop"><i class="bi" style="--i: url(/tv-remote.svg)"></i><span class="control-label">Full remote</span></button>
+<a id="inspector" class="flat" role="menuitem" target="_blank" rel="noopener" hidden title="Traffic Inspector (mitmweb), in a new tab" aria-label="Traffic Inspector"><i class="bi" style="--i: url(/icons/binoculars.svg)"></i><span class="control-label">Traffic Inspector</span></a>
+</div>
+<button id="more-button" class="flat" title="More" aria-label="More viewer controls" aria-haspopup="menu" aria-expanded="false" popovertarget="viewer-more"><i class="bi" style="--i: url(/icons/three-dots-vertical.svg)"></i></button>
+</div>
+</header>
+<!-- A touch screen's model: the Remote button opens this instead (Show remote, and the mouse as a
+     pointer or a finger); the plain Remote button elsewhere. -->
+<div id="input-menu" popover role="menu" aria-label="Remote and input">
+<button id="input-remote" class="flat" role="menuitemcheckbox" aria-checked="false" title="Show or hide the TV remote" aria-label="Show remote"><i class="bi" style="--i: url(/tv-remote.svg)"></i><span class="control-label">Show remote</span></button>
+<button id="input-touch" class="flat" role="menuitemcheckbox" aria-checked="false" title="Mouse: pointer (check to make it a finger on the touch screen)" aria-label="Mouse as a finger"><i class="bi" style="--i: url(/icons/mouse.svg)"></i><span class="control-label">Mouse as a finger</span></button>
+</div>
+<div id="quality-pop" class="popover" popover role="dialog" aria-label="Picture Quality">
+<div class="pop-title">Picture Quality</div>
+<div class="segmented" role="radiogroup" aria-label="Picture">
+<label><input type="radio" name="picture" value="vnc"><span>VNC</span></label>
+<label id="h264-choice"><input type="radio" name="picture" value="h264"><span>H.264</span></label>
+</div>
+<div id="picture-note" class="pop-hint" hidden></div>
+<div id="vnc-settings">
+<div class="pop-sub">JPEG Quality</div>
+<div class="pop-row"><input id="quality" type="range" min="0" max="9" step="1"><output id="quality-value"></output></div>
+<div class="pop-hint">Lower is lighter on the network, higher is sharper.</div>
+</div>
+<div id="h264-settings" hidden>
+<div class="pop-sub">Bitrate, at most</div>
+<div class="pop-row"><input id="bitrate" type="range" min="1000" max="20000" step="500"><output id="bitrate-value" class="wide"></output></div>
+<div class="pop-hint">Encoded on the host at constant quality up to this, decoded here (WebCodecs).</div>
+</div>
+</div>
+<!-- The planes beanjar-vnc composes (beanjar:planes= on the RFB connection): one picture for
+     every client of the VM, so the choice is shared, and lasts until beanjar-vnc stops. -->
+<div id="planes-pop" class="popover" popover role="dialog" aria-label="Planes">
+<div class="pop-title">Planes</div>
+<label class="pop-check"><input type="checkbox" data-plane="2" checked disabled><span>UI</span></label>
+<label class="pop-check"><input type="checkbox" data-plane="1" checked disabled><span>Video</span></label>
+<label class="pop-check"><input type="checkbox" data-plane="4" checked disabled><span>Cursor</span></label>
+<div class="pop-hint">Affects everyone watching this VM in the web viewer or over VNC. A hidden video is black under the UI; without the UI the video shows alone. Screenshots keep every plane.</div>
+</div>
+<div id="remote-pop" class="popover" popover>
+<div class="remote-pop-header"><strong>TV remote</strong><button id="remote-close" title="Close remote" aria-label="Close remote"><i class="bi" style="--i: url(/icons/x-lg.svg)"></i></button></div>
+<iframe id="remote-frame" title="TV remote"></iframe>
+</div>
+<div id="screen"><div id="status">Connecting…</div><div id="notice" hidden></div>
+<section id="stats-overlay" aria-label="Stats for nerds" hidden>
+<div class="stats-header"><strong>Stats for nerds</strong><button id="stats-close" title="Close stats" aria-label="Close stats"><i class="bi" style="--i: url(/icons/x-lg.svg)"></i></button></div>
+<div id="picture-stats"></div>
+<div id="audio-stats">Sound off</div>
+</section>
+</div>
+<!-- Phones: the lite remote, a bottom sheet under the picture (portrait; collapsed to its grip
+     strip unless body.lite-open) or a strip beside it (landscape, while body.lite-open); the
+     media queries in style.css place it, viewer.js wires its keys as the header's and slides it.
+     data-glyph and data-text are the key's look in the usual layout: a layout that relabels the
+     key (NetCast's HOME) gets its own words or glyph instead. -->
+<section id="lite" aria-label="Remote">
+<div id="lite-grip" class="lite-handle" aria-hidden="true"><span class="grip"></span></div>
+<div class="lite-row sys">
+<button data-key="BACK" data-text="BACK" aria-label="Back"><i class="bi" style="--i: url(/icons/arrow-return-left.svg)"></i><span>Back</span></button>
+<button data-key="HOME" data-glyph="HOME" aria-label="Home"><i class="bi" style="--i: url(/icons/house.svg)"></i><span>Home</span></button>
+<button data-key="MENU" data-glyph="GEAR" aria-label="Settings"><i class="bi" style="--i: url(/icons/gear.svg)"></i><span>Settings</span></button>
+</div>
+<div class="lite-mid">
+<div class="rocker" role="group" aria-label="Volume">
+<button data-key="VOLUMEUP" data-glyph="PLUS" aria-label="Volume up"><i class="bi" style="--i: url(/icons/plus-lg.svg)"></i></button>
+<span class="rocker-label">VOL</span>
+<button data-key="VOLUMEDOWN" data-glyph="MINUS" aria-label="Volume down"><i class="bi" style="--i: url(/icons/dash-lg.svg)"></i></button>
+</div>
+<div class="dpad" role="group" aria-label="Arrows and OK">
+<button class="wedge up" data-key="UP" data-glyph="UP" aria-label="Up"><i class="bi" style="--i: url(/icons/caret-up-fill.svg)"></i></button>
+<button class="wedge right" data-key="RIGHT" data-glyph="RIGHT" aria-label="Right"><i class="bi" style="--i: url(/icons/caret-right-fill.svg)"></i></button>
+<button class="wedge down" data-key="DOWN" data-glyph="DOWN" aria-label="Down"><i class="bi" style="--i: url(/icons/caret-down-fill.svg)"></i></button>
+<button class="wedge left" data-key="LEFT" data-glyph="LEFT" aria-label="Left"><i class="bi" style="--i: url(/icons/caret-left-fill.svg)"></i></button>
+<button class="ok" data-key="ENTER" data-text="OK" aria-label="OK">OK</button>
+</div>
+<div class="rocker ch" role="group" aria-label="Channel">
+<button data-key="CHANNELUP" data-glyph="CH_UP" aria-label="Channel up"><i class="bi" style="--i: url(/icons/caret-up-fill.svg)"></i></button>
+<span class="rocker-label">CH</span>
+<button data-key="CHANNELDOWN" data-glyph="CH_DOWN" aria-label="Channel down"><i class="bi" style="--i: url(/icons/caret-down-fill.svg)"></i></button>
+</div>
+</div>
+<div class="lite-row media">
+<button data-key="MUTE" data-glyph="MUTE" aria-label="Mute"><i class="bi" style="--i: url(/icons/volume-mute.svg)"></i></button>
+<button data-key="INPUT_HUB" data-glyph="INPUT" aria-label="Input"><i class="bi" style="--i: url(/icons/box-arrow-in-right.svg)"></i></button>
+<button class="portrait-only" data-key="PLAY" data-glyph="PLAY" aria-label="Play"><i class="bi" style="--i: url(/icons/play-fill.svg)"></i></button>
+<button class="portrait-only" data-key="PAUSE" data-glyph="PAUSE" aria-label="Pause"><i class="bi" style="--i: url(/icons/pause-fill.svg)"></i></button>
+<button id="lite-full" class="full portrait-only" title="Full remote" aria-label="Full remote" aria-controls="remote-pop">123</button>
+</div>
+<div class="lite-row vol landscape-only">
+<button data-key="VOLUMEDOWN" data-glyph="MINUS" aria-label="Volume down"><i class="bi" style="--i: url(/icons/dash-lg.svg)"></i></button>
+<span class="vol-label">VOL</span>
+<button data-key="VOLUMEUP" data-glyph="PLUS" aria-label="Volume up"><i class="bi" style="--i: url(/icons/plus-lg.svg)"></i></button>
+<button data-key="MUTE" data-glyph="MUTE" aria-label="Mute"><i class="bi" style="--i: url(/icons/volume-mute.svg)"></i></button>
+</div>
+</section>
+</body>
+</html>

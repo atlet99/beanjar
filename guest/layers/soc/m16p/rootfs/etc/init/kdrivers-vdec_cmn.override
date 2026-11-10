@@ -1,0 +1,4 @@
+# Emulator: no LG kernel drivers to load (bsppart's module for LG's 4.4.3 kernel).
+script
+	echo "[Upstart Job: $UPSTART_JOB] emulator: nothing to load"
+end script

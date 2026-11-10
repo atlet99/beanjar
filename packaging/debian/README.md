@@ -1,0 +1,215 @@
+# Debian 13 packages
+
+The Python code is three packages, each with its own `pyproject.toml` and Debian package:
+`beanjar` (`host/core`: the core, the CLI and the host runtime, no GTK), `beanjar_ui`
+(`host/ui`: the VM manager's and the viewer's GTK windows) and `beanjar_web` (`host/web`).
+The native `beanjar` package contains the core, the viewer's native core (`libbeanjar-viewer-core.so`,
+`viewer-headless`) and the host helpers, and recommends `beanjar-ui`.
+`beanjar-ui` (architecture all, `/usr/bin/beanjar-ui`) is the windows: `beanjar_ui`, its layouts
+(both GResource bundles), the desktop entry and the icon, over GTK 4 and libadwaita for Python.
+`beanjar-guest` contains the same ARM guest payload for arm64 and amd64 hosts.
+`beanjar-vnc` (`/usr/bin/beanjar-vnc`, `beanjar vnc start NAME`) serves a VM's TV picture
+over VNC with the viewer core of the same `beanjar` and neatvnc 1.0 (`libneatvnc1`), and its
+sound as Opus (`libopus0`) or PCM. Debian trixie has only neatvnc 0.9.1, so on Debian hosts
+`libneatvnc1` and `libaml1` are local builds of Debian's packaging
+([neatvnc-local](../../docs/dev/guides/neatvnc-local.md)), installed before `beanjar-vnc`; Raspberry
+Pi OS has its own `libneatvnc1`.
+`beanjar-web` (architecture all, `/usr/bin/beanjar-web`) shows VMs in a browser: Debian's
+`novnc`, Debian's `bootstrap-icons` for its buttons, and a popup remote, served by `python3-aiohttp`
+([web viewer](../../docs/dev/architecture/web-viewer.md)).
+An optional, separately built `beanjar-qemu` supplies patched QEMU. `beanjar`
+depends on it or on Debian's `qemu-system-arm` and `qemu-system-modules-opengl`;
+the launcher runs `beanjar-qemu` whenever it is installed.
+
+Application code is in `/usr/lib/beanjar` (the Python packages in `core/`, `ui/` and `web/`, as
+source), native launchers and helpers in
+`/usr/libexec/beanjar`, and guest payloads in `/usr/share/beanjar/guest`.
+No Python bytecode is shipped or written under `/usr/lib`: the Python launchers
+point `sys.pycache_prefix` at the user's `$XDG_CACHE_HOME/beanjar/pycache`
+(default `~/.cache`), and write none when that directory cannot be made or is
+not the user's own (root under `sudo` with the caller's `HOME`).
+`build.py` writes a launcher for each script a package's `pyproject.toml` names
+(`[project.scripts]`, `[project.gui-scripts]`; `[tool.beanjar.libexec]` for those in
+`/usr/libexec/beanjar`), and two by hand: `beanjar`, the CLI, which without arguments opens
+`beanjar-ui`'s window where it is installed, and `beanjar-viewer`, which runs `viewer-headless`
+for `--headless` and the like without `beanjar-ui`, and the window with it.
+Guest components live separately under `layers/common`, `layers/soc`,
+`layers/release` and feature directories. Firmware compatibility selectors
+choose component variants at VM start; packages contain no merged target stack.
+
+Build guest components with the guest Meson lane and host artifacts separately
+for each architecture, commit, rebuild, then assemble:
+
+```sh
+python3 packaging/debian/build.py
+sudo apt install ./build/packages/beanjar-guest_<version>_all.deb \
+  ./build/packages/beanjar_<version>_$(dpkg --print-architecture).deb \
+  ./build/packages/beanjar-ui_<version>_all.deb
+# optional: the VNC server, and the web viewer on top of it
+sudo apt install ./build/packages/beanjar-vnc_<version>_$(dpkg --print-architecture).deb \
+  ./build/packages/beanjar-web_<version>_all.deb
+```
+
+With the default publish directory (`build/`) the script first runs `meson compile` in the
+build directory of every target the published `selections.json` files name (`build/guest-<target>`),
+so `beanjar-guest` never carries a target last built before a change to a shared source, a Mesa
+patch for instance (`meson/fetch.py` unpacks a wrap's tree again when the wrap or its patches
+change). A selected target without a build directory, or one that fails to build, stops the
+package; `--no-rebuild` skips the step. `--guest-publish` elsewhere is taken as it is.
+
+Separate native inputs can be supplied with `--host-publish`, `--architecture`
+and a `--shlibs-file` holding `dpkg-shlibdeps -O`'s output (its `shlibs:Depends=...`
+line) in that native build lane, and `--vnc-shlibs-file` the same for `beanjar-vnc`.
+`--guest-publish` supplies the shared guest input. `--qemu-publish` explicitly
+assembles the optional QEMU package, its binary stripped; a QEMU build is never included implicitly.
+
+`--host-only` builds only `beanjar`, `beanjar-ui`, `beanjar-vnc` and `beanjar-web`, from the host publish directory
+(the native artifacts, both GResource bundles and `source-version.toml`) and the host's
+sources in the checkout. It reads no guest input: it never looks at the guest publish
+directory, the component builder, a guest tree or a guest package, and it runs no git.
+The private-key audit, the native architecture check and the shared-library dependencies
+still apply.
+
+### Versions and compatibility
+
+Package versions are semver. `packaging/VERSION` holds `X.Y.Z`; the build lanes derive the
+package version from it and git, nobody types one in. At the commit that last changed
+`packaging/VERSION` the version is `X.Y.Z`; N commits later it is `X.Y.Z+gitN.g<12 hex>`
+(N: the commits since that change, the hex: HEAD's). Debian sorts both after the hand-numbered
+`0.1.0~pre*` builds, and builds in commit order before the next version
+(`tests/unit/packaging/test_identity.py` checks it with `dpkg --compare-versions`).
+
+Version numbers are not trusted at run time: the launcher checks what the guest payload has (its
+components, and the module parameters its `.ko` files declare; docs/dev/architecture/build-and-boot.md,
+"Host and guest compatibility"). The version still tells apt which guest to pair with a host:
+while the major is 0, the minor marks the host-guest contract, and from 1.0 the major does. Bump
+the minor in the same commit as any change to the host-guest contract:
+
+- the virtio wire formats in `include/`;
+- module parameters;
+- `boot.conf`;
+- the layer metadata schema (`layer.toml`, `selections.json`);
+- the LLS probe's interface;
+- a guest script the host relies on.
+
+Bump the patch for everything else, on either side.
+
+`packaging/identity.py` resolves the identity once per build lane, when the build prepares its
+inputs, and the lane publishes it beside its artifacts: the host lane's `source-version.toml`
+and each guest lane's `guest-installation.toml` (version, full commit, commit time, and whether
+the tree was dirty or shallow). Packaging reads those files and never runs git; a missing or
+invalid file is a named error, and a dirty or shallow build is refused: commit, rebuild, then
+package. File dates are `SOURCE_DATE_EPOCH`'s, else the recorded commit time, never today's.
+The host and VNC packages take the host lane's version, `beanjar-guest` its guest lane's:
+packaging never relabels a guest with the host's version.
+
+`beanjar` depends on `beanjar-guest (>= 0.Y), beanjar-guest (<< 0.(Y+1))`, the guests of its
+`0.Y`: a hint for apt, not a runtime check. `beanjar-vnc` depends on the exact `beanjar` version,
+whose viewer core it links. `beanjar-ui` depends on the exact `beanjar` (it imports the core
+package) and on `python3-gi`, `gir1.2-gtk-4.0` and `gir1.2-adw-1`, which `beanjar` itself does not
+need. `beanjar-web` depends on the exact `beanjar` too (the pipes and
+the remote's layouts it asks the CLI for; it imports nothing of it), on `beanjar-vnc`, `python3-aiohttp`, `novnc` and `bootstrap-icons`.
+
+`/usr/lib/beanjar/installation.toml` records the host's version, commit and architecture;
+`/usr/share/beanjar/guest/installation.toml` the guest's version, commit and the SHA-256 of its
+payload. Both are information: the launcher copies the versions into a run's `vm-info.toml`
+for logs and messages. VM directories carry no version or format marker.
+
+### arm64 packages from the PC
+
+The arm64 packages are cross-built on the x86_64 PC against Debian's own arm64 libraries (and the
+local arm64 `libneatvnc-dev` and `libaml-dev`, installed with multiarch), so they install on plain
+Debian (a Rock Pi 4, with the local `libneatvnc1` and `libaml1`) as well as on the Pi (Raspberry Pi
+OS's `libneatvnc1`): the local build's shlibs ask for `libneatvnc1 (>= 1.0.0)`, which both satisfy. A Pi-built package would not: Raspberry
+Pi OS's FFmpeg has epoch 8 (`8:7.1.5-...+rpt2`), and dpkg-shlibdeps there writes
+`libavcodec61 (>= 8:7.1.5)`, which Debian's `7:` never satisfies. With role `host-arm64`
+(docs/dev/guides/build.md, "Host packages") installed:
+
+```sh
+scripts/build.sh host-arm64            # build/host-arm64, published to build/publish-arm64
+python3 packaging/debian/build.py --host-publish build/publish-arm64 \
+  --qemu-publish build/publish-arm64/qemu
+```
+
+The architecture is the published host artifacts' (their ELF machine; `--architecture` may name
+it, and must agree). When it is not the PC's own, dpkg-shlibdeps runs with `DEB_HOST_ARCH` set to
+it, so it reads the arm64 libraries and their packages from multiarch with
+`aarch64-linux-gnu-objdump`, and `beanjar-qemu` is stripped with `aarch64-linux-gnu-strip`.
+`beanjar-guest`, `beanjar-ui` and `beanjar-web` are architecture all and the same as the amd64 build's.
+
+On a plain Debian 13 Rock Pi 4A (2026-10-26) `apt install` of the five packages resolved
+everything from Debian (129 packages) and kept the board's locally built, higher-versioned
+FFmpeg (`7:7.1.5-0+deb13u1+v4l2req1`), which satisfies
+`libavcodec61 (>= 7:7.1.5)`. The packages add nobody to a group: a user runs VMs with KVM only
+in group `kvm` (`/dev/kvm`), GPU rendering needs group `render` (`/dev/dri/renderD*`), and the
+media helper's V4L2 request decoding group `video` (`/dev/media*`, `/dev/video*`). The postinst's
+`setcap` fails on a root without extended attributes (that board's NFS root); only `link = "lan"`
+is lost.
+
+### Updating the Pi
+
+The packages come from the PC's arm64 cross build ("arm64 packages from the PC" above), not from
+a build on the Pi: the packaging requires `beanjar-virtcam` (`build/virtcam/`), which the Pi's
+native `scripts/build.sh host` skips for want of cmake, spdlog, fmt, asio and libusbredirparser
+(`python3 packaging/debian/build.py --architecture arm64 --host-only` there stops with `missing
+input: build/virtcam/beanjar-virtcam`). The cross build also refuses a tree with uncommitted
+changes (`source-version.toml`), so build from a clean checkout of the commit, for example a
+`git worktree` of it. On the PC:
+
+```sh
+scripts/build.sh host-arm64
+python3 packaging/debian/build.py --host-publish build/publish-arm64 --host-only --output <dir>
+scp <dir>/beanjar{,-vnc}_<version>_arm64.deb <dir>/beanjar-{ui,web}_<version>_all.deb <pi-host>:/tmp/
+```
+
+and on the Pi:
+
+```sh
+sudo apt install /tmp/beanjar_<version>_arm64.deb /tmp/beanjar-vnc_<version>_arm64.deb \
+  /tmp/beanjar-ui_<version>_all.deb /tmp/beanjar-web_<version>_all.deb
+```
+
+All four together: `beanjar-ui`, `beanjar-vnc` and `beanjar-web` depend on the exact `beanjar` version. The
+`beanjar-vnc` links Raspberry Pi OS's `libneatvnc1` and `libaml1` (`libneatvnc1 (>= 1.0.0)`, which
+its 1.0.4-1+rpt1 satisfies), where the PC's builds link the local ones. Keep the Pi's own checkout
+current with `git push pi main` (a tree changed by a file sync has to be stashed first:
+the Pi's `receive.denyCurrentBranch` is `updateInstead`). The debs are not kept after installing.
+
+The installed `beanjar-guest` satisfies the dependency while it has the host's `0.Y`. When the
+minor changes, build `beanjar-guest` on the PC and install it on the Pi with the host. Whatever
+apt allows, the launcher refuses a start only when the guest payload lacks a component the target
+needs or a module parameter the host passes.
+
+`beanjar` (or `beanjar-ui`) opens the manager; `beanjar --help` lists CLI commands.
+`beanjar-viewer` starts the viewer. Libraries, firmware, identities and state
+stay user-owned. Package installation never starts VMs or downloads Python
+packages. The manager uses installed helpers even when an existing library's
+configuration retains its old checkout path.
+
+The package's postinst gives `/usr/libexec/beanjar/beanjar-lan-helper` the file capability
+`cap_net_admin=ep` (`setcap`, from `libcap2-bin`), the only privilege Beanjar has: it puts a
+`link = "lan"` VM's macvlan on the library's wired `lan_parent`
+(docs/dev/architecture/network.md). The lease is taken with `busybox udhcpc`.
+
+Selecting MITM networking offers installation of pinned mitmproxy dependencies
+into `$XDG_DATA_HOME/beanjar/mitmproxy`. `beanjar mitm setup` offers the same
+interactive setup; `beanjar mitm setup --install` explicitly authorizes it.
+Declined or failed installation leaves the VM stopped. Direct/off networking
+needs no MITM setup. Every successful setup removes the environments of earlier versions, except one a
+running mitmweb still uses. The system Python creates a private, hash-checked venv;
+no arbitrary executable from PATH is used. Setup logs are stored with the tool.
+
+Users supply extracted firmware. EPK import additionally needs their configured
+`epk2extract`. Guest execution requires no source checkout or webOS SDK. The
+packaged ARM LLS probe uses qemu-arm and bubblewrap; generated data goes to the
+user's XDG cache. No firmware, keys, user data, SDP derivation tools, Python
+venvs or private third-party MITM dependency trees are packaged.
+
+These are preparation packages. Public release requires review of the project's
+licensing and corresponding source/license material for bundled components.
+The repository currently has no project license file; packaging does not invent one.
+
+Build dependencies are metapackages, `beanjar-build-deps-<role>` (roles `host`,
+`guest`, `readers`), from `packaging/debian/build-deps/*.control`. Build them with
+`packaging/debian/build-deps.sh [role...]` into `build/packages/` and install with `apt`, so
+`apt autoremove` keeps the dependencies (docs/dev/guides/build.md, "Host packages").

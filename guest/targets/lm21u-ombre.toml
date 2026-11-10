@@ -1,0 +1,74 @@
+# N21D is LG's StanbyME (27ART10) on the LM21U platform (machine LM21U, chip=LM21UA0, its
+# devicename lm21ut): webOS 6 kisscurl-kluane (04.44.16) and webOS 24 ombre-okapi (23.22.86).
+# W21U, the same chip's 2021 OLED, NANO and QNED TV line, is not
+# the StanbyME's firmware and has no target.
+models = ["N21D"]
+lg_scaler = [1920, 1080]
+
+# N21D on webOS 24 (ombre-okapi): the StanbyME as a UK set from that firmware's own tables, and
+# W22A's widened mmapger: its libkadaptor's MAdp_SYS_GetMMAP reads 40-byte records of ids 0..120
+# where webOS 6's reads 20-byte ones; with the 20-byte dialect MPool_Init logs "MMAP is not
+# matched".
+[soc]
+base = "lm21u"
+board_cmdline = "/etc/emulator/board-ombre.cmdline"
+
+# gpio_usb_vbus and gpio_level: the USB ports' power switches and overcurrent inputs
+# (soc/k6lp.toml says how they were read)
+[[soc.modules]]
+name = "mstar-utopia"
+params = [
+    "miu_interval=0x80000000",
+    "miu_len=0x20000000",
+    "miu0_bus=0x20000000",
+    "miu1_bus=0xa0000000",
+    "mmap_ids=121",
+    "mmap_slot=0x400000",
+    "lx_mem_id=3",
+    "lx_mem2_id=107",
+    "lx_mem2_bias=0",
+    "msos_pmlog=1",
+    "semutex_shm_capacity=0xa00000",
+    "direct_ir=1",
+    "pm_micom=1",
+    "gpio_lines=308",
+    "mmap_u64=1",
+    "gpio_level=91:1,307:1,63:1",
+    "gpio_usb_vbus=90,96,76",
+]
+
+# N21D's webOS 24 keeps webOS 6's paks and every fstab and jail pin (its jails add p26 pmsfw,
+# already there): the same VM layout.
+[release]
+base = "ombre"
+peripherals = [
+    "usbhid", "uhid", "joydev", "input-leds", "hid-axff", "hid-dr", "hid-logitech",
+    "hid-microsoft", "hid-pl", "hid-sony", "hid-playstation", "hid-zpff", "xpad", "uvcvideo",
+    "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii", "nls_utf8",
+    "nls_iso8859-1", "nls_cp949", "exfat", "snd-usb-audio", "cdc-acm", "ipw", "pl2303", "option",
+    "sierra", "lgfs",
+]
+state_disks = { db8 = "112M", cmn_data = "750M", appstore = "2138M", uhdcp = "5M" }
+nvm_disks = { nvram = "8M", eeprom = "32K" }
+partmap = "lm21u-kisscurl"
+
+[release.partitions]
+partinfo = "partinfo"
+mapbak = "partinfo"
+authcxt = "authcxt"
+nvram = "nvram"
+sestore = "sestore"
+sedata = "sedata"
+rootfs = "rootfs"
+otncabi = "otncabi"
+otycabi = "otycabi"
+fonts = "fonts"
+db8 = "db8"
+apps = "appstore"
+bsppart = "bsppart"
+license = "license"
+wossestore = "wossestore"
+uhdcp = "uhdcp"
+dbboot = "dbboot"
+efs = "efs"
+data = "cmn_data"

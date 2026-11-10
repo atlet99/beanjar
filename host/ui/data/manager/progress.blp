@@ -1,0 +1,98 @@
+// SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+// SPDX-License-Identifier: GPL-2.0-or-later
+// The progress of a New VM that takes time (beanjar_ui/manager/widgets.py, ProgressDialog), over the New VM
+// dialog: the output of python3 -m beanjar.newvm (extracting a .epk or copying the firmware),
+// with a spinner while it runs; Cancel (or closing the dialog) cancels it, Close goes back to New
+// VM after a failure. The heading and the log are written from Python. Settings' board data
+// preparation uses it too, with no Cancel and a dialog that cannot be closed until it ends.
+using Gtk 4.0;
+using Adw 1;
+
+template $ManagerProgressDialog: Adw.Dialog {
+  title: "New VM";
+  content-width: 760;
+  content-height: 460;
+  can-close: false;
+  close-attempt => $on_close_attempt();
+
+  child: Adw.ToolbarView {
+    [top]
+    Adw.HeaderBar {}
+
+    content: Gtk.Box {
+      orientation: vertical;
+      spacing: 12;
+      margin-top: 6;
+      margin-bottom: 12;
+      margin-start: 12;
+      margin-end: 12;
+
+      Gtk.Box {
+        spacing: 12;
+
+        Adw.Spinner spinner {}
+
+        Gtk.Label head {
+          xalign: 0;
+          hexpand: true;
+          wrap: true;
+
+          styles [
+            "heading",
+          ]
+        }
+      }
+
+      Gtk.ScrolledWindow {
+        vexpand: true;
+        hexpand: true;
+
+        styles [
+          "card",
+        ]
+
+        Gtk.TextView log {
+          editable: false;
+          cursor-visible: false;
+          monospace: true;
+          wrap-mode: char;
+          top-margin: 8;
+          bottom-margin: 8;
+          left-margin: 12;
+          right-margin: 12;
+
+          styles [
+            "inline",
+          ]
+        }
+      }
+    };
+
+    [bottom]
+    Gtk.Box {
+      halign: end;
+      spacing: 12;
+      margin-top: 6;
+      margin-bottom: 6;
+      margin-start: 12;
+      margin-end: 12;
+
+      Gtk.Button cancel_button {
+        label: "_Cancel";
+        use-underline: true;
+        clicked => $on_cancel_clicked();
+      }
+
+      Gtk.Button close_button {
+        label: "C_lose";
+        use-underline: true;
+        sensitive: false;
+        clicked => $on_close_clicked();
+
+        styles [
+          "suggested-action",
+        ]
+      }
+    }
+  };
+}

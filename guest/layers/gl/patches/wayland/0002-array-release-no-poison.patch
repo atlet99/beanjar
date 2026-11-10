@@ -1,0 +1,18 @@
+Leave wl_array_release's data pointer as the firmware's Wayland 1.11 does.
+
+QtWayland 5.4's input-context plugin (webOS 4) destroys its wl_registry after
+QWaylandDisplay has called wl_display_disconnect. proxy_destroy then writes into
+the released object map: harmless with 1.11, whose release only frees the data,
+but a write through WL_ARRAY_POISON_PTR (address 4 + 4 * id) since then, which
+crashed qml-runner at every exit.
+
+--- a/src/wayland-util.c
++++ b/src/wayland-util.c
+@@ -103,7 +103,6 @@
+ wl_array_release(struct wl_array *array)
+ {
+ 	free(array->data);
+-	array->data = WL_ARRAY_POISON_PTR;
+ }
+ 
+ WL_EXPORT void *

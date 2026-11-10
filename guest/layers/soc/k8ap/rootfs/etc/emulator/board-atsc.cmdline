@@ -1,0 +1,20 @@
+# 32LQ630BPUA, the US 32-inch LQ63: the models DB lists it for this OTA ID (W22L 04.60.90.01).
+# The default board (board_cmdline in guest/targets/soc/): the European board's line with the firmware's own US
+# values. hwopt digit 0 5: hw-option-gen decodes countryType US, nyx-option-gen ATSC; every
+# other field decodes as on the European line but the country's tuner flags.
+# countryGrp 2: configd's USA RMM grpCode. tvregion ATSC: the broadcast system.
+# ToolOpt: LLS's factory default record of this line, with the LQ63/32" panelInch
+# and toolType of the firmware's factory tables. Identity placeholders are replaced per VM.
+ethaddr=02:00:00:12:34:56
+devtmpfs.mount=1
+countryGrp=2
+modelopt=000000000
+hwopt=501000000003006000
+ToolOpt=806:32790:69632:65:14681143:158387467
+modelName=32LQ630BPUA
+debugMode=3
+serialNum=000RAXX00001
+chip=K8APA0
+tvregion=ATSC
+emmc_size=0x1d2000000
+cmdEnd

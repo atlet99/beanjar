@@ -1,0 +1,14 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Native O22N2 Spacebuns needs the actual variable-size BO, not QEMU's blank
+# 64x64 definition. Preserve inherited preloads and all stock launcher policy.
+set -eu
+target=$(cat /usr/share/beanjar/native-weston-target)
+if [ "$target" = o22n2-spacebuns ]; then
+    bridge=/usr/lib/libkms-cursor-compat.so
+    test -r "$bridge"
+    LD_PRELOAD="$bridge${LD_PRELOAD:+:$LD_PRELOAD}"
+    export LD_PRELOAD
+fi
+exec "$@"

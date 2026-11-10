@@ -1,0 +1,20 @@
+# 65QNED85UQA, the US 65-inch QNED85: the models DB lists it for both global W22H OTA IDs
+# (AFADATAA, AFABATPU). The default board (board_cmdline in guest/targets/soc/), made from each of 04.60.85.01 AFADATAA, 23.25.75.01 and
+# 43.22.73.01 AFABATPU, which give the same line: hwopt digit 0 5, which hw-option-gen decodes
+# countryType US and nyx-option-gen ATSC; every other digit as the Japanese QNED85's (VBYONE UD
+# panel, 120 Hz, 1920x1080 graphics, 2G). countryGrp 2: configd's USA RMM grpCode. tvregion ATSC:
+# boot.pak's. ToolOpt: LLS's factory default record of this line, with the 65" panelInch and the
+# QNED85 toolType of the firmware's tables. Identity placeholders are replaced per VM.
+ethaddr=02:00:00:12:34:56
+devtmpfs.mount=1
+countryGrp=2
+modelopt=000000000
+hwopt=502210000104002000
+ToolOpt=254372913:12307:1249497:65:16327987:825678345
+modelName=65QNED85UQA
+debugMode=3
+serialNum=000RAXX00001
+chip=K8HPA0
+tvregion=ATSC
+emmc_size=0x1d2000000
+cmdEnd

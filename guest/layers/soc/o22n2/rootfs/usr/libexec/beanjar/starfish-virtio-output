@@ -1,0 +1,33 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# What O22N2 ombre's stock Qt EGLFS Starfish integration needs from the launcher's configuration
+# on virtio-gpu, which has one scanout plane per CRTC (and a cursor plane): product.env gives it two
+# displays, the panel (fb0) and a 512x2160 secondary popup (fb1) on its own plane of the same CRTC,
+# and it aborts ("Fail to choose plane for output fb1"). One display instead, the stock launcher's
+# own default. The file is replaced by a runtime copy, bind-mounted, with only that change; an
+# unexpected content fails rather than boot an unknown configuration. An optional root prefix
+# allows tests without mounts.
+set -eu
+root=${1-}
+runtime=$root/run/beanjar/starfish
+mkdir -p "$runtime"
+trap 'rm -f "$runtime"/*.tmp' 0
+trap 'exit 1' HUP INT TERM
+
+# rewrite NAME OLD NEW: /etc/surface-manager.d/NAME with its one line containing OLD changed to NEW
+rewrite() {
+	src=$root/etc/surface-manager.d/$1 out=$runtime/$1
+	# A service restart in the same boot reuses the binding made at the first start.
+	if mountpoint -q "$src" 2>/dev/null; then
+		[ -f "$out" ] && cmp -s "$src" "$out" && return 0
+		echo "starfish-virtio-output: $1 already mounted by another owner" >&2
+		exit 1
+	fi
+	awk -v old="$2" -v new="$3" 'index($0, old) { n++; i = index($0, old)
+	        $0 = substr($0, 1, i - 1) new substr($0, i + length(old)) }
+	     { print } END { if (n != 1) exit 1 }' "$src" > "$out.tmp"
+	mv "$out.tmp" "$out"
+	[ -n "$root" ] || mount --bind "$out" "$src"
+}
+rewrite product.env 'export WEBOS_COMPOSITOR_DISPLAYS=2' 'export WEBOS_COMPOSITOR_DISPLAYS=1'

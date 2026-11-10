@@ -1,0 +1,6 @@
+# Emulator: no MStar kernel drivers to load (kdrv_msd93f2g.ko and the ALSA/MStar audio modules
+# built for LG's 3.10 kernel). Kept as a task: gm, gpu-libs and tvconfig-gen start on
+# "stopped kdrivers".
+script
+	echo "[Upstart Job: $UPSTART_JOB] emulator: nothing to load"
+end script

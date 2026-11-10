@@ -1,0 +1,34 @@
+# W15M's RELEASE.cfg: the micom and NVM as H13's, every NTP amplifier on channel 1
+# ("[i2c]NTP7515:1:0x54:1"); the same two SPI chip selects (its device_table). W15M's KADP's
+# logm objects are 80 bytes (a user mask added). M14 has 136 GPIO pins (gpio_core.c).
+# Its KADP's audio master numbers are H13's (0x80044d11, 0xc0084d29); its BE's are one
+# later than H13's from nr 17 on (SET_REAL_CINEMA added): GET_FIRMWARE_INFO_ADDR nr 22 and
+# REG_ACCESS nr 20 (0x80084416, 0xc0104414). The timers as H13's (lg1311_defconfig: 198 MHz);
+# W15M's bootd reads its hardware time there once, at start.
+# Its display engine (/dev/lg/de0): W15M's libhal_lg115x.so.2 refuses HAL_VSC_Connect of a VDEC
+# unless its port is below the capacity's mvir_start_num (KADP_DE_GetCapacity; without the
+# device every media window stayed unconnected). de_capacity is LG's DE_REG_M14_GetCapacity:
+# chip 2, 2 windows and layers, 1920x1080 in and out, out 120 Hz, mvir 2, 3D out SINGLE_2D, VT
+# up to 960x540, left-top align, both de-interlacings, no scaling up, down to 320x240, one
+# location; de_mem the emulator's, as M16P's.
+
+board_cmdline = "/etc/emulator/board.cmdline"
+
+[[modules]]
+name = "lg115x"
+params = [
+    "chip_rev=0x14b0",
+    "ace_rev=0x14b0",
+    "platform=0x1000",
+    "graphic_res=0x07800438",
+    "i2c=micom:1:0x52,nvm:4:0xa0,amp:0:0x54",
+    "spi_cs=2",
+    "logm_obj=80",
+    "gpio_pins=136",
+    "amst=17:41:20",
+    "amst_se=16",
+    "be=22:20",
+    "timer_hz=198000000",
+    "de_mem=0x7e000000:0x1000000",
+    "de_capacity=2:2:2:1920:1080:1920:1080:0:120:2:0:960:540:1:1:1:0:0:0:1:320:240:1",
+]

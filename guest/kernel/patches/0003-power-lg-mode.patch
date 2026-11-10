@@ -1,0 +1,45 @@
+power: LG's /sys/power/mode, always "cold"
+
+Every LG webOS TV kernel (LG's GPL trees for WT1H to W22H, guest/kernel/power/main.c) has
+/sys/power/mode, the state of LG's snapshot boot: "making", "resume", or "cold" when no snapshot
+image is involved. Userland reads it to tell a cold boot from a resume: W19P's securitymanager
+checks the signatures of its partitions (bspfw first) at start unless the mode is "cold" or
+"making", and shuts the set down when one fails ("verificationFail"). This kernel never makes or
+resumes a snapshot, so the mode is "cold"; writes are accepted and ignored, as LG's are.
+
+--- a/kernel/power/main.c
++++ b/kernel/power/main.c
+@@ -773,6 +773,25 @@
+ 
+ power_attr(state);
+ 
++/*
++ * LG's webOS TV kernels: /sys/power/mode, the state of LG's snapshot boot ("making" while the
++ * image is made, "resume" after a resume from it, "cold" otherwise). This kernel never makes or
++ * resumes one, so the mode is always "cold", as a TV's after a cold boot; a write is accepted
++ * and changes nothing.
++ */
++static ssize_t mode_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
++{
++	return sysfs_emit(buf, "cold\n");
++}
++
++static ssize_t mode_store(struct kobject *kobj, struct kobj_attribute *attr,
++			  const char *buf, size_t n)
++{
++	return n;
++}
++
++power_attr(mode);
++
+ #ifdef CONFIG_PM_SLEEP
+ /*
+  * The 'wakeup_count' attribute, along with the functions defined in
+@@ -1017,6 +1036,7 @@
+ 
+ static struct attribute * g[] = {
+ 	&state_attr.attr,
++	&mode_attr.attr,
+ #ifdef CONFIG_PM_TRACE
+ 	&pm_trace_attr.attr,
+ 	&pm_trace_dev_match_attr.attr,

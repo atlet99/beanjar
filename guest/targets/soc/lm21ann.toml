@@ -1,0 +1,7 @@
+# LM21ANN retains the measured 121-record, widened mmapger and six-adapter
+# memory/I2C boundaries. Native LLS preparation succeeds with this dialect.
+# W23A's OTA ID has no US model: one board, the European model's.
+
+base = "lm21an"
+board_cmdline = "/etc/emulator/board.cmdline"
+broadcast_boards = {}

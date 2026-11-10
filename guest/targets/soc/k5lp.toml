@@ -1,0 +1,111 @@
+# The Realtek RTD2872 "K5LP" (U-Boot's chip=K5LPA0), W19P's SoC: Realtek's drivers under its KADP
+# (libkadaptor, every libhal_*.so.1 of bsppart NEEDs it) in rtk.ko. Realtek's kernel (W19P's 4.4.84 and LG's
+# GPL linux_pop: mm/auth.c, include/linux/auth.h, mach-rtd287o/include/mach/iomap.h):
+# /dev/auth's MAP maps RBUS (PA 0x18000000; 0x80000 bytes into a process) at base + 0x10000000,
+# the base the first free one of 0x20000000 (DEF_MAP_ADDR) to 0x60000000 (MAX_MAP_ADDR) in steps
+# of 0x8000000; ALLOC's blocks lie in the 128 MiB (DEF_MEM_SIZE) above the base, cached, and
+# again 0x8000000 higher, uncached, 64 KiB apart. pli_getPTS reads the 90 kHz clock at
+# 0xb801b6b8 (low) and 0xb801b6bc (high). The DCUs' places and sizes are the emulator's (not
+# read from a set; KADP only passes the PAs on): 512 MiB each from 0x20000000, clear of RBUS.
+# The other nodes libkadaptor and bsppart's libhal_* open (their /dev/ strings) accept every
+# ioctl, but for two: W19P's micom is the SoC's internal one (tvservice's
+# OSA_MD_IsSupportInternalMicom answers 1), which KADP_UCOM_* reach through /dev/sys-misc's
+# MISC_UCOM_WRITE/READ (Realtek's misc.c), lgemu.ko's micom here (ucom_node); and CEC's
+# receive (cec-0's CEC_RCV_MESSAGE, 4) blocks until a message comes (waits); and
+# rtkaudio's RTKAUDIO_IOC_ALLOC/FREE hand out memory by PA (allocs), which KADP's
+# RTKAudio_Malloc maps through /dev/rtkmem (its audio pins' ring headers). libhal_pwm's
+# outputs are Realtek's /sys/class/rtk-pwm devices: HAL_PWM_Init probes pwm-I-0..3 and
+# pwm-M-0..3 (all eight made: which a K5LP board has is not read), and the panel's PWM init
+# (tvservice's _panel_setPWMOnByInitDuty) fails tv.power turnOnAv without them. The GPIO lines
+# are rootfs libdile_gpio's (/sys/class/gpio, its gGPIMapTable/gGPOMapTable, the highest 459,
+# HDMI3_DEV_DET), the board with nothing connected: the jack and HDMI detects read 0, and the
+# USB switches' overcurrent outputs, USB3_OCD 80 and USB2_OCD 96, 1 (active low: on 0 PDM's
+# OCD task turns VBUS off and on again every 2 s). The RPC answers (rpc_reply, rpc_create, rpc_answer) are the firmware's own:
+# derived "rpc-table".
+# The scaler's capture (vivtdev, tv.capture's DILE_VT/HAL_VT/KADP_VT) is Realtek's
+# scaler_vtdev.c with an idle scaler (vt): its largest frame 1920x1080 (VT_CAP_FRAME_MAX_*),
+# the display's 60 Hz (Get_VFOD_FrameRate's default).
+# The I2C devices: W19P's DILE_I2C (rootfs libdile_i2c) opens /dev/i2c-0 to -4, all five or it
+# fails, and takes the channel from its own table (gsI2cAllConf, 24-byte entries: name, the
+# channel per country group, the 8-bit slave, speed), the same for every group: MICOM 0/0x52,
+# NVM 0/0xA0, the NTP7518 and DTA2010 amplifiers 2/0x54 and 0x56 (tuners on 1, FRC/OLED/PMIC/
+# retimers on 2-4 and 7 have no device here).
+# The VO's photo capability (VIDEO_RPC_VO_PHOTO_ToAgent_GetDeviceCapability, 100:12070, a
+# HAL_VO_P_DEVICE_CAPABILITY_T after the HRESULT) is a device's, not an idle CPU's zeros:
+# support_pixel_format (word 2) 0x11000, YUV420I and YUV444SP, the Realtek default LG's
+# photorenderer keeps for itself (get_device_capability_default's "RTK"). With zeros, W21P's
+# photorenderer (no _K7 in its board table, so no default either) found no sink colour space
+# and recursed until its stack ran out (HDMI1's no-signal photo screensaver). (rpc_word)
+# The TEE (tee): /dev/tee0, OP-TEE's user ABI, which the three firmwares' libkadaptor (its own
+# libteec) opens, with a stand-in of LG's secure-store TA whose sessions open and whose commands
+# fail cleanly; no key is involved.
+# The OSD volume (rpc_fn009): the audio CPU's AO_LGSE_SetFn009 (201:248), whose level rtk.ko
+# passes to lgemu's playback gain.
+# The media windows (vsc, vsc_screen): tvservice's scaler windows reach /dev/vscdev through the
+# stock HAL_VSC and KADP_VSC, whose ioctls rtk.ko decodes for the viewer (rtk-vsc.c, "the
+# scaler's windows"); their rectangles are in the panel's pixels, 3840x2160 on this UHD board
+# (tvservice scales the OSD's 1920x1080 by panel / graphic).
+
+board_cmdline = "/etc/emulator/board.cmdline"
+# The 43UM7500PLA's area, a German set's: W19P's RELEASE.cfg nContinentIdx 50 ("DE" in its
+# tvservice's _aDefineContinent), LANG_COUNTRY_EU 24, HWSETTING_EU 0
+continent = [50, 24, 0]
+# Its input ports (gToolOptionDB's EXT_VIDEO_INPUT_ADJ and EXT_AUDIO_INPUT_ADJ, W18R's
+# layout) from W19P's RELEASE.cfg, whose defaults are the UM75 43": nVideoHDMIportA-D 1-4,
+# COMP A 1, SCART 1, AV A 2, AV B 4; nAudioCOMPportA 4, B 2, RGB 1, SCART 1, AV A 3, AV B 2
+inputs = [1, 2, 3, 4, 1, 0, 0, 0, 1, 2, 4, 0, 0, 0, 0, 4, 2, 0, 1, 1, 3, 2, 0, 0, 0, 0]
+lgemu = [
+    "i2c_buses=0,1,2,3,4", "i2c_dev=micom:0:0x29,nvm:0:0x50,amp:2:0x2a,amp:2:0x2b",
+]
+
+[[modules]]
+name = "rtk"
+params = [
+    "rbus_phys=0x18000000",
+    "rbus_size=0x80000",
+    "pli_base=0x20000000",
+    "pli_max=0x60000000",
+    "pli_step=0x8000000",
+    "pli_rbus=0x10000000",
+    "pli_window=0x8000000",
+    "pli_uncached=0x8000000",
+    "pli_pad=0x10000",
+    "dcu1_base=0x20000000",
+    "dcu1_size=0x20000000",
+    "dcu2_base=0x40000000",
+    "dcu2_size=0x20000000",
+    "clock90k=0xb801b6b8,0xb801b6bc",
+    """nodes=rtkaudio,audio_hw,rtkvdec,rtkdemux,rtkdemod,rtkademod,vscdev,vfedev,vbedev,vpqdev,\
+        vpqmemc,vpqleddev,vodev,vivtdev,sys-misc,se0,gdma_hal_gal0,hdcp2dev,otp,mcp/core,\
+        mcp/cipher,mcp/dgst,mcp_core,mcp_cipher,mcp_dgst,rcp_core,venus_gpio,pwm0,rtd-logger,\
+        cec-0,dolbyvisionEDR0,rtk_spi""",
+    "ucom_node=sys-misc",
+    "waits=cec-0:4",
+    "allocs=rtkaudio:0x4004610a:0x4004610b",
+    "pwms=pwm-I-0,pwm-I-1,pwm-I-2,pwm-I-3,pwm-M-0,pwm-M-1,pwm-M-2,pwm-M-3",
+    "gpio_lines=460",
+    "gpio_level=80:1,96:1",
+    "vt=vivtdev:1920:1080:60",
+    "rpc_word=100:12070:2:0x11000",
+    "tee=1",
+    "rpc_fn009=201:248",
+    "vsc=vscdev",
+    "vsc_screen=3840,2160",
+]
+derived = "rpc-table"
+
+# W19P's btmtk_usb.ko and webos-bluetooth-service: netlink family 29
+[[modules]]
+name = "btmtk_usb"
+params = [
+    "family=29",
+]
+
+# W19P's libdvbfrontend: its commands from 0xae on are W18R's + 1
+[[modules]]
+name = "webos_tv"
+params = [
+    "version_cmd=0xc1",
+    "lock_cmd=0xaf",
+    "postjob_cmd=0xb1",
+]

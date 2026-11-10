@@ -1,0 +1,14 @@
+# Native generators verified this candidate; identity is synthetic, A0 virtual.
+ethaddr=02:00:00:12:34:56
+devtmpfs.mount=1
+countryGrp=4
+modelopt=000000000
+hwopt=200210000105102000
+ToolOpt=1048718:19:1314890:65:16377395:825678601
+modelName=OLED55C21LA
+debugMode=3
+serialNum=000RAXX00001
+chip=O22A0
+tvregion=DVB
+emmc_size=0x1d2000000
+cmdEnd

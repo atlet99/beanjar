@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# lcov for a coverage build (docs/dev/guides/coverage.md; the HTML of meson's `ninja coverage`): the
+# host programs' own sources, as gcovr.cfg picks them for gcovr. Meson's own --extract of the
+# source tree then matches nothing new, which lcov 2 would call an error.
+include = */host/*
+ignore_errors = unused

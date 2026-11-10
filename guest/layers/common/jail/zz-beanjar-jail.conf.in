@@ -1,0 +1,9 @@
+# The jail hooks for native apps: LG's jailer, which sam starts for every jailed app,
+# inherits sam's environment, and the hooks act at its chroot into the app's jail
+# (guest/layers/gl/src/jail-gpu.c: the VM's render node; guest/layers/common/src/jail-trust.c:
+# the proxy CA's trust and the kernel store device). The stock unit's own preload, libsystrim,
+# stays first. Built from guest/layers/common/jail/zz-beanjar-jail.conf.in by the layer that owns
+# the hooks: the common layer's names libjail-trust, the gl layer's (above it, so its file wins)
+# adds libjail-gpu.
+[Service]
+Environment=LD_PRELOAD=/usr/lib/libsystrim.so.3:@JAIL_PRELOAD@

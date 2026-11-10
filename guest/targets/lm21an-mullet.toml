@@ -1,0 +1,37 @@
+models = ["W22A"]
+bring_up = ["W22A"]
+lg_scaler = [3840, 2160]
+
+[release]
+base = "mullet"
+peripherals = [
+    "usbhid", "uhid", "joydev", "input-leds", "hid-axff", "hid-dr", "hid-logitech",
+    "hid-microsoft", "hid-pl", "hid-sony", "hid-playstation", "hid-zpff", "xpad", "uvcvideo",
+    "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii", "nls_utf8",
+    "nls_iso8859-1", "nls_cp949", "exfat", "snd-usb-audio", "cdc-acm", "ipw", "pl2303", "option",
+    "sierra", "lgfs",
+]
+state_disks = { db8 = "112M", cmn_data = "750M", appstore = "2138M", uhdcp = "5M" }
+nvm_disks = { nvram = "8M", eeprom = "32K" }
+partmap = "lm21an-mullet"
+
+[release.partitions]
+partinfo = "partinfo"
+mapbak = "partinfo"
+authcxt = "authcxt"
+nvram = "nvram"
+sestore = "sestore"
+sedata = "sedata"
+rootfs = "rootfs"
+otncabi = "otncabi"
+otycabi = "otycabi"
+fonts = "fonts"
+db8 = "db8"
+apps = "appstore"
+bsppart = "bsppart"
+license = "license"
+wossestore = "wossestore"
+uhdcp = "uhdcp"
+dbboot = "dbboot"
+efs = "efs"
+data = "cmn_data"

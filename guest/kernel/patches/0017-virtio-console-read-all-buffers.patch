@@ -1,0 +1,29 @@
+virtio_console: a read takes every buffer that is there
+
+A port's receive buffers are PAGE_SIZE each and a read(2) returned at most one, so the host's
+large messages (the decoded pictures of a webos.media DECODE session) took a system call
+per 4 KB: about 450 per 1280x720 picture, which on a TCG guest cost more than half a second.
+A read now copies from every filled buffer while there is room, as a pipe read does.
+
+--- a/drivers/char/virtio_console.c
++++ b/drivers/char/virtio_console.c
+@@ -770,7 +770,18 @@
+ 	if (!port_has_data(port) && !port->host_connected)
+ 		return 0;
+ 
+-	return fill_readbuf(port, ubuf, count, true);
++	/* As much as is there, not one PAGE_SIZE buffer per call. */
++	ret = 0;
++	do {
++		ssize_t n = fill_readbuf(port, ubuf + ret, count - ret, true);
++
++		if (n < 0)
++			return ret ? ret : n;
++		if (!n)
++			break;
++		ret += n;
++	} while (ret < count && port_has_data(port));
++	return ret;
+ }
+ 
+ static int wait_port_writable(struct port *port, bool nonblock)

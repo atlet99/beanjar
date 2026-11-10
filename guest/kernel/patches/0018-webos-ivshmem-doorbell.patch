@@ -1,0 +1,286 @@
+misc: webos-ivshmem, the media pool's ivshmem-doorbell bound early
+
+The media pool (include/webos-media.h of the beanjar tree, "The pool")
+is QEMU's stock ivshmem-doorbell with one MSI-X vector. ivshmem-doorbell
+has no INTx in QEMU 10, and the VM's virtio disks use up GICv2m's 64 MSI
+vectors, so a module probed after virtio_pci gets none. This built-in
+driver binds the device at subsys_initcall, takes its vector (bus
+mastering on, MSI-X off and on again after request_irq so that KVM's
+irqfd route is built from the written table), and offers the memory, the
+interrupt and the doorbell to one client module (media-pool.ko). The
+policy stays in the module.
+---
+--- a/drivers/misc/Kconfig
++++ b/drivers/misc/Kconfig
+@@ -644,6 +644,19 @@
+ 	    - lan966x-miim (MDIO_MSCC_MIIM)
+ 	    - lan966x-switch (LAN966X_SWITCH)
+ 
++config WEBOS_IVSHMEM
++	bool "ivshmem-doorbell for the webOS emulator's media pool"
++	depends on PCI_MSI
++	help
++	  Binds QEMU's ivshmem-doorbell (PCI 1af4:1110 with MSI-X) early, before
++	  the virtio devices use up the MSI vectors, and offers its memory, its
++	  interrupt and its doorbell to one client module (the media pool).
++
++config WEBOS_IVSHMEM_KUNIT_TEST
++	bool "KUnit tests for the ivshmem-doorbell binding" if !KUNIT_ALL_TESTS
++	depends on WEBOS_IVSHMEM && KUNIT=y
++	default KUNIT_ALL_TESTS
++
+ source "drivers/misc/c2port/Kconfig"
+ source "drivers/misc/eeprom/Kconfig"
+ source "drivers/misc/cb710/Kconfig"
+--- a/drivers/misc/Makefile
++++ b/drivers/misc/Makefile
+@@ -75,3 +75,4 @@
+ obj-y				+= keba/
+ obj-y				+= amd-sbi/
+ obj-$(CONFIG_MISC_RP1)		+= rp1/
++obj-$(CONFIG_WEBOS_IVSHMEM)	+= webos-ivshmem.o
+--- a/drivers/misc/webos-ivshmem-test.c
++++ b/drivers/misc/webos-ivshmem-test.c
+@@ -0,0 +1,49 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/* KUnit tests of webos-ivshmem.c's decisions (included there). */
++#include <kunit/test.h>
++
++static void webos_ivshmem_test_check(struct kunit *test)
++{
++	KUNIT_EXPECT_EQ(test, webos_ivshmem_check(SZ_128M, 0x40), 0);
++	KUNIT_EXPECT_EQ(test, webos_ivshmem_check(SZ_128M, 0), -ENODEV);	/* plain */
++	KUNIT_EXPECT_EQ(test, webos_ivshmem_check(0, 0x40), -ENODEV);
++	KUNIT_EXPECT_EQ(test, webos_ivshmem_check(SZ_128M + SZ_4K, 0x40), -ENODEV);
++}
++
++static void webos_ivshmem_test_doorbell(struct kunit *test)
++{
++	KUNIT_EXPECT_EQ(test, webos_ivshmem_doorbell(0, 0), 0u);
++	KUNIT_EXPECT_EQ(test, webos_ivshmem_doorbell(1, 0), 0x10000u);
++	KUNIT_EXPECT_EQ(test, webos_ivshmem_doorbell(0xffff, 3), 0xffff0003u);
++}
++
++static void webos_ivshmem_test_attach(struct kunit *test)
++{
++	phys_addr_t base;
++	resource_size_t len;
++	int ret = webos_ivshmem_attach(NULL, NULL, &base, &len);
++
++	/* without the device (UML, or a VM without the pool): refused, nothing held */
++	if (!ivdev) {
++		KUNIT_EXPECT_EQ(test, ret, -ENODEV);
++		return;
++	}
++	if (ret == -EBUSY)
++		kunit_skip(test, "a client is attached");
++	KUNIT_EXPECT_EQ(test, ret, 0);
++	webos_ivshmem_detach();
++}
++
++static struct kunit_case webos_ivshmem_test_cases[] = {
++	KUNIT_CASE(webos_ivshmem_test_check),
++	KUNIT_CASE(webos_ivshmem_test_doorbell),
++	KUNIT_CASE(webos_ivshmem_test_attach),
++	{}
++};
++
++static struct kunit_suite webos_ivshmem_test_suite = {
++	.name = "webos-ivshmem",
++	.test_cases = webos_ivshmem_test_cases,
++};
++
++kunit_test_suite(webos_ivshmem_test_suite);
+--- a/drivers/misc/webos-ivshmem.c
++++ b/drivers/misc/webos-ivshmem.c
+@@ -0,0 +1,159 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * QEMU's ivshmem-doorbell (PCI 1af4:1110 with MSI-X) for the webOS emulator's media pool. Only
++ * the binding is here, built in: the policy is the client module's (webos-ivshmem.h).
++ *
++ * Built in and registered at subsys_initcall, so that the device is probed as the host bridge
++ * enumerates it, before virtio_pci: the VM's many virtio disks use up GICv2m's 64 MSI vectors and
++ * a driver probed later gets none (ivshmem-doorbell has no INTx in QEMU 10).
++ */
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/pci.h>
++#include <linux/webos-ivshmem.h>
++
++#define REG_INTRMASK	0
++#define REG_DOORBELL	12
++#define SHM_BAR		2
++
++static DEFINE_MUTEX(client_lock);
++static struct pci_dev *ivdev;
++static void __iomem *regs;
++static int irq = -1;
++static void (*client_notify)(void *data);
++static void *client_data;
++
++/* Whether a 1af4:1110 is the doorbell this driver takes: shared memory and MSI-X. */
++static int webos_ivshmem_check(resource_size_t shm_len, u8 msix_cap)
++{
++	if (!msix_cap)
++		return -ENODEV;	/* ivshmem-plain: not a doorbell */
++	if (!shm_len || !is_power_of_2(shm_len))
++		return -ENODEV;
++	return 0;
++}
++
++static irqreturn_t webos_ivshmem_irq(int irq, void *unused)
++{
++	void (*notify)(void *data) = READ_ONCE(client_notify);
++
++	if (notify)
++		notify(READ_ONCE(client_data));
++	return IRQ_HANDLED;
++}
++
++int webos_ivshmem_attach(void (*notify)(void *data), void *data, phys_addr_t *base,
++			 resource_size_t *len)
++{
++	int ret = 0;
++
++	mutex_lock(&client_lock);
++	if (!ivdev) {
++		ret = -ENODEV;
++	} else if (client_notify) {
++		ret = -EBUSY;
++	} else {
++		WRITE_ONCE(client_data, data);
++		WRITE_ONCE(client_notify, notify);
++		*base = pci_resource_start(ivdev, SHM_BAR);
++		*len = pci_resource_len(ivdev, SHM_BAR);
++	}
++	mutex_unlock(&client_lock);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(webos_ivshmem_attach);
++
++void webos_ivshmem_detach(void)
++{
++	mutex_lock(&client_lock);
++	WRITE_ONCE(client_notify, NULL);
++	if (irq >= 0)
++		synchronize_irq(irq);
++	WRITE_ONCE(client_data, NULL);
++	mutex_unlock(&client_lock);
++}
++EXPORT_SYMBOL_GPL(webos_ivshmem_detach);
++
++void webos_ivshmem_ring(u16 peer, u16 vector)
++{
++	if (regs)
++		writel(webos_ivshmem_doorbell(peer, vector), regs + REG_DOORBELL);
++}
++EXPORT_SYMBOL_GPL(webos_ivshmem_ring);
++
++static int webos_ivshmem_probe(struct pci_dev *pdev, const struct pci_device_id *id)
++{
++	void __iomem *bar0;
++	u16 ctrl;
++	int err, vec;
++
++	if (ivdev)
++		return -EBUSY;
++	err = webos_ivshmem_check(pci_resource_len(pdev, SHM_BAR), pdev->msix_cap);
++	if (err)
++		return err;
++	err = pcim_enable_device(pdev);
++	if (err)
++		return err;
++	bar0 = pcim_iomap_region(pdev, 0, "webos-ivshmem");
++	if (IS_ERR(bar0))
++		return PTR_ERR(bar0);
++	err = pcim_request_region(pdev, SHM_BAR, "webos-ivshmem");
++	if (err)
++		return err;
++	writel(0xffffffff, bar0 + REG_INTRMASK);
++	/* an MSI is a write by the device: without bus mastering QEMU drops it */
++	pci_set_master(pdev);
++	err = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_MSIX);
++	if (err < 0) {
++		dev_warn(&pdev->dev, "no MSI-X vector: %d\n", err);
++		return err;
++	}
++	vec = pci_irq_vector(pdev, 0);
++	err = devm_request_irq(&pdev->dev, vec, webos_ivshmem_irq, 0, "webos-ivshmem", NULL);
++	if (err)
++		return err;
++	/*
++	 * QEMU's ivshmem under KVM with GICv2m works out the vector's irqfd route when MSI-X is
++	 * enabled, from the table as it is then, before Linux has written the vector's message,
++	 * and does not update it at the unmask: its interrupts go nowhere. Enabling MSI-X again,
++	 * now that the table is written, routes them.
++	 */
++	pci_read_config_word(pdev, pdev->msix_cap + PCI_MSIX_FLAGS, &ctrl);
++	pci_write_config_word(pdev, pdev->msix_cap + PCI_MSIX_FLAGS, ctrl & ~PCI_MSIX_FLAGS_ENABLE);
++	pci_write_config_word(pdev, pdev->msix_cap + PCI_MSIX_FLAGS, ctrl);
++	mutex_lock(&client_lock);
++	regs = bar0;
++	irq = vec;
++	ivdev = pdev;
++	mutex_unlock(&client_lock);
++	dev_info(&pdev->dev, "doorbell: %llu MiB at %pa, irq %d\n",
++		 (unsigned long long)pci_resource_len(pdev, SHM_BAR) >> 20,
++		 &pci_resource_start(pdev, SHM_BAR), vec);
++	return 0;
++}
++
++static const struct pci_device_id webos_ivshmem_ids[] = {
++	{ PCI_DEVICE(PCI_VENDOR_ID_REDHAT_QUMRANET, 0x1110) },
++	{ }
++};
++
++static struct pci_driver webos_ivshmem_driver = {
++	.name = "webos-ivshmem",
++	.id_table = webos_ivshmem_ids,
++	.probe = webos_ivshmem_probe,
++	/* clients hold the memory and the interrupt: never unbound */
++	.driver.suppress_bind_attrs = true,
++};
++
++static int __init webos_ivshmem_init(void)
++{
++	return pci_register_driver(&webos_ivshmem_driver);
++}
++subsys_initcall(webos_ivshmem_init);
++
++#ifdef CONFIG_WEBOS_IVSHMEM_KUNIT_TEST
++#include "webos-ivshmem-test.c"
++#endif
+--- a/include/linux/webos-ivshmem.h
++++ b/include/linux/webos-ivshmem.h
+@@ -0,0 +1,28 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * QEMU's ivshmem-doorbell for the webOS emulator's media pool (drivers/misc/webos-ivshmem.c):
++ * bound early for its MSI-X vector, used by one client module.
++ */
++#ifndef _LINUX_WEBOS_IVSHMEM_H
++#define _LINUX_WEBOS_IVSHMEM_H
++
++#include <linux/types.h>
++
++/*
++ * Attaches the client: notify(data) runs in hard interrupt context for each interrupt from the
++ * host. *base and *len give the shared memory (BAR 2), which the client maps itself.
++ * -ENODEV without the device, -EBUSY while another client is attached.
++ */
++int webos_ivshmem_attach(void (*notify)(void *data), void *data, phys_addr_t *base,
++			 resource_size_t *len);
++/* Detaches the client; no notify runs once it returns. */
++void webos_ivshmem_detach(void);
++/* Rings vector of peer on the host side. */
++void webos_ivshmem_ring(u16 peer, u16 vector);
++/* The doorbell register's value for peer and vector. */
++static inline u32 webos_ivshmem_doorbell(u16 peer, u16 vector)
++{
++	return (u32)peer << 16 | vector;
++}
++
++#endif

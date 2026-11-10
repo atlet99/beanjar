@@ -1,0 +1,29 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Derive the stock list in tmpfs, retaining PRE ordering and every directive.
+set -eu
+root=${1:-/webos}
+source="$root/usr/local/bin/svclist_gip.rc"
+target=/run/netcast45-svclist_gip.rc
+awk '
+    /^(core|tv|mgr|svc|appsvc)[[:space:]]/ {
+        app = ($2 == "/usr/local/bin/appctrl")
+        if (app) {
+            entries++
+            if ($0 != "svc /usr/local/bin/appctrl --service lg.service.special.appctrl") bad = 1
+            sub("/usr/local/bin/appctrl", "/etc/emulator/appctrl-launch")
+        }
+    }
+    app && $1 == "runodr" {
+        if (NF != 2 || $2 != "pre") bad = 1
+        orders++
+    }
+    { print }
+    END { if (bad || entries != 1 || orders != 1) exit 1 }
+' "$source" > "$target" || {
+    rm -f "$target"
+    echo "NetCast: unsupported appctrl service block" >&2
+    exit 1
+}
+mount --bind "$target" "$source"

@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beanjar</title>
+<link rel="stylesheet" href="/style.css">
+<script type="module" src="/index.js"></script>
+</head>
+<body class="list">
+<!-- A header bar with the title in the middle; VM cards grouped by host below it. -->
+<header class="bar">
+<div class="start"></div>
+<div class="titles"><div id="title">Beanjar</div><div id="sub">Virtual machines</div></div>
+<div class="end">
+<form id="logout" method="post" action="/logout" hidden><button class="flat" title="Log Out"><i class="bi" style="--i: url(/icons/box-arrow-right.svg)"></i></button></form>
+<button id="refresh" class="flat" title="Refresh"><i class="bi" style="--i: url(/icons/arrow-clockwise.svg)"></i></button>
+</div>
+</header>
+<main id="vms"></main>
+</body>
+</html>

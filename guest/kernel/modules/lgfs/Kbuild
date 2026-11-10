@@ -1,0 +1,4 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# lgfs.ko: LG's filesystem names tfat, tntfs and ntfs on the kernel's vfat and ntfs3, one file.
+obj-m := lgfs.o

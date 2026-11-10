@@ -1,0 +1,11 @@
+# W21Z is LG's CineBeam projector on the same K7LP/kisscurl platform (HU710P family): its fstabs match W21P's byte for byte. It boots on
+# W21P's target with the chip's board line (W21P retail identity, shared: the tree keeps
+# one validated board line per target, so W21Z carries no VALIDATE entry of its own), but
+# stalls after webos-dis.target: legacy-broadcast-dvb runs but emits no tv-ready
+# in the window. Found initiator: tvpowerd orders a micom shutdown (write 25 00 ad)
+# ~72 s guest uptime, gated on FirstUse-incomplete ("FirstUseApp is Not yet completed.
+# Reboot TV"; identical logic ships in W21A's tvpowerd). The 8 s micom timer is never
+# armed. Why emulator-firstuse stalls (empty log, callees answering) is still open.
+# Stays in BRING_UP.
+models = ["W21P", "W21Z"]
+bring_up = ["W21Z"]

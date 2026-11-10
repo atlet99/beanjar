@@ -1,0 +1,43 @@
+// SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+// SPDX-License-Identifier: GPL-2.0-or-later
+// A row of the Layers page of New VM and Settings (vm-form.blp; beanjar_ui/manager/widgets.py, LayerRow):
+// the layer's name and line, Up and Down (its place in LAYERS: higher is higher priority) and a
+// switch. The rows of the layers a VM always gets have neither buttons nor a live switch.
+using Gtk 4.0;
+using Adw 1;
+
+template $ManagerLayerRow: Adw.ActionRow {
+  use-markup: false;
+  activatable-widget: switch;
+
+  [suffix]
+  Gtk.Box order {
+    valign: center;
+    spacing: 4;
+
+    Gtk.Button up {
+      icon-name: "go-up-symbolic";
+      tooltip-text: "Higher Priority";
+      clicked => $on_up_clicked();
+
+      styles [
+        "flat",
+      ]
+    }
+
+    Gtk.Button down {
+      icon-name: "go-down-symbolic";
+      tooltip-text: "Lower Priority";
+      clicked => $on_down_clicked();
+
+      styles [
+        "flat",
+      ]
+    }
+  }
+
+  [suffix]
+  Gtk.Switch switch {
+    valign: center;
+  }
+}

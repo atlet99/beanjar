@@ -1,0 +1,15 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Run a command (default: a login shell) inside the webOS namespaces and chroot,
+# with the plain environment an Upstart job gets.
+pid=
+for s in /proc/[0-9]*/status; do
+	if grep -q "^NSpid:[[:space:]]*[0-9][0-9]*[[:space:]][[:space:]]*1$" "$s" 2>/dev/null; then
+		pid=${s#/proc/}; pid=${pid%/status}; break
+	fi
+done
+[ -n "$pid" ] || { echo "webOS namespace is not running" >&2; exit 1; }
+[ $# -gt 0 ] || set -- /bin/sh -l
+exec nsenter -t "$pid" -m -u -i -p chroot /webos \
+	/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME=/home/root TERM="${TERM:-linux}" "$@"

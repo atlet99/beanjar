@@ -1,0 +1,46 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Runs inside webOS: prepare ordinary swap for the stock EFS tasks to activate.
+# No compressed EFS target or application-hibernation mapping is provided.
+set -eu
+dev= sectors= numbers=
+for serial in /sys/block/vd*/serial; do
+    [ "$(cat "$serial")" = efs ] || continue
+    block=${serial%/serial}
+    dev=/dev/${block##*/}
+    sectors=$(cat "$block/size")
+    numbers=$(cat "$block/dev")
+    break
+done
+[ -n "$dev" ] && [ -b "$dev" ] && [ "$sectors" -gt 0 ] || {
+    echo "beanjar-eswap: no EFS backing disk" >&2
+    exit 1
+}
+if dmsetup info eswap >/dev/null 2>&1; then
+    [ "$(dmsetup table eswap)" = "0 $sectors linear $numbers 0" ] || {
+        echo "beanjar-eswap: existing mapping does not match the backing disk" >&2
+        exit 1
+    }
+else
+    dmsetup create eswap --table "0 $sectors linear $dev 0"
+fi
+[ -b /dev/mapper/eswap ] || exit 1
+# Newer stock tasks select this name, and f2io-on skips its compressed-device
+# creation when a block node exists. It remains the same ordinary linear disk.
+if [ -f /etc/systemd/system/f2io-on.service ]; then
+    if [ -e /dev/f2io-0 ] || [ -L /dev/f2io-0 ]; then
+        [ -b /dev/f2io-0 ] &&
+            [ "$(readlink -f /dev/f2io-0)" = "$(readlink -f /dev/mapper/eswap)" ] || {
+            echo "beanjar-eswap: existing f2io-0 is not the ordinary swap mapping" >&2
+            exit 1
+        }
+    else
+        ln -s /dev/mapper/eswap /dev/f2io-0
+    fi
+fi
+# This is the firmware's own opt-out flag. Keep application hibernation disabled
+# because ordinary swap implements neither the HIB target nor its application API.
+mkdir -p /lg/cmn_data/efs
+touch /lg/cmn_data/efs/hib.disable
+echo "beanjar-eswap: ordinary swap mapping ready ($sectors sectors)"

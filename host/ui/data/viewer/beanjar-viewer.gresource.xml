@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The viewer's layouts, compiled from ui/*.blp (meson.build), and its own icons (ui/*.svg, where
+     the icon theme has none, and the application icon, host/ui/data/icon.svg; beanjar_ui/viewer/ui.py adds
+     icons/ to the theme): beanjar-viewer.gresource. -->
+<gresources>
+  <gresource prefix="/org/webosbrew/beanjar/viewer">
+    <file>window.ui</file>
+    <file>pane.ui</file>
+    <file>statusbar.ui</file>
+    <file>statusfield.ui</file>
+    <file>remote-window.ui</file>
+    <file alias="icons/scalable/actions/remote-control-symbolic.svg">remote-control-symbolic.svg</file>
+    <file alias="icons/scalable/actions/cpu-symbolic.svg">cpu-symbolic.svg</file>
+    <file alias="icons/scalable/actions/beanjar-power-symbolic.svg">beanjar-power-symbolic.svg</file>
+    <file alias="icons/scalable/apps/org.webosbrew.beanjar.viewer.svg">icon.svg</file>
+  </gresource>
+</gresources>

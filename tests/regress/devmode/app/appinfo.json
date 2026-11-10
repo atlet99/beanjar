@@ -1,0 +1,9 @@
+{
+  "id": "com.example.devmodetest",
+  "version": "1.0.0",
+  "vendor": "Beanjar",
+  "type": "web",
+  "main": "index.html",
+  "title": "Devmode Test",
+  "icon": "icon.png"
+}

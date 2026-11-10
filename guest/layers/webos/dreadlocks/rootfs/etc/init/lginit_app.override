@@ -1,0 +1,15 @@
+# Emulator: lginit_app2 initialises TV hardware (mounts from /proc/partinfo, the SWU mode, the
+# Wi-Fi modules). Only emit its event, after the one directory of its start-up that a later job
+# needs: W16R's tvservice touches /var/lib/eim/initdone during its own start-up, which begins on
+# lginit_app-ready (W17H's and W18R's, which take this file, touch /tmp/initdone instead).
+# The job's post-stop starts the reboot job when lginit_app2 ends in a RELEASE boot (DEBUG_STATUS
+# 5, board.cmdline's debugMode=): lginit_app2 is not expected to end on a TV, but this script
+# does, so the post-stop is emptied (as webOS 2's).
+script
+	mkdir -p /var/lib/eim
+	initctl emit --no-wait lginit_app-ready
+end script
+
+post-stop script
+	:
+end script

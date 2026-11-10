@@ -1,0 +1,11 @@
+// SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+// SPDX-License-Identifier: GPL-2.0-or-later
+// ViewerPane (beanjar_ui/viewer/pane.py): the TV view over the status bar. Python puts the TvView
+// (GLArea, drawn by the C core) first and the StatusBar at the bottom (not with --no-statusbar).
+// The remote is never part of it: it has its own window (ui/remote-window.blp).
+using Gtk 4.0;
+
+template $ViewerPane: Gtk.Box {
+  orientation: vertical;
+}
+

@@ -1,0 +1,4 @@
+# FirstUse stops at minimal-boot-done; the stock rest-boot-done trigger never fires.
+# The devmode job starts after minimal-boot-done and webos-jail setup, so developer
+# installs can use the stock installer in both FirstUse and Normal mode.
+start on started devmode

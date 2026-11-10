@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# GStreamer 1.8.0, W17H's version: headers only, for the video layer's plugins (guest/layers/soc/src/video).
+[wrap-file]
+directory = gstreamer-1.8.0
+source_url = https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.8.0.tar.xz
+source_filename = gstreamer-1.8.0.tar.xz
+source_hash = 947a314a212b5d94985d89b43440dbe66b696e12bbdf9a2f78967b98d74abedc
+patch_directory = source-only

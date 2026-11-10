@@ -1,0 +1,314 @@
+// SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+// SPDX-License-Identifier: GPL-2.0-or-later
+// The VM manager's window (beanjar_ui/manager/gui.py): a header bar with the actions, the VM list in a
+// sidebar, the VMs running elsewhere below it, read-only (or, with neither, a status page),
+// beside the selected VM's details (Summary, Console, Output), and toasts for the results. The actions are the window's (win.start, ...; gui.Manager
+// adds them and sets their sensitivity); the header's buttons, its menus and the list's context
+// menu (vm_menu) name them. The list's rows (vm-row.blp), the summary's grouped cards and every text are
+// set from Python. Narrow, the sidebar overlays the details, shown by the header's toggle, and a
+// click on a row picks it and hides the list again.
+using Gtk 4.0;
+using Adw 1;
+
+template $ManagerWindow: Adw.ApplicationWindow {
+  title: "Beanjar";
+  default-width: 1100;
+  default-height: 760;
+  width-request: 480;
+  height-request: 360;
+
+  Adw.Breakpoint {
+    condition ("max-width: 640sp")
+
+    setters {
+      split.collapsed: true;
+      sidebar_button.visible: true;
+      new_button.visible: false;
+      vm_list.activate-on-single-click: true;
+    }
+  }
+
+  content: Adw.ToastOverlay toasts {
+    child: Adw.ToolbarView {
+      [top]
+      Adw.HeaderBar {
+        [start]
+        Gtk.ToggleButton sidebar_button {
+          icon-name: "sidebar-show-symbolic";
+          tooltip-text: "Show the VMs";
+          visible: false;
+          active: bind split.show-sidebar bidirectional;
+        }
+
+        [start]
+        Gtk.Button new_button {
+          icon-name: "list-add-symbolic";
+          tooltip-text: "New VM";
+          action-name: "win.new";
+        }
+
+        [start]
+        Adw.Spinner busy {
+          visible: false;
+          tooltip-text: "An operation is running";
+        }
+
+        title-widget: Adw.WindowTitle window_title {
+          title: "Beanjar";
+        };
+
+        [end]
+        Gtk.MenuButton {
+          icon-name: "open-menu-symbolic";
+          tooltip-text: "Main Menu";
+          primary: true;
+          menu-model: main_menu;
+        }
+
+        [end]
+        Gtk.MenuButton vm_menu_button {
+          icon-name: "view-more-symbolic";
+          tooltip-text: "VM Actions";
+          menu-model: vm_menu;
+        }
+
+        [end]
+        Gtk.Button connect_button {
+          icon-name: "video-display-symbolic";
+          tooltip-text: "Connect";
+          action-name: "win.connect";
+        }
+
+        [end]
+        Gtk.Button shutdown_button {
+          icon-name: "system-shutdown-symbolic";
+          tooltip-text: "Shut Down…";
+          action-name: "win.shutdown";
+        }
+
+        [end]
+        Gtk.Button start_button {
+          icon-name: "media-playback-start-symbolic";
+          tooltip-text: "Start";
+          action-name: "win.start";
+        }
+      }
+
+      content: Gtk.Stack stack {
+        transition-type: crossfade;
+
+        Gtk.StackPage {
+          name: "empty";
+
+          child: Adw.StatusPage empty {
+            icon-name: "tv-symbolic";
+            title: "No Virtual Machines";
+
+            child: Gtk.Button empty_new {
+              label: "New VM…";
+              halign: center;
+              action-name: "win.new";
+
+              styles [
+                "pill",
+                "suggested-action",
+              ]
+            };
+          };
+        }
+
+        Gtk.StackPage {
+          name: "vms";
+
+          child: Adw.OverlaySplitView split {
+            min-sidebar-width: 260;
+            max-sidebar-width: 360;
+            sidebar-width-fraction: 0.3;
+
+            sidebar: Gtk.ScrolledWindow {
+              hscrollbar-policy: never;
+
+              Gtk.Box {
+                orientation: vertical;
+
+                Gtk.ListBox vm_list {
+                  activate-on-single-click: false;
+                  row-activated => $on_row_activated();
+
+                  styles [
+                    "navigation-sidebar",
+                  ]
+
+                  Gtk.GestureClick {
+                    button: 3;
+                    pressed => $on_list_secondary_click();
+                  }
+                }
+
+                // The VMs running elsewhere (other libraries', the development and regress VMs):
+                // read-only rows, filled from Python; hidden while there are none.
+                Gtk.Box elsewhere_group {
+                  orientation: vertical;
+                  visible: false;
+
+                  Gtk.Label {
+                    label: "Running Elsewhere";
+                    xalign: 0;
+                    margin-top: 12;
+                    margin-start: 18;
+                    margin-end: 12;
+                    margin-bottom: 6;
+
+                    styles [
+                      "heading",
+                      "dimmed",
+                    ]
+                  }
+
+                  Gtk.ListBox elsewhere_list {
+                    selection-mode: none;
+
+                    styles [
+                      "navigation-sidebar",
+                    ]
+                  }
+                }
+              }
+            };
+
+            content: Gtk.Box {
+              orientation: vertical;
+
+              Gtk.Box {
+                spacing: 12;
+                margin-top: 6;
+                margin-bottom: 6;
+                margin-start: 12;
+                margin-end: 12;
+
+                Gtk.Label vm_title {
+                  xalign: 0;
+                  hexpand: true;
+                  ellipsize: end;
+
+                  styles [
+                    "heading",
+                  ]
+                }
+
+                Adw.InlineViewSwitcher {
+                  stack: details;
+                }
+              }
+
+              Gtk.Separator {}
+
+              Adw.ViewStack details {
+                vexpand: true;
+
+                Adw.ViewStackPage {
+                  name: "summary";
+                  title: "Summary";
+
+                  child: Gtk.ScrolledWindow {
+                    hscrollbar-policy: never;
+
+                    Adw.Clamp {
+                      maximum-size: 900;
+                      margin-top: 12;
+                      margin-bottom: 12;
+                      margin-start: 12;
+                      margin-end: 12;
+
+                      Gtk.Box summary {
+                        orientation: vertical;
+                        valign: start;
+                      }
+                    }
+                  };
+                }
+
+                Adw.ViewStackPage {
+                  name: "console";
+                  title: "Console";
+
+                  child: Gtk.ScrolledWindow {
+                    Gtk.TextView console {
+                      editable: false;
+                      cursor-visible: false;
+                      monospace: true;
+                      wrap-mode: char;
+                      top-margin: 8;
+                      bottom-margin: 8;
+                      left-margin: 12;
+                      right-margin: 12;
+                    }
+                  };
+                }
+
+                Adw.ViewStackPage {
+                  name: "output";
+                  title: "Output";
+
+                  child: Gtk.ScrolledWindow {
+                    Gtk.TextView output {
+                      editable: false;
+                      cursor-visible: false;
+                      monospace: true;
+                      wrap-mode: char;
+                      top-margin: 8;
+                      bottom-margin: 8;
+                      left-margin: 12;
+                      right-margin: 12;
+                    }
+                  };
+                }
+              }
+            };
+          };
+        }
+      };
+    };
+  };
+}
+
+// The main menu (the header's primary menu, F10). auto-reconnect is a stateful action: a check
+// item.
+menu main_menu {
+  section {
+    item ("_New VM…", "win.new")
+  }
+
+  section {
+    item ("_Reconnect the Viewer When the VM Restarts", "win.auto-reconnect")
+  }
+
+  section {
+    item ("_About Beanjar", "win.about")
+  }
+}
+
+// The selected VM's actions: the header's ⋮ menu and the list's context menu.
+menu vm_menu {
+  section {
+    item ("_Start", "win.start")
+    item ("Shut _Down…", "win.shutdown")
+  }
+
+  section {
+    item ("_Connect", "win.connect")
+    item ("Dis_connect", "win.disconnect")
+  }
+
+  section {
+    item ("_Settings…", "win.settings")
+    item ("_Wipe…", "win.wipe")
+    item ("New _Identity…", "win.new-identity")
+    item ("Re_name…", "win.rename")
+    item ("Open _Log Folder", "win.logs")
+  }
+
+  section {
+    item ("_Delete…", "win.delete")
+  }
+}

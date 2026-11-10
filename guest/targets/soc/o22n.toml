@@ -1,0 +1,11 @@
+# C3/O22N source retains O22's BASE family, while this firmware's native
+# decoders independently select 2.5G OLED, 1080p graphics and 120Hz output.
+# A0 remains a chosen virtual revision, not a retail silicon measurement.
+# Its model is OLED55C36LA, a C3, not the C2: nothing here shows it has the far-field microphone
+# (nor o22n2's OLED55C44LA, a C4, which keeps this file's mic).
+# W23O's and W24G's global firmwares also ship on US models (OLED77C3PUA, OLED55C4PUA ...): their
+# US boards are the default; neither has a Japanese one.
+
+base = "o22"
+broadcast_boards = { atsc = "/etc/emulator/board-atsc.cmdline", dvb = "/etc/emulator/board-dvb.cmdline" }
+mic = false

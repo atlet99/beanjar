@@ -1,0 +1,197 @@
+virtio-snd: publish coalesced playback completions one period at a time
+
+Two-period playback is advertised but a whole-buffer completion can leave the
+ALSA core seeing the old modulo position. Counting raw completion bytes in
+.pointer fixes indirect queue accounting but still loses the core's progress.
+Keep raw, published and consumed counters distinct. Under the PCM stream lock,
+publish one genuine completed period and process it in the core before exposing
+the next. Bound each work invocation to one buffer and requeue pending progress.
+Capture, advertised periods and the stock PulseAudio configuration are unchanged.
+
+--- a/sound/virtio/virtio_pcm.h
++++ b/sound/virtio/virtio_pcm.h
+@@ -56,7 +56,9 @@
+ 	spinlock_t lock;
+ 	size_t buffer_bytes;
+ 	size_t hw_ptr;
++	/* Playback completion, publication and pointer consumption counters. */
+ 	size_t hw_done;
++	size_t hw_published;
+ 	size_t hw_seen;
+ 	bool xfer_enabled;
+ 	bool xfer_xrun;
+--- a/sound/virtio/virtio_pcm.c
++++ b/sound/virtio/virtio_pcm.c
+@@ -319,8 +319,58 @@
+ {
+ 	struct virtio_pcm_substream *vss =
+ 		container_of(work, struct virtio_pcm_substream, elapsed_period);
+-
+-	snd_pcm_period_elapsed(vss->substream);
++	struct snd_pcm_substream *substream = vss->substream;
++	unsigned int budget;
++
++	if (vss->direction != SNDRV_PCM_STREAM_PLAYBACK) {
++		snd_pcm_period_elapsed(substream);
++		return;
++	}
++
++	/* Lifecycle callbacks disable and cancel this work before replacing the
++	 * runtime/messages. Snapshot the allocated period budget under stream
++	 * serialization, and never loop or requeue a zero-budget work item.
++	 */
++	snd_pcm_stream_lock_irq(substream);
++	budget = vss->nmsgs;
++	snd_pcm_stream_unlock_irq(substream);
++	if (!budget)
++		return;
++
++	/* One buffer per invocation bounds work even if writers keep refilling.
++	 * Publish each genuine completed period separately while holding the
++	 * stream lock: app pointer queries cannot swallow a whole ring between
++	 * publication and the core's period processing. Never hold vss->lock
++	 * across the core call, whose pointer/ack takes queue then vss locks.
++	 */
++	while (budget--) {
++		unsigned long flags;
++		size_t period_bytes;
++		bool publish = false;
++
++		snd_pcm_stream_lock_irq(substream);
++		period_bytes = snd_pcm_lib_period_bytes(substream);
++		spin_lock_irqsave(&vss->lock, flags);
++		if (period_bytes && vss->xfer_enabled && snd_pcm_running(substream) &&
++		    vss->hw_done - vss->hw_published >= period_bytes) {
++			vss->hw_published += period_bytes;
++			publish = true;
++		}
++		spin_unlock_irqrestore(&vss->lock, flags);
++		if (publish)
++			snd_pcm_period_elapsed_under_stream_lock(substream);
++		snd_pcm_stream_unlock_irq(substream);
++		if (!publish)
++			return;
++	}
++
++	/* Completions racing with the last iteration cannot be lost. Queue
++	 * under the same lock used by STOP and the completion callback.
++	 */
++	scoped_guard(spinlock_irqsave, &vss->lock) {
++		if (vss->xfer_enabled && vss->hw_done != vss->hw_published)
++			schedule_work(&vss->elapsed_period);
++	}
+ }
+ 
+ /**
+--- a/sound/virtio/virtio_pcm_ops.c
++++ b/sound/virtio/virtio_pcm_ops.c
+@@ -135,6 +135,23 @@
+ 	return rc;
+ }
+ 
++/* Called without the PCM stream lock, before runtime/message replacement.
++ * Disable new playback scheduling before waiting for the worker: STOP and
++ * completion use the same vss lock, so cancellation cannot race a self-requeue.
++ * The core's sync_stop is conditional on stop_operating; these lifecycle
++ * boundaries must also quiesce failed-start or pause work unconditionally.
++ */
++static void virtsnd_pcm_cancel_playback_work(struct virtio_pcm_substream *vss)
++{
++	if (vss->direction != SNDRV_PCM_STREAM_PLAYBACK)
++		return;
++
++	scoped_guard(spinlock_irqsave, &vss->lock) {
++		vss->xfer_enabled = false;
++	}
++	cancel_work_sync(&vss->elapsed_period);
++}
++
+ /**
+  * virtsnd_pcm_close() - Close the PCM substream.
+  * @substream: Kernel ALSA substream.
+@@ -146,6 +163,7 @@
+ {
+ 	struct virtio_pcm_substream *vss = snd_pcm_substream_chip(substream);
+ 
++	virtsnd_pcm_cancel_playback_work(vss);
+ 	WRITE_ONCE(vss->owner, NULL);
+ 	return 0;
+ }
+@@ -231,6 +249,8 @@
+ 	struct virtio_device *vdev = vss->snd->vdev;
+ 	int rc;
+ 
++	virtsnd_pcm_cancel_playback_work(vss);
++
+ 	if (virtsnd_pcm_msg_pending_num(vss)) {
+ 		dev_err(&vdev->dev, "SID %u: invalid I/O queue state\n",
+ 			vss->sid);
+@@ -266,6 +286,8 @@
+ {
+ 	struct virtio_pcm_substream *vss = snd_pcm_substream_chip(substream);
+ 
++	virtsnd_pcm_cancel_playback_work(vss);
++
+ 	/* If the queue is flushed, we can safely free the messages here. */
+ 	if (!virtsnd_pcm_msg_pending_num(vss))
+ 		virtsnd_pcm_msg_free(vss);
+@@ -285,6 +307,8 @@
+ 	struct virtio_pcm_substream *vss = snd_pcm_substream_chip(substream);
+ 	struct virtio_device *vdev = vss->snd->vdev;
+ 	struct virtio_snd_msg *msg;
++
++	virtsnd_pcm_cancel_playback_work(vss);
+ 
+ 	if (!vss->suspended) {
+ 		if (virtsnd_pcm_msg_pending_num(vss)) {
+@@ -313,7 +337,7 @@
+ 	vss->msg_count = 0;
+ 
+ 	memset(&vss->pcm_indirect, 0, sizeof(vss->pcm_indirect));
+-	vss->hw_done = vss->hw_seen = 0;
++	vss->hw_done = vss->hw_published = vss->hw_seen = 0;
+ 	vss->pcm_indirect.sw_buffer_size =
+ 		vss->pcm_indirect.hw_buffer_size =
+ 		snd_pcm_lib_buffer_bytes(substream);
+@@ -366,7 +390,11 @@
+ 			return -ENOMEM;
+ 		}
+ 
+-		return virtsnd_ctl_msg_send_sync(snd, msg);
++		rc = virtsnd_ctl_msg_send_sync(snd, msg);
++		/* A pause can complete messages while notifications are disabled. */
++		if (!rc && vss->direction == SNDRV_PCM_STREAM_PLAYBACK)
++			schedule_work(&vss->elapsed_period);
++		return rc;
+ 	case SNDRV_PCM_TRIGGER_SUSPEND:
+ 		vss->suspended = true;
+ 		fallthrough;
+@@ -457,20 +485,16 @@
+ 	struct snd_pcm_indirect *rec = &vss->pcm_indirect;
+ 	unsigned int bytes;
+ 
+-	/*
+-	 * As snd_pcm_indirect_playback_pointer(), but with the bytes the device
+-	 * completed since the last call rather than the difference of two ring
+-	 * positions: when the device completes every queued message between two
+-	 * calls (a guest that was not scheduled for a buffer's time), the ring
+-	 * position is back where it was, the difference is 0, and the stream
+-	 * would never get room to send again.
++	/* The worker exposes one completed period before each core update.
++	 * Counting raw completions here would let a coalesced full buffer wrap
++	 * to the old position and hide progress from the ALSA core again.
+ 	 */
+ 	scoped_guard(spinlock_irqsave, &vss->lock) {
+-		bytes = vss->hw_done - vss->hw_seen;
+-		vss->hw_seen = vss->hw_done;
+-	}
+-	if (bytes > rec->hw_ready)
+-		bytes = rec->hw_ready;
++		bytes = vss->hw_published - vss->hw_seen;
++		if (WARN_ON_ONCE(rec->hw_ready < 0 || bytes > rec->hw_ready))
++			return SNDRV_PCM_POS_XRUN;
++		vss->hw_seen = vss->hw_published;
++	}
+ 	rec->hw_io = (rec->hw_io + bytes) % rec->hw_buffer_size;
+ 	rec->hw_ready -= bytes;
+ 	rec->sw_io += bytes;

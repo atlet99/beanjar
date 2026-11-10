@@ -1,0 +1,29 @@
+// SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+// SPDX-License-Identifier: GPL-2.0-or-later
+// The status bar (beanjar_ui/viewer/statusbar.py): CPU, GPU,
+// memory, Disk and Network indicators on the right. Nothing takes keyboard focus.
+using Gtk 4.0;
+
+template $ViewerStatusBar: Gtk.Box {
+  orientation: horizontal;
+
+  css-classes: [
+    "wv-statusbar",
+  ];
+
+  focusable: false;
+
+  Gtk.Box {
+    hexpand: true;
+  }
+
+  $ViewerStatusField cpu {}
+
+  $ViewerStatusField gpu {}
+
+  $ViewerStatusField memory {}
+
+  $ViewerStatusField disk {}
+
+  $ViewerStatusField net {}
+}

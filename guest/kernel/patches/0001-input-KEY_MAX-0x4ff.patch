@@ -1,0 +1,36 @@
+input: raise KEY_MAX to 0x4ff, as on LG's webOS TV kernels
+
+libim (the input manager inside the webOS 1.4 compositor) creates a private uinput device,
+"CHECK INPUT", with UI_SET_KEYBIT for every code 0..0x4ff, and later writes the private key
+code 0x4f2 to it to wake its reader and rescan the input devices. That is how devices created
+after the compositor starts (lginput2's "LGE M-RCU", ajservice's "LGE AllJoyn Remote", ...)
+get picked up: each daemon calls IM_RequestToCheckInput after creating its device.
+
+With the mainline KEY_MAX of 0x2ff, UI_SET_KEYBIT fails with EINVAL at 0x300, the device is
+never created, every later rescan request fails ("IM_INPUT_RequestToCheckInput ... 15(1,1266,2)
+error: Invalid argument"), and keys from those devices never reach the compositor.
+
+Only the key bitmaps grow. Userspace passes its own buffer length to EVIOCGBIT/EVIOCGKEY.
+
+--- a/include/linux/mod_devicetable.h
++++ b/include/linux/mod_devicetable.h
+@@ -333,7 +333,7 @@
+ /* Input */
+ #define INPUT_DEVICE_ID_EV_MAX		0x1f
+ #define INPUT_DEVICE_ID_KEY_MIN_INTERESTING	0x71
+-#define INPUT_DEVICE_ID_KEY_MAX		0x2ff
++#define INPUT_DEVICE_ID_KEY_MAX		0x4ff
+ #define INPUT_DEVICE_ID_REL_MAX		0x0f
+ #define INPUT_DEVICE_ID_ABS_MAX		0x3f
+ #define INPUT_DEVICE_ID_MSC_MAX		0x07
+--- a/include/uapi/linux/input-event-codes.h
++++ b/include/uapi/linux/input-event-codes.h
+@@ -830,7 +830,7 @@
+ 
+ /* We avoid low common keys in module aliases so they don't get huge. */
+ #define KEY_MIN_INTERESTING	KEY_MUTE
+-#define KEY_MAX			0x2ff
++#define KEY_MAX			0x4ff
+ #define KEY_CNT			(KEY_MAX+1)
+ 
+ /*

@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Tool configuration only: the Python packages under host/ have their own pyprojects.
+
+[tool.ruff]
+target-version = "py311"
+required-version = "==0.17.0"
+line-length = 100
+indent-width = 4
+
+[tool.ruff.format]
+indent-style = "space"
+
+[tool.pytest.ini_options]
+# The test tiers (docs/dev/guides/testing.md): tests/unit needs no build and no firmware,
+# tests/integration the host build's outputs. tests/regress is the VM boot suite
+# (scripts/regress), not collected here.
+testpaths = ["tests/unit", "tests/integration"]
+# importlib: test modules of the same name in different areas, and no rootdir on sys.path
+# (tests/conftest.py puts host/core and tests/lib there); no .pytest_cache in the tree.
+addopts = "--import-mode=importlib -p no:cacheprovider -ra"
+python_files = "test_*.py"
+norecursedirs = ["data", "fixtures", "__pycache__"]
+xfail_strict = true

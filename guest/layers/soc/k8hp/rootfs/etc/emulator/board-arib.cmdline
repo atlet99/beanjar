@@ -1,0 +1,16 @@
+# 55QNED85JQA, the Japanese 55-inch QNED85, for W22H's Japanese firmwares (AFADJAAA, AFABJAPU:
+# otncabi-arib, otycabi-arib), which boot it from their paks (targets.Soc.broadcast_boards).
+# Decoded by the Japanese 04.60.85.01 firmware's own model generators; synthetic identity.
+ethaddr=02:00:00:12:34:56
+devtmpfs.mount=1
+countryGrp=18
+modelopt=000000000
+hwopt=002210000104002000
+ToolOpt=254372910:12307:1249497:65:16327987:825678345
+modelName=55QNED85JQA
+debugMode=3
+serialNum=000RAXX00001
+chip=K8HPA0
+tvregion=ARIB
+emmc_size=0x1d2000000
+cmdEnd

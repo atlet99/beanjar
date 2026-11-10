@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<!-- SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<html><head><meta charset="utf-8"><title>TV Suite</title>
+<style>
+html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#000}
+canvas{position:absolute;left:0;top:0;width:100%;height:100%}
+</style>
+<script src="pattern.js"></script>
+<script src="media/cases.js"></script></head>
+<body>
+<script>
+// scripts/regress --tv's test app (tests/regress/lib/tvsuite.py, the apps and draw steps): draws
+// PATTERN's patches over its mode's background with canvas 2D, or with WebGL (scissored clears)
+// for {"mode": "webgl"} in the launch parameters, and draws the same frame again on every
+// animation frame until it is closed, as a real app's render loop does: LG's QtWebKit (webOS 1
+// and 2) shows a WebGL canvas one frame late, so a page that draws once and stops shows nothing
+// there, and W19P's Chromium shows a GPU canvas
+// drawn while the page is still launching only once the page changes again. No WebGL context: the whole window in
+// PATTERN.nowebgl, which the host reads as that failure. What it drew goes to the console
+// (WebAppMgr logs it: "TVSUITE ..." in the guest's messages).
+function launchParams() {
+	try {
+		var p = window.PalmSystem && window.PalmSystem.launchParams;
+		return (typeof p === 'string' ? JSON.parse(p || '{}') : p) || {};
+	} catch (e) {
+		return {};
+	}
+}
+function css(c) { return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'; }
+var frame = window.requestAnimationFrame || window.webkitRequestAnimationFrame ||
+	function (f) { return setTimeout(f, 16); };
+var paint = null;
+function loop() {
+	if (!paint)
+		return;
+	paint();
+	frame(loop);
+}
+// {"mode": "audio", "freq": HZ, "seconds": S}: the audio step's WebAudio tone, an oscillator through
+// a gain of 0.25 (-12 dBFS peak) to the context's destination, as an app makes sound; the window
+// stays the canvas mode's background. What it did goes to the console ("TVSUITE audio ...").
+var audio = null;
+function tone(p) {
+	var AC = window.AudioContext || window.webkitAudioContext;
+	if (!AC) {
+		console.log('TVSUITE audio: no AudioContext');
+		return;
+	}
+	try {
+		if (audio) audio.close && audio.close();
+		audio = new AC();
+		var o = audio.createOscillator(), g = (audio.createGain || audio.createGainNode).call(audio);
+		var t = audio.currentTime, s = p.seconds || 2;
+		o.type = typeof o.type === 'number' ? 0 : 'sine';
+		o.frequency.value = p.freq || 660;
+		g.gain.value = 0.25;
+		o.connect(g);
+		g.connect(audio.destination);
+		(o.start || o.noteOn).call(o, t);
+		(o.stop || o.noteOff).call(o, t + s);
+		if (audio.resume) audio.resume();
+		console.log('TVSUITE audio ' + o.frequency.value + ' Hz ' + s + ' s, rate ' + audio.sampleRate +
+			', state ' + audio.state);
+	} catch (e) {
+		console.log('TVSUITE audio: ' + e);
+	}
+}
+// {"mode": "decode", "case": NAME, "seconds": S}: the decode step's case NAME of media/cases.js
+// (tests/regress/video/make-clips.sh --decode, packed with the app by scripts/regress): a <video> at
+// 1/6, 1/6 of the page and half its size (320,180 960x540 of a 1920x1080 page; the page is the
+// board's graphic plane, 1280x720 on some) over an opaque page plays its file (src), or its Media Source player appends the
+// case's init and media segments per track, one SourceBuffer each, then endOfStream. Whichever MSE
+// API the engine has: MediaSource, WebKitMediaSource, or the HTMLMediaElement webkitSource* calls
+// of the 2012 draft. Everything that happens goes to the console ("TVSUITE decode NAME ...") and
+// to p.log, the step's server on the VM host:
+// canPlayType and isTypeSupported of its MIME types, the element's events (timeupdate once a
+// second), the error code, the appends, and after S s (or "ended") an "end" line.
+var DECODE_EVENTS = ['loadstart', 'loadedmetadata', 'loadeddata', 'canplay', 'playing', 'pause', 'waiting', 'stalled',
+	'seeking', 'seeked', 'ended', 'error', 'abort', 'emptied'];
+function decode(p) {
+	var name = p['case'], c = window.DECODE && DECODE[name], t0 = Date.now(), seen = [], last = -1, top = 0;
+	var bar = document.createElement('div'), v = document.createElement('video'), ended = false;
+	var seq = 0, beacons = [];
+	// each line also as a GET to the step's server on the VM host (p.log: http://10.0.2.2:PORT/TOKEN/),
+	// an image request, which every engine makes from a packaged app: not every firmware's
+	// WebAppMgr puts the console in PmLog
+	function log(s) {
+		console.log('TVSUITE decode ' + name + ' ' + s);
+		if (!p.log) return;
+		var i = new Image();
+		i.src = p.log + encodeURIComponent(name) + '/' + (seq++) + '/' + encodeURIComponent(s);
+		beacons.push(i);
+	}
+	function show() {
+		bar.textContent = name + '  ' + v.currentTime.toFixed(1) + ' s  ' + seen.slice(-6).join(' ');
+	}
+	document.body.style.background = '#203040';
+	var W = window.innerWidth || document.documentElement.clientWidth || 1920;
+	var H = window.innerHeight || document.documentElement.clientHeight || 1080;
+	function px(n, of) { return Math.round(n * of) + 'px'; }
+	bar.style.cssText = 'position:absolute;left:0;top:' + px(900 / 1080, H) + ';width:' + px(1, W) + ';height:' +
+		px(100 / 1080, H) + ';background:#102030;color:#fff;font:' + px(44 / 1080, H) + ' sans-serif;line-height:' +
+		px(100 / 1080, H) + ';text-align:center';
+	v.style.cssText = 'position:absolute;left:' + px(1 / 6, W) + ';top:' + px(1 / 6, H) + ';width:' + px(1 / 2, W) +
+		';height:' + px(1 / 2, H);
+	document.body.appendChild(v);
+	document.body.appendChild(bar);
+	log('page ' + W + 'x' + H);
+	if (!c) {
+		log('error no such case (media/cases.js ' + (window.DECODE ? 'has ' + Object.keys(DECODE).join(',') : 'missing') + ')');
+		return;
+	}
+	DECODE_EVENTS.forEach(function (n) {
+		v.addEventListener(n, function () {
+			seen.push(n + '@' + v.currentTime.toFixed(1));
+			log('event ' + n + ' t=' + v.currentTime.toFixed(3) + (n === 'error' && v.error ? ' code=' + v.error.code : '') +
+				(n === 'loadedmetadata' ? ' size=' + v.videoWidth + 'x' + v.videoHeight + ' duration=' + v.duration : ''));
+			if (n === 'ended') finish('ended');
+			show();
+		});
+	});
+	v.addEventListener('timeupdate', function () {
+		var t = v.currentTime;
+		if (t > top) top = t;
+		if (Math.floor(t) !== last) {
+			last = Math.floor(t);
+			log('time t=' + t.toFixed(3));
+		}
+		show();
+	});
+	function finish(why) {
+		if (ended) return;
+		ended = true;
+		log('end ' + why + ' top=' + top.toFixed(3) + ' t=' + v.currentTime.toFixed(3) + ' paused=' + v.paused +
+			' ended=' + v.ended + ' error=' + (v.error ? v.error.code : 'none') + ' events=' + seen.join(','));
+	}
+	setTimeout(function () { finish('timeout'); }, (p.seconds || 30) * 1000);
+	var mimes = c.src ? [c.mime] : c.mse.map(function (t) { return t.mime; });
+	mimes.forEach(function (m) { log('canPlayType ' + JSON.stringify(m) + ' = ' + JSON.stringify(v.canPlayType(m))); });
+	v.autoplay = true;
+	if (c.src) {
+		log('start file ' + c.src);
+		v.src = c.src;
+		v.play && v.play();
+		return;
+	}
+	mse(v, c, log, mimes);
+}
+function fetchBytes(url, done) {
+	var x = new XMLHttpRequest();
+	x.open('GET', url, true);
+	x.responseType = 'arraybuffer';
+	x.onload = function () { done(x.response && x.response.byteLength ? new Uint8Array(x.response) : null, x.status); };
+	x.onerror = function () { done(null, 'error'); };
+	x.send();
+}
+function mse(v, c, log, mimes) {
+	var MS = window.MediaSource || window.WebKitMediaSource, U = window.URL || window.webkitURL;
+	var old = !MS && typeof v.webkitSourceAddId === 'function';
+	log('mse api ' + (window.MediaSource ? 'MediaSource' : window.WebKitMediaSource ? 'WebKitMediaSource' :
+		old ? 'webkitSourceAddId' : 'none'));
+	if (MS && MS.isTypeSupported)
+		mimes.forEach(function (m) { log('isTypeSupported ' + JSON.stringify(m) + ' = ' + MS.isTypeSupported(m)); });
+	if (!MS && !old) {
+		log('error no MSE api');
+		return;
+	}
+	var ms = MS ? new MS() : null, pending = c.mse.length, opened = false;
+	function trackDone(i, ok) {
+		log('track ' + i + (ok ? ' appended' : ' failed'));
+		if (--pending) return;
+		try {
+			if (ms) ms.endOfStream(); else v.webkitSourceEndOfStream(v.EOS_NO_ERROR);
+			log('endOfStream');
+		} catch (e) { log('error endOfStream ' + e); }
+	}
+	function feed(i, t, buf) {
+		var n = 0;
+		function next() {
+			if (n >= t.segs.length) return trackDone(i, true);
+			var url = t.segs[n++];
+			fetchBytes(url, function (b, st) {
+				if (!b) { log('error fetch ' + url + ' ' + st); return trackDone(i, false); }
+				try {
+					if (old) { v.webkitSourceAppend('t' + i, b); return next(); }
+					if (buf.appendBuffer) {
+						buf.addEventListener('updateend', function once() { buf.removeEventListener('updateend', once); next(); });
+						buf.appendBuffer(b);
+					} else { buf.append(b); next(); }
+				} catch (e) { log('error append ' + url + ' ' + e); trackDone(i, false); }
+			});
+		}
+		next();
+	}
+	function open() {
+		if (opened) return;
+		opened = true;
+		log('sourceopen');
+		c.mse.forEach(function (t, i) {
+			var buf = null;
+			try {
+				if (old) v.webkitSourceAddId('t' + i, t.mime); else buf = ms.addSourceBuffer(t.mime);
+				log('addSourceBuffer ' + JSON.stringify(t.mime) + ' ok');
+			} catch (e) {
+				log('error addSourceBuffer ' + JSON.stringify(t.mime) + ' ' + e);
+				return trackDone(i, false);
+			}
+			feed(i, t, buf);
+		});
+	}
+	if (ms) {
+		ms.addEventListener('sourceopen', open);
+		ms.addEventListener('webkitsourceopen', open);
+		v.src = U.createObjectURL(ms);
+	} else {
+		v.addEventListener('webkitsourceopen', open);
+		v.src = v.webkitMediaSourceURL;
+	}
+	log('start mse ' + c.mse.length + ' track(s)');
+	v.play && v.play();
+}
+function draw() {
+	var p = launchParams();
+	if (p.mode === 'decode') {
+		var old = document.getElementsByTagName('canvas')[0];
+		if (old) old.parentNode.removeChild(old);
+		paint = null;
+		decode(p);
+		return;
+	}
+	if (p.mode === 'audio') {
+		var old = document.getElementsByTagName('canvas')[0];
+		if (old) old.parentNode.removeChild(old);
+		paint = null;
+		document.body.style.background = css(PATTERN.modes.canvas);
+		tone(p);
+		return;
+	}
+	var mode = p.mode === 'webgl' ? 'webgl' : 'canvas';
+	var old = document.getElementsByTagName('canvas')[0], running = paint !== null;
+	if (old) old.parentNode.removeChild(old);
+	paint = null;
+	var cv = document.createElement('canvas');
+	var W = Math.round(window.innerWidth * (window.devicePixelRatio || 1));
+	var H = Math.round(window.innerHeight * (window.devicePixelRatio || 1));
+	cv.width = W; cv.height = H;
+	document.body.appendChild(cv);
+	var bg = PATTERN.modes[mode], P = PATTERN.patches;
+	if (mode === 'canvas') {
+		var c = cv.getContext('2d');
+		paint = function () {
+			var i, r;
+			c.fillStyle = css(bg); c.fillRect(0, 0, W, H);
+			for (i = 0; i < P.length; i++) {
+				r = P[i].rect;
+				c.fillStyle = css(P[i].rgb);
+				c.fillRect(Math.round(r[0] * W), Math.round(r[1] * H), Math.round(r[2] * W), Math.round(r[3] * H));
+			}
+		};
+		paint();
+		console.log('TVSUITE canvas ' + W + 'x' + H);
+	} else {
+		var gl = cv.getContext('webgl') || cv.getContext('experimental-webgl');
+		if (!gl) {
+			document.body.removeChild(cv);
+			document.body.style.background = css(PATTERN.nowebgl);
+			console.log('TVSUITE webgl: no context');
+			return;
+		}
+		paint = function () {
+			var i, r;
+			gl.viewport(0, 0, W, H);
+			gl.disable(gl.SCISSOR_TEST);
+			gl.clearColor(bg[0] / 255, bg[1] / 255, bg[2] / 255, 1);
+			gl.clear(gl.COLOR_BUFFER_BIT);
+			gl.enable(gl.SCISSOR_TEST);
+			for (i = 0; i < P.length; i++) {
+				r = P[i].rect;
+				var x = Math.round(r[0] * W), y = Math.round(r[1] * H), w = Math.round(r[2] * W), h = Math.round(r[3] * H);
+				gl.scissor(x, H - y - h, w, h);
+				gl.clearColor(P[i].rgb[0] / 255, P[i].rgb[1] / 255, P[i].rgb[2] / 255, 1);
+				gl.clear(gl.COLOR_BUFFER_BIT);
+			}
+			gl.disable(gl.SCISSOR_TEST);
+		};
+		paint();
+		console.log('TVSUITE webgl ' + W + 'x' + H + ' ' + gl.getParameter(gl.VERSION) + ' / ' +
+			gl.getParameter(gl.RENDERER) + ' error ' + gl.getError());
+	}
+	if (!running)
+		frame(loop);
+}
+window.onload = draw;
+document.addEventListener('webOSRelaunch', draw);
+</script>
+</body></html>

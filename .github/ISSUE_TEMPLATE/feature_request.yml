@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+name: Feature request
+description: Suggest a new feature or a new firmware target.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach firmware, keys or files extracted from firmware.
+  - type: textarea
+    id: want
+    attributes:
+      label: What do you want to do?
+      description: The goal first, then the change you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: For a new firmware, its model, build number and SoC. Anything you have tried.

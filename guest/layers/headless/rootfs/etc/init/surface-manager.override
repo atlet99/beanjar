@@ -1,0 +1,11 @@
+# Headless (no graphics yet): stand in for the compositor by emitting lsm-ready, which sam
+# and the rest of the boot wait for, and then stay up as the compositor does. The job is started
+# twice at boot (surface-manager-snapshot's `initctl start` and its own start on), which a running
+# compositor ignores; a stand-in that ended at once ran again for the second and emitted
+# lsm-ready twice, and the stock lsm-ready job restarts WebAppMgr on a second one (W19P: WAM then
+# crash-looped without a GPU until faultmanager powered the set off).
+normal exit 0
+script
+	initctl emit --no-wait lsm-ready
+	exec sleep 2147483647
+end script

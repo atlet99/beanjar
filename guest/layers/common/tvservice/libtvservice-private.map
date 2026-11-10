@@ -1,0 +1,11 @@
+/* What libtvservice-private.so exports (src/libc-private.c): the interposed libc functions and the
+ * emulator's physical memory for the libdile_vt shim; hal_log and the rest stay local. */
+{
+  global:
+    fopen; fopen64;
+    open; open64; __open_2; __open64_2;
+    mmap; mmap64;
+    raise;
+    tvservice_physmem_alloc;
+  local: *;
+};

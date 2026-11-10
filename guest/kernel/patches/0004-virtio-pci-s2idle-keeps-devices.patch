@@ -1,0 +1,53 @@
+virtio-pci: suspend-to-idle keeps the devices running
+
+The emulator's suspend-to-RAM is suspend-to-idle (mem_sleep_default=s2idle; QEMU's arm64 virt
+machine has no PSCI SYSTEM_SUSPEND): the VM keeps running and only the vCPUs idle, so a virtio
+device keeps its state, as one with PCI PM's No_Soft_Reset does. QEMU sets that bit only for a
+device behind a PCIe port, and ours sit on the root bus with no PM capability, so the driver would
+reset each device at suspend and restore it at resume. The 9p shares and virtio-gpu have no
+restore and stayed dead after a resume (an ls of /host hung in D state), and the remote's port,
+reset, could not wake the guest. Suspend and resume leave the devices alone; freeze/thaw and
+poweroff/restore, hibernation's, still reset them.
+
+--- a/drivers/virtio/virtio_pci_common.c
++++ b/drivers/virtio/virtio_pci_common.c
+@@ -626,31 +626,20 @@
+ 	return virtio_device_restore(&vp_dev->vdev);
+ }
+ 
+-static bool vp_supports_pm_no_reset(struct device *dev)
+-{
+-	struct pci_dev *pci_dev = to_pci_dev(dev);
+-	u16 pmcsr;
+-
+-	if (!pci_dev->pm_cap)
+-		return false;
+-
+-	pci_read_config_word(pci_dev, pci_dev->pm_cap + PCI_PM_CTRL, &pmcsr);
+-	if (PCI_POSSIBLE_ERROR(pmcsr)) {
+-		dev_err(dev, "Unable to query pmcsr");
+-		return false;
+-	}
+-
+-	return pmcsr & PCI_PM_CTRL_NO_SOFT_RESET;
+-}
+-
++/*
++ * The emulator: suspend-to-RAM is suspend-to-idle under QEMU's virt machine, which keeps every
++ * device running while the vCPUs idle, as a device with No_Soft_Reset does. The devices sit on
++ * the root bus, which gives them no PM capability to say so, and a reset would lose the 9p shares
++ * and the GPU (their drivers have no restore) and keep the remote's port from waking the guest.
++ */
+ static int virtio_pci_suspend(struct device *dev)
+ {
+-	return vp_supports_pm_no_reset(dev) ? 0 : virtio_pci_freeze(dev);
++	return 0;
+ }
+ 
+ static int virtio_pci_resume(struct device *dev)
+ {
+-	return vp_supports_pm_no_reset(dev) ? 0 : virtio_pci_restore(dev);
++	return 0;
+ }
+ 
+ static const struct dev_pm_ops virtio_pci_pm_ops = {

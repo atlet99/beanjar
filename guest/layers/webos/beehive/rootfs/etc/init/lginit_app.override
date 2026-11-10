@@ -1,0 +1,14 @@
+# Emulator: lginit_app2 initialises TV hardware. Only emit its event, after the one directory of
+# its start-up that a later job needs: tvservice touches /var/lib/eim/initdone during its own
+# start-up (tv_sysonoff_init), which begins on lginit_app-ready.
+# webOS 2's job adds a post-stop that starts the reboot job when lginit_app2 ends in a RELEASE
+# boot (DEBUG_STATUS 5, board.cmdline's debugMode=): lginit_app2 is not expected to end on a TV, but
+# this script does, so the post-stop is emptied.
+script
+	mkdir -p /var/lib/eim
+	initctl emit --no-wait lginit_app-ready
+end script
+
+post-stop script
+	:
+end script

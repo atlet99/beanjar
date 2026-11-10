@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# GStreamer 1.14.4, W20L's version: headers only, for the video layer's plugins (guest/layers/soc/src/video).
+[wrap-file]
+directory = gstreamer-1.14.4
+source_url = https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.14.4.tar.xz
+source_filename = gstreamer-1.14.4.tar.xz
+source_hash = f94f6696c5f05a3b3a9183e39c5f5c0b779f75a04c0efa497e7920afa985ffc7
+patch_directory = source-only

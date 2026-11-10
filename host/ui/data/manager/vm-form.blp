@@ -1,0 +1,530 @@
+// SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+// SPDX-License-Identifier: GPL-2.0-or-later
+// The New VM and Settings dialogs of the VM manager (beanjar_ui/manager/widgets.py, VMForm): the VM's
+// launcher settings in pages, one per category of the sidebar (a split view that collapses to
+// one pane when the dialog is narrow). Cancel and Create/Save are in the pages' header bar; while
+// collapsed, both are in the sidebar's and Create/Save stays on the pages. A banner over the
+// pages shows an error and which page it is on; that page's sidebar row gets a warning icon.
+// General has the firmware: its source (New VM: a .epk to extract or a directory, made the VM's
+// own; Settings: the VM's own firmware or a directory used in place) and the directory's or the
+// file's row (each with a button that opens a chooser); what that costs is the group's
+// description. The sources, the choices of the combo rows (core.LINKS, MODES, DISPLAYS, AUDIOS,
+// ROOTFS_MODES), the layer rows (layer-row.blp), the values, the rows' and the firmware group's
+// texts, the title and the ok buttons' label are set from Python.
+using Gtk 4.0;
+using Adw 1;
+
+template $ManagerVMForm: Adw.Dialog {
+  content-width: 760;
+  content-height: 560;
+  width-request: 360;
+  height-request: 360;
+  default-widget: ok;
+
+  Adw.Breakpoint {
+    condition ("max-width: 600sp")
+
+    setters {
+      split.collapsed: true;
+      sidebar_cancel.visible: true;
+      sidebar_ok.visible: true;
+      cancel.visible: false;
+    }
+  }
+
+  child: Adw.NavigationSplitView split {
+    min-sidebar-width: 190;
+    max-sidebar-width: 240;
+
+    sidebar: Adw.NavigationPage {
+      title: bind template.title;
+      tag: "categories";
+
+      child: Adw.ToolbarView {
+        [top]
+        Adw.HeaderBar {
+          show-start-title-buttons: false;
+          show-end-title-buttons: false;
+
+          [start]
+          Gtk.Button sidebar_cancel {
+            label: "_Cancel";
+            use-underline: true;
+            visible: false;
+            clicked => $on_cancel_clicked();
+          }
+
+          [end]
+          Gtk.Button sidebar_ok {
+            use-underline: true;
+            visible: false;
+            clicked => $on_ok_clicked();
+
+            styles [
+              "suggested-action",
+            ]
+          }
+        }
+
+        content: Gtk.ScrolledWindow {
+          hscrollbar-policy: never;
+
+          child: Gtk.ListBox categories {
+            row-activated => $on_category_activated();
+
+            styles [
+              "navigation-sidebar",
+            ]
+
+            Gtk.ListBoxRow {
+              name: "general";
+
+              child: Gtk.Box {
+                spacing: 12;
+
+                Gtk.Image {
+                  icon-name: "computer-symbolic";
+                }
+
+                Gtk.Label {
+                  label: "General";
+                  xalign: 0;
+                  hexpand: true;
+                }
+
+                Gtk.Image warn_general {
+                  icon-name: "dialog-warning-symbolic";
+                  visible: false;
+
+                  styles [
+                    "warning",
+                  ]
+                }
+              };
+            }
+
+            Gtk.ListBoxRow {
+              name: "hardware";
+
+              child: Gtk.Box {
+                spacing: 12;
+
+                Gtk.Image {
+                  icon-name: "preferences-system-devices-symbolic";
+                }
+
+                Gtk.Label {
+                  label: "Hardware";
+                  xalign: 0;
+                  hexpand: true;
+                }
+
+                Gtk.Image warn_hardware {
+                  icon-name: "dialog-warning-symbolic";
+                  visible: false;
+
+                  styles [
+                    "warning",
+                  ]
+                }
+              };
+            }
+
+            Gtk.ListBoxRow {
+              name: "display";
+
+              child: Gtk.Box {
+                spacing: 12;
+
+                Gtk.Image {
+                  icon-name: "video-display-symbolic";
+                }
+
+                Gtk.Label {
+                  label: "Display & Audio";
+                  xalign: 0;
+                  hexpand: true;
+                }
+
+                Gtk.Image warn_display {
+                  icon-name: "dialog-warning-symbolic";
+                  visible: false;
+
+                  styles [
+                    "warning",
+                  ]
+                }
+              };
+            }
+
+            Gtk.ListBoxRow {
+              name: "network";
+
+              child: Gtk.Box {
+                spacing: 12;
+
+                Gtk.Image {
+                  icon-name: "network-wired-symbolic";
+                }
+
+                Gtk.Label {
+                  label: "Network";
+                  xalign: 0;
+                  hexpand: true;
+                }
+
+                Gtk.Image warn_network {
+                  icon-name: "dialog-warning-symbolic";
+                  visible: false;
+
+                  styles [
+                    "warning",
+                  ]
+                }
+              };
+            }
+
+            Gtk.ListBoxRow {
+              name: "layers";
+
+              child: Gtk.Box {
+                spacing: 12;
+
+                Gtk.Image {
+                  icon-name: "view-list-ordered-symbolic";
+                }
+
+                Gtk.Label {
+                  label: "Layers";
+                  xalign: 0;
+                  hexpand: true;
+                }
+
+                Gtk.Image warn_layers {
+                  icon-name: "dialog-warning-symbolic";
+                  visible: false;
+
+                  styles [
+                    "warning",
+                  ]
+                }
+              };
+            }
+          };
+        };
+      };
+    };
+
+    content: Adw.NavigationPage page {
+      title: "General";
+      tag: "settings";
+
+      child: Adw.ToolbarView {
+        [top]
+        Adw.HeaderBar {
+          show-start-title-buttons: false;
+          show-end-title-buttons: false;
+
+          [start]
+          Gtk.Button cancel {
+            label: "_Cancel";
+            use-underline: true;
+            clicked => $on_cancel_clicked();
+          }
+
+          [end]
+          Gtk.Button ok {
+            use-underline: true;
+            clicked => $on_ok_clicked();
+
+            styles [
+              "suggested-action",
+            ]
+          }
+        }
+
+        [top]
+        Adw.Banner error {
+          use-markup: false;
+          button-clicked => $on_error_button_clicked();
+        }
+
+        content: Gtk.Stack pages {
+          transition-type: crossfade;
+
+          Gtk.StackPage {
+            name: "general";
+            title: "General";
+
+            child: Adw.PreferencesPage {
+              Adw.PreferencesGroup name_group {
+                description: "Letters, digits, '.', '_' and '-'; at most 64.";
+
+                Adw.EntryRow name_entry {
+                  title: "Name";
+                  activates-default: true;
+                }
+              }
+
+              Adw.PreferencesGroup fw_group {
+                title: "Firmware";
+
+                Adw.ComboRow fw {
+                  title: "Source";
+                }
+
+                Adw.EntryRow fwdir {
+                  title: "Directory of Extracted Paks";
+                  activates-default: true;
+                  visible: false;
+
+                  [suffix]
+                  Gtk.Button fwdir_browse {
+                    icon-name: "folder-open-symbolic";
+                    tooltip-text: "Choose a Directory";
+                    valign: center;
+                    clicked => $on_browse_clicked();
+
+                    styles [
+                      "flat",
+                    ]
+                  }
+                }
+
+                Adw.EntryRow epk {
+                  title: "Firmware File (.epk)";
+                  activates-default: true;
+                  visible: false;
+
+                  [suffix]
+                  Gtk.Button epk_browse {
+                    icon-name: "document-open-symbolic";
+                    tooltip-text: "Choose a File";
+                    valign: center;
+                    clicked => $on_browse_clicked();
+
+                    styles [
+                      "flat",
+                    ]
+                  }
+                }
+
+                Adw.SwitchRow fw_import {
+                  title: "Import into the VM's Folder";
+                  subtitle: "A copy (or hard links) the VM keeps, instead of the firmware used in place";
+                  visible: false;
+                }
+              }
+            };
+          }
+
+          Gtk.StackPage {
+            name: "hardware";
+            title: "Hardware";
+
+            child: Adw.PreferencesPage {
+              Adw.PreferencesGroup {
+                Adw.SpinRow mem {
+                  title: "Memory";
+                  subtitle: "MiB";
+                  climb-rate: 128;
+                  numeric: true;
+
+                  adjustment: Gtk.Adjustment {
+                    lower: 256;
+                    upper: 16384;
+                    step-increment: 128;
+                    page-increment: 1280;
+                  };
+                }
+
+                Adw.SpinRow smp {
+                  title: "CPUs";
+                  climb-rate: 1;
+                  numeric: true;
+
+                  adjustment: Gtk.Adjustment {
+                    lower: 1;
+                    upper: 16;
+                    step-increment: 1;
+                    page-increment: 10;
+                  };
+                }
+              }
+
+              Adw.PreferencesGroup free_page_reporting_group {
+                Adw.SwitchRow free_page_reporting {
+                  title: "Free Page Reporting";
+                  subtitle: "Hand the memory the guest leaves free back to this host. The guest keeps all of its memory.";
+                }
+              }
+            };
+          }
+
+          Gtk.StackPage {
+            name: "display";
+            title: "Display & Audio";
+
+            child: Adw.PreferencesPage {
+              Adw.PreferencesGroup {
+                description: "dbus: shown by the viewer (Connect). egl-headless: a GPU, not shown. none: no GPU.";
+
+                Adw.ComboRow display {
+                  title: "Display";
+                }
+              }
+
+              Adw.PreferencesGroup {
+                description: "dbus: played by the viewer (needs the dbus display). none: a sound card whose output is discarded. off: no sound card.";
+
+                Adw.ComboRow audio {
+                  title: "Audio";
+                }
+              }
+            };
+          }
+
+          Gtk.StackPage {
+            name: "network";
+            title: "Network";
+
+            child: Adw.PreferencesPage {
+              Adw.PreferencesGroup {
+                description: "Link: nat, behind this host; lan, on the host's wired LAN as a TV of its own (with mitm; direct is not implemented yet); off, no network. Mode: mitm, every web connection through the host's recording proxy (the guest trusts the VM's own CA); direct, no proxy.";
+
+                Adw.ComboRow link {
+                  title: "Link";
+                }
+
+                Adw.ComboRow mode {
+                  title: "Mode";
+                }
+              }
+
+              Adw.PreferencesGroup inspector_group {
+                title: "Traffic Inspector";
+                description: "How much of the recorded traffic mitmweb keeps in memory. Beyond either limit the oldest finished flows are dropped, from memory and from the inspector. Flows: 0 keeps all of them. Body size: such as 200M (K, M or G); empty or 0 for no limit.";
+                visible: false;
+
+                Adw.SpinRow mitm_flows {
+                  title: "Flows Kept";
+                  climb-rate: 100;
+                  numeric: true;
+
+                  adjustment: Gtk.Adjustment {
+                    lower: 0;
+                    upper: 1000000;
+                    step-increment: 100;
+                    page-increment: 1000;
+                  };
+                }
+
+                Adw.EntryRow mitm_flow_bytes {
+                  title: "Body Size Limit";
+                  activates-default: true;
+                }
+              }
+
+              Adw.PreferencesGroup address_group {
+                title: "LAN Address";
+                description: "The VM's address on the LAN. Empty or dhcp: a DHCP lease. A static one: A.B.C.D/NN,GATEWAY, e.g. 192.168.1.50/24,192.168.1.1. The library's lan_parent names the wired interface.";
+                visible: false;
+
+                Adw.EntryRow address {
+                  title: "Address";
+                  activates-default: true;
+                }
+              }
+
+              Adw.PreferencesGroup identity_group {
+                title: "Identity";
+                description: "The TV's board MAC and serial number, its own since the VM was made. LG's NDUID of the TV follows the MAC: a new one makes the VM another TV to apps and servers.";
+                visible: false;
+
+                Adw.EntryRow mac {
+                  title: "MAC Address";
+                  activates-default: true;
+                }
+
+                Adw.EntryRow serial {
+                  title: "Serial Number";
+                  activates-default: true;
+                }
+              }
+
+              Adw.PreferencesGroup listen_group {
+                title: "Service Ports";
+                description: "Where the TV's service ports listen: SSAP (3000, 3001), root SSH (6622), developer mode (9922) and its key server (9991). Empty: the VM's own address, this host only. 0.0.0.0 or one of the host's addresses: the LAN too, e.g. for ares from another PC. Two VMs cannot share an address, as the ports are the TV's.";
+                visible: false;
+
+                Adw.EntryRow listen {
+                  title: "Listen Address";
+                  activates-default: true;
+                }
+              }
+
+              Adw.PreferencesGroup model_key_group {
+                title: "Model Key";
+                description: "LG's SDP model secret, the same for every TV of a model: the NDUID and SDP's device ID are made with it. Without one the VM has the emulator's built-in secret. Its value is never shown; it is installed or cleared at Save.";
+                visible: false;
+
+                Adw.ActionRow model_key {
+                  title: "Key";
+
+                  [suffix]
+                  Gtk.Button model_key_install {
+                    icon-name: "document-open-symbolic";
+                    tooltip-text: "Install From a File";
+                    valign: center;
+                    clicked => $on_model_key_install_clicked();
+
+                    styles [
+                      "flat",
+                    ]
+                  }
+
+                  [suffix]
+                  Gtk.Button model_key_clear {
+                    icon-name: "edit-clear-symbolic";
+                    tooltip-text: "Clear";
+                    valign: center;
+                    clicked => $on_model_key_clear_clicked();
+
+                    styles [
+                      "flat",
+                    ]
+                  }
+                }
+              }
+            };
+          }
+
+          Gtk.StackPage {
+            name: "layers";
+            title: "Layers";
+
+            child: Adw.PreferencesPage {
+              Adw.PreferencesGroup {
+                title: "Optional Layers";
+                description: "Stacked over the firmware in this order: a layer's files hide those of the layers below it. The order matters only where two layers have the same file (gl and headless).";
+
+                Gtk.ListBox layer_list {
+                  selection-mode: none;
+
+                  styles [
+                    "boxed-list",
+                  ]
+                }
+              }
+
+              Adw.PreferencesGroup always_group {
+                title: "Always Used";
+                description: "Added by the initramfs after the layers above.";
+              }
+            };
+          }
+        };
+      };
+    };
+  };
+}

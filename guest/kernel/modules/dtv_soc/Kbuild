@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# dtv_soc.ko: the demodulator's transport stream from the host and the DVB core's software demux,
+# on webos_tv.ko's adapter (webos_tv.h; kbuild.sh gives modpost webos_tv's Module.symvers).
+obj-m := dtv_soc.o
+ccflags-y := -I$(src)/../webos_tv

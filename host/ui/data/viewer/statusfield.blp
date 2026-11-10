@@ -1,0 +1,19 @@
+// SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+// SPDX-License-Identifier: GPL-2.0-or-later
+// One indicator of the status bar (beanjar_ui/viewer/statusbar.py, StatusField): a symbolic icon.
+// Python sets its icon and its state class (off, idle, active) and its tooltip.
+using Gtk 4.0;
+
+template $ViewerStatusField: Gtk.Box {
+  orientation: horizontal;
+
+  css-classes: [
+    "field",
+  ];
+
+  valign: center;
+
+  Gtk.Image icon {
+    pixel-size: 16;
+  }
+}

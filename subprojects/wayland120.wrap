@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Wayland 1.20.0, the firmware's own on ombre and ponytail: what the gl layer's Mesa compiles and links
+# against there (guest/layers/gl/mesa), never shipped. Hash: upstream .sha256sum.
+[wrap-file]
+directory = wayland-1.20.0
+source_url = https://wayland.freedesktop.org/releases/wayland-1.20.0.tar.xz
+source_filename = wayland-1.20.0.tar.xz
+source_hash = b8a034154c7059772e0fdbd27dbfcda6c732df29cae56a82274f6ec5d7cd8725

@@ -1,0 +1,11 @@
+[Unit]
+Description=Emulator key-only root SSH
+DefaultDependencies=no
+Wants=mount-readwrite.service
+After=mount-readwrite.service
+Before=basic.target
+
+[Service]
+ExecStartPre=/usr/libexec/beanjar/rootssh-keys
+ExecStart=/usr/sbin/dropbear -F -E -s -p 22 -r /etc/emulator/rootssh/dropbear_ed25519_host_key -P /tmp/emulator-rootssh.pid
+Restart=on-failure

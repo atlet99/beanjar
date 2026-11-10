@@ -1,0 +1,113 @@
+# The MStar M5621 "M3" (board chip MSD94BCG; MBoot's chip=M3A0), W18R's SoC: MStar's drivers
+# under KADP as on M2 (mstar-utopia.ko), with the same ABI (majors, ioctls, SYS_INFO, mmapger's
+# records) and layout (bsppart's tee/mmap.ini header: two 512 MiB MIUs at MIU_INTERVAL
+# 0x80000000). What differs: KADP's MAdp_SYS_GetMMAP takes ids 0-94 (95 records), and
+# MAdp_MPool_Init checks SYS_INFO's LX_MEM2_ADDR with no bias (lx_mem2_bias 0; W16R's KADP
+# adds 0x40000000). reg_init: the CPU clock as M2's (HAL_CPU_QueryClock is byte-identical),
+# and pad 48's input high, bit 4 of PM 0x1425 (KADP's user-mode HAL gpio_table): the PM51
+# strap, which reads 0 on a board whose PM51 is the micom (MAdp_SYS_UsePM51). W18R's micom is
+# an external NEC (RELEASE.cfg's MICOM_NEC), so MAdp_IIC_Init says "External MICOM". And the
+# CI slot empty, as M2's (the same PCMCIA bank and active-low detect).
+# reg_autoclear: M3's efuse read trigger, bit 13 of PM 0x2050 (HAL_SYS_ReadEfuseHDCPKey writes
+# addr << 2 | 0x2000 there and polls the bit), and XC's PQ SRAM write strobes, bit 8 of
+# 0x132382 (as M2's) and of 0x13a382 (the _Main2 variants' 0xA382).
+# No HWI2C i2c=: W18R's MAdp_IIC_* no longer call MStar's HWI2C. Its DILE_I2C (libdile_i2c,
+# what tvservice and tvconfig-gen import) opens /dev/i2c-0 to -6, all seven or it falls back
+# to the HAL with the EEPROM unread, and addresses the 7-bit slave (the 8-bit one >> 1) on
+# the channel of its own I2C map (DILE_I2C_GetConfig's table in libdile_i2c, map version
+# "170628", 24-byte entries: name, the channel per country group, slave, speed), not
+# RELEASE.cfg's (whose channels are the HAL's): MICOM 4/0x52, NVM 6/0xA0, the amplifiers
+# (NTP75xx, DTA2010*) 0/0x54 and 0x56, the same for every group. lgemu.ko registers those
+# adapters.
+# The records get 4 MiB each, so that all 95 lie in MIU0: W18R's MAdp_MPool_Init maps its
+# table of 63 ids (up to 93) as MIU0 (MsOS_MPool_Mapping's MIU argument is 0), and the delayed
+# binding (drvMPool.c's _MPOOL_DELAY_BINDING, on the first PA2KSEG1) refuses a PA past
+# MIU_INTERVAL for an MIU0 mapping: with 8 MiB, ids 64-93 were MIU1 and XC's init got NULL for
+# id 93's (E_MMAP_ID_XC_VIRTUAL_REGISTER) buffer.
+# VDEC_FRAMEBUFFER (record 42) is the firmware's length, 108 MiB (bsppart's bsp/tee/mmap.ini,
+# E_MMAP_ID_VDEC_FRAMEBUFFER_LEN; the file names 18 records only, the TEE's, so the rest stay
+# 4 MiB): libhal_photo's HAL_VO_Open takes its buffers from that record, up to 16 MiB in, and
+# KADP's mpool maps a record's length; at 4 MiB the photorenderer (HDMI's no-signal photo
+# screensaver) asserted in MAdp_MPool_PA2KSEG1. 94 x 4 MiB + 108 MiB stays in MIU0.
+# MStar's TEE: W18R's MAdp_SYS_Init starts KADP's TEE client in every KADP process; it finds its
+# shared memory as SECURE_SHM in /proc/mmapger/mmap.ini (record 7 of LG's mmapger names) and
+# talks to the secure world over MStar's mailbox. secure_shm_id brings mmap.ini, /dev/msmailbox
+# and the secure world's side (mstar-utopia/mailbox.c); W16R's KADP never starts that client at boot.
+# XC's kernel-mode commands with an answer (W18R's Utopia numbering; W16R's differs):
+# MApi_XC_S_Disp_Ctrl 0x158, whose DE window libhal_vt divides by in every tv.capture, and
+# MApi_XC_HDR_Control 0x142, whose CFD status Monitor_taskHdrSeamless prints every 16 ms
+# when it fails. xc_window: its window commands as M2's, in W18R's numbering (SetWindow 20,
+# GenerateBlackVideo 50, ..ForBothWin 48, EnableMainWindow 236, DisableSubWindow 238,
+# EnableWindow 185). pnl_area: the panel interface's kernel-mode PNL getters (HStart, VStart,
+# Width, Height: 70-73), which the HAL clamps every window to. xc_r2bytemsk: XC's register
+# read (202), of which KADP's unblank reads back the windows' black screen.
+# The GPIO lines are rootfs libdile_gpio's (/sys/class/gpio, as W19P's; its gGPIMapTable and
+# gGPOMapTable, GPIO_MAP_VER 170816, the highest 178, AUDIO_RESET), the board with nothing
+# connected: COMP1/CVBS1/HP_LINK and HDMI1-3_5V_DET read 0, the USB switches' overcurrent
+# outputs, USB2_OCD 50 and USB1_OCD 177, 1 (active low: PDM's OCD task turns VBUS off on 0).
+# adv_fn009: the OSD volume, kernel-mode AUDIO (module 48 here) command 91, whose ADVSOUND
+# parameter is the string LGSE_FN_009_VARIABLES, passed to lgemu's playback gain.
+
+board_cmdline = "/etc/emulator/board.cmdline"
+# The 32LK6100PLB's area, a German set's: W18R's RELEASE.cfg nContinentIdx 50 ("DE" in its
+# tvservice's _aDefineContinent), LANG_COUNTRY_EU 24, HWSETTING_EU 0
+continent = [50, 24, 0]
+# Its input ports, EXT_VIDEO_INPUT_ADJ (HDMI1-4, COMP1-3, RGB, SCART, AV1-3, 3 reserved)
+# and EXT_AUDIO_INPUT_ADJ (COMP1-3, RGB, SCART, AV1-3, 3 reserved) of tvservice's
+# gToolOptionDB, from W18R's RELEASE.cfg, whose defaults are the LK61 32": nVideoHDMIportA-D
+# 1-4, COMP A 1, SCART 1, AV A 2, AV B 4; nAudioCOMPportA 4, B 2, RGB 1, SCART 1, AV A 3,
+# AV B 2 (the default record has video HDMI1 and audio COMP1 only). These are the user
+# input map: tvservice reads them only when ToolOpt2's nExtVideoInputIndex (or
+# nExtAudioInputIndex) is 0 or 255 (OSA_MD_GetMaxInputNumber, OSA_MD_GetExtInput_*ADCPort).
+# board.cmdline's index 1 selects row 1 of tvservice's video_external_input_adjust
+# (01 02 03 00 03 00 00 00 00 01 00 00: HDMI1-3, COMP, AV; the 5 inputs tvservice lists)
+# and of its non-UHD audio table (COMP, AV), so with it these bytes are programmed but
+# unread. They stay RELEASE.cfg's, which the board values are validated against.
+inputs = [1, 2, 3, 4, 1, 0, 0, 0, 1, 2, 4, 0, 0, 0, 0, 4, 2, 0, 1, 1, 3, 2, 0, 0, 0, 0]
+lgemu = [
+    "i2c_buses=0,1,2,3,4,5,6", "i2c_dev=micom:4:0x29,nvm:6:0x50,amp:0:0x2a,amp:0:0x2b",
+]
+
+[[modules]]
+name = "mstar-utopia"
+params = [
+    "miu_interval=0x80000000",
+    "miu_len=0x20000000",
+    "miu0_bus=0x20000000",
+    "miu1_bus=0xa0000000",
+    "mmap_ids=95",
+    "mmap_slot=0x400000",
+    "mmap_len=42:0x6c00000",
+    "lx_mem_id=1",
+    "lx_mem2_id=67",
+    "lx_mem2_bias=0",
+    "secure_shm_id=7",
+    "msos_pmlog=1",
+    "xc_disp_ctrl=0x158",
+    "xc_hdr_control=0x142",
+    "xc_window=20,50,48,236,238,185",
+    "pnl_area=70,71,72,73",
+    "xc_r2bytemsk=202",
+    "adv_fn009=48:91:LGSE_FN_009_VARIABLES",
+    """reg_init=0x1f200000:0x10cc0:0x78d5,0x1f200000:0x10cc2:0x29,0x1f000000:0x1424:0x1000,\
+        0x1f200000:0x3448:0xc00""",
+    "reg_autoclear=0x1f000000:0x2050:0x2000,0x1f000000:0x132382:0x100,0x1f000000:0x13a382:0x100",
+    "gpio_lines=179",
+    "gpio_level=50:1,177:1",
+]
+
+# W18R's btmtk_usb.ko and webos-bluetooth-service: netlink family 30
+[[modules]]
+name = "btmtk_usb"
+params = [
+    "family=30",
+]
+
+# W18R's libdvbfrontend: GetLIBVersion, CheckLockState, TunePostJob read 0xc0, 0xae, 0xb0
+[[modules]]
+name = "webos_tv"
+params = [
+    "version_cmd=0xc0",
+    "lock_cmd=0xae",
+    "postjob_cmd=0xb0",
+]

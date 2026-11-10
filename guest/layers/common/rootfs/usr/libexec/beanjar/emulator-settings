@@ -1,0 +1,141 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Not a set's default and not a replay of the firmware's setup: the emulator's own choices, made
+# once per state and per concern (each its own mark under $MARKDIR; a setting the user turns back
+# on afterwards stays on), through LG's settings service, only the keys the firmware defines and
+# only those not already off. Every webOS release, both init systems: run by
+# etc/init/emulator-settings.conf (Upstart, on settingsservice-ready) and etc/systemd/system/
+# emulator-settings.service (systemd, with settings-service). Shell, not Python: WT1H, W15M, W16R
+# and W17H ship a Python without json, and W16R/W17H one without subprocess.
+#
+# autooff (mark emulator-autooff): the automatic power-off timers, so an idle VM stays on. Their
+# off values (the settings app's and LG's installer's), per release:
+#   time autoOff15Min, noSignalAutoOff  inputcommon's AutoOffTimer.qml (NoSignalAutoOff.qml from
+#        W22): power off after 15 minutes without a signal; noSignalAutoOff is JP's switch
+#   time autoOff2HourOnTimer            nop (in tvpowerd on WT1H/W15M, nopd from W16R; nop-conf.json):
+#        power off 2 hours (4 from W21) after an on-timer, remind or auto-off wake
+#   time automaticStandBy               nop: standby after hours without input; "0" off, "4" in the EU
+#   time dpmsAutoOff                    inputcommon (W22 on): DPMS models' power-off on a monitor
+#        input; "on" by default only under a model condition, "off" elsewhere
+#   timer autoPowerOff2Hour             W20 on: written with autoOff2HourOnTimer by LG's installer
+#        (com.webos.app.installation); no reader that enforces it was found
+# audioguidance (mark emulator-audioguidance): option audioGuidance, the screen reader. From W17H
+#   surface-manager's QPA answers "on" by writing option inputDevicesSupportStatus pointer false,
+#   which disables the Magic Remote pointer; "off" gives it back. On by default in North America
+#   from W17H, in more countries later.
+# The writes wait for the set's country (settings' "other" until the set's own reaches it, a few
+# seconds in): automaticStandBy's and audioGuidance's defaults depend on it (hasCountryVar in
+# description.json). Without settings or a country within $WAIT seconds, no mark: the next boot
+# tries again.
+MARKDIR=${MARKDIR:-/var/luna/preferences}
+WAIT=${WAIT:-600}
+SETTINGS=luna://com.webos.settingsservice
+# concern|mark|category:key=off ...
+CONCERNS="autooff|emulator-autooff|time:autoOff15Min=off time:noSignalAutoOff=off time:autoOff2HourOnTimer=off time:automaticStandBy=0 time:dpmsAutoOff=off timer:autoPowerOff2Hour=off
+audioguidance|emulator-audioguidance|option:audioGuidance=off"
+
+pending=
+IFS='
+'
+for c in $CONCERNS; do
+	m=${c#*|}
+	m=${m%%|*}
+	[ -e "$MARKDIR/$m" ] || pending="$pending$c
+"
+done
+unset IFS
+[ -n "$pending" ] || exit 0
+
+# the value of string key $2 in luna reply $1, or nothing
+value() {
+	printf '%s\n' "$1" | sed -n "s/.*\"$2\" *: *\"\\([^\"]*\\)\".*/\\1/p"
+}
+
+# settings' own answer to getSystemSettings category $1 keys $2 (a JSON list), waiting while it
+# is not up: the keys it has, with errorKey (returnValue false) for those it lacks, or with none
+# of them WT1H's {"errorText": "no return keys from DB", "category": ..., "method": ...}; its
+# answers name the category, the hub's ("service does not exist") do not
+tries=0
+get() {
+	while :; do
+		reply=$(luna-send -n 1 "$SETTINGS/getSystemSettings" \
+			"{\"category\":\"$1\",\"keys\":$2}" </dev/null 2>/dev/null)
+		case $reply in
+		*'"category"'* | *'"settings"'* | *'"errorKey"'* | *'"returnValue":true'* | *'"returnValue": true'*)
+			return 0 ;;
+		esac
+		tries=$((tries + 1))
+		[ $tries -lt "$WAIT" ] || return 1
+		sleep 1
+	done
+}
+
+while :; do
+	get option '["country"]' || { echo "emulator-settings: no settings service, left for the next boot"; exit 0; }
+	country=$(value "$reply" country)
+	[ -n "$country" ] && [ "$country" != other ] && break
+	tries=$((tries + 1))
+	[ $tries -lt "$WAIT" ] || { echo "emulator-settings: no country, left for the next boot"; exit 0; }
+	sleep 1
+done
+
+# off $1 (a concern's settings): each category's keys the firmware has and are not off, set off;
+# 1 if settings stopped answering or refused a write
+off() {
+	categories=
+	for t in $1; do
+		case " $categories " in *" ${t%%:*} "*) ;; *) categories="$categories ${t%%:*}" ;; esac
+	done
+	for category in $categories; do
+		keys=
+		for t in $1; do
+			[ "${t%%:*}" = "$category" ] || continue
+			t=${t#*:}
+			keys="$keys${keys:+,}\"${t%%=*}\""
+		done
+		get "$category" "[$keys]" || { echo "emulator-settings: settings stopped answering, left for the next boot"; return 1; }
+		values=
+		missing=
+		for t in $1; do
+			[ "${t%%:*}" = "$category" ] || continue
+			t=${t#*:}
+			key=${t%%=*}
+			off=${t#*=}
+			have=$(value "$reply" "$key")
+			if [ -z "$have" ]; then
+				missing="$missing $key"
+			elif [ "$have" != "$off" ]; then
+				values="$values${values:+,}\"$key\":\"$off\""
+			fi
+		done
+		[ -z "$missing" ] || echo "emulator-settings: no $category$missing in this firmware"
+		[ -n "$values" ] || continue
+		echo "emulator-settings: setSystemSettings $category {$values}"
+		set=$(luna-send -n 1 "$SETTINGS/setSystemSettings" \
+			"{\"category\":\"$category\",\"settings\":{$values}}" </dev/null 2>&1)
+		case $set in
+		*'"returnValue":true'* | *'"returnValue": true'*) ;;
+		*) echo "emulator-settings: setSystemSettings $category: $set"; return 1 ;;
+		esac
+	done
+}
+
+status=0
+IFS='
+'
+for c in $pending; do
+	unset IFS
+	name=${c%%|*}
+	c=${c#*|}
+	mark=${c%%|*}
+	if off "${c#*|}"; then
+		: >"$MARKDIR/$mark"
+	else
+		echo "emulator-settings: $name left for the next boot"
+		status=1
+	fi
+done
+unset IFS
+sync
+exit $status

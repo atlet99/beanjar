@@ -1,0 +1,649 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# initramfs /init of the webOS TV emulator, the same for every firmware (webOS, and LG's
+# SimpleSmart line: INIT_SYSTEM=sysvinit, docs/dev/architecture/simplesmart.md).
+#
+# The initramfs stays the real root. It assembles the webOS rootfs under /webos as an overlay
+#   lower: the emulator's layers on top of the stock rootfs squashfs
+#   upper: tmpfs
+# mounts the other paks where the firmware expects them, then runs the firmware's init (Upstart or
+# systemd, boot.conf's INIT_SYSTEM) as PID 1 of a new PID+UTS+IPC+mount namespace. The console keeps a debug shell; `webos-enter`
+# gets a shell inside the webOS namespace.
+#
+# What is about one firmware - its paks and their mount points, the layers and their order, the
+# state disks, the paths below that it touches in the firmware - comes from the boot manifest
+# /host/boot.conf, which the launcher writes for the VM's firmware target
+# (host/core/beanjar/targets.py). Without it init stops at
+# the debug shell.
+#
+# Kernel cmdline knobs (all optional):
+#   webos.input_size=1920x1080  M-RCU logical screen size (match the compositor)
+#   webos.init=0        do not start the firmware's init (run 'webos-start' from the debug shell)
+#   webos.init_args=..  extra arguments for the firmware's init, comma separated (e.g. --verbose)
+#   webos.pmlog=full    (default) PmLogDaemon keeps every message, starting as soon as the hubs
+#                       are up; "stock" keeps LG's whitelist and start (see below)
+#   webos.pmlog_debug=a,b   PmLog contexts to raise to debug level (implies full); applied by
+#                       the common layer's usr/libexec/beanjar/pmlog-debug (Upstart job or systemd unit)
+#   webos.net=mitm|direct|off   the network (NET_LINK and NET_MODE in host/core/beanjar/qemu.py); informational.
+#                       With mitm the per-VM layer carries the proxy's CA, which is trusted below
+#   webos.ethaddr=MAC, webos.serial=SERIAL   the VM's own board MAC and serial number, in place of
+#                       board.cmdline's ethaddr= and serialNum=
+#   webos.debugmode=N   the VM's debug_mode (3 debug, 4 event, 5 release), in place of board.cmdline's
+#                       debugMode= (host/core/beanjar/qemu.py DEBUG_MODE)
+#   webos.time_scale=N  bootd's timeouts of 5 s and more times N (the launcher's TCG factor; 1,
+#                       the default, under KVM): see "bootd's fallback timers" below
+#   webos.locksample=S  sample the file locks for S s (debugging; below)
+#   <module>.<param>=V  a parameter of lgemu.ko or a SOC_MODULES module (- as _ in its name), after
+#                       boot.conf's: e.g. mstar_utopia.mbx_trace=1 (KERNEL_ARGS in the launcher)
+
+/bin/busybox --install -s /bin
+export PATH=/bin:/sbin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
+mkdir -p /run /host /lower /webos
+mount -t tmpfs -o mode=755 run /run
+# The media ports (webos.media.<n>, the video sinks' transport to the host)
+# are opened by whichever process builds the pipeline: starfish-media-pipeline as root, the web
+# process (MSE in a pipeline of its own, as euid 999 without capabilities), and a native app's
+# own pipeline (libplayerAPIs, ss4s) inside the jailer's jail. The jail has the SoC's devices the
+# firmware's jail_native*.conf pass ("for directmedia": the /dev/lg directory, mounted whole),
+# not /dev/vport* or /sys/class, so the ports are /dev/lg/webos.media.<n> (the sinks open them
+# there, mediaport.c), open to everyone.
+mkdir -p /dev/lg
+for n in /sys/class/virtio-ports/*/name; do
+	read -r p < "$n" 2>/dev/null || continue
+	case $p in webos.media.*)
+		IFS=: read -r maj min < "${n%/name}/dev" &&
+			mknod -m 666 "/dev/lg/$p" c "$maj" "$min" ;;
+	esac
+done
+
+log() { echo "[init] $*" > /dev/kmsg; echo "[init] $*"; }
+fail() { # fail MESSAGE: stop here with the debug shell on the console, forever
+	log "$*"
+	log "stopped: the debug shell follows"
+	while true; do
+		setsid cttyhack sh -l
+		sleep 1
+	done
+}
+
+arg() { # arg NAME DEFAULT -> value of NAME= on the kernel cmdline
+	for w in $(cat /proc/cmdline); do
+		case $w in "$1="*) echo "${w#*=}"; return;; esac
+	done
+	echo "$2"
+}
+
+# Find a virtio disk by the serial QEMU gave it (-device virtio-blk-pci,serial=NAME).
+if [ "$(arg beanjar.prepare 0)" = 1 ]; then
+	exec /bin/firmware-prepare
+fi
+
+# The boot splash (src/splash.c): beanjar's logo on virtio-gpu until the firmware's compositor takes
+# the display. Its modeset is done before anything of the firmware runs, so no compositor races it
+# for DRM master; it then waits in the background (never longer than its own bound here, and silent
+# without a GPU: log /run/splash.log).
+splash > /run/splash.log 2>&1
+
+disk() {
+	for s in /sys/block/vd*/serial; do
+		[ "$(cat "$s" 2>/dev/null)" = "$1" ] && { d=${s%/serial}; echo "/dev/${d##*/}"; return; }
+	done
+}
+
+# --- the host's shares: the VM's runtime tree, never the checkout
+# (host/core/beanjar/share.py). "host", read-only at /host: boot.conf, the layers, binds.conf
+# and the guest-side scripts the launcher put there. "out", read-write at /host/out: what the guest writes
+# for the host (guest/scripts/save-logs.sh's logs, tests' results). Both are /mnt/host in webOS.
+HOSTSHARE= OUTSHARE=
+if mount -t 9p -o ro,trans=virtio,version=9p2000.L,msize=1048576 host /host 2>/dev/null; then
+	HOSTSHARE=1
+	log "host share mounted at /host (read-only)"
+	if [ -d /host/out ] && mount -t 9p -o trans=virtio,version=9p2000.L,msize=1048576 out /host/out 2>/dev/null; then
+		OUTSHARE=1
+		log "output share mounted at /host/out"
+	fi
+fi
+# --- the boot manifest (host/core/beanjar/targets.py): TARGET, INIT_SYSTEM, CAP_LAST_CAP, ROOTFS, PAKS, PAK_LOWERS, LAYERS,
+# STATE_DISKS, NVM_DISKS, NVM_EEPROM, PMLOG_MODE, PMLOG_JOB, TRUST_BUNDLES, TRUST_HASH_DIR,
+# PARTINFO_DISK, PART_NODES, BOARD_CMDLINE, SOC_MODULES, MODULE_PARAMS_<module> and PERIPHERAL_MODULES ---
+[ -n "$HOSTSHARE" ] || fail "no host share: the launcher (host/scripts/vm-launcher) provides /host and its boot.conf"
+[ -f /host/boot.conf ] || fail "no /host/boot.conf: start the VM with the launcher (host/scripts/vm-launcher)"
+. /host/boot.conf
+for v in TARGET ROOTFS LAYERS BOARD_CMDLINE; do
+	eval "[ -n \"\$$v\" ]" || fail "/host/boot.conf has no $v"
+done
+case $INIT_SYSTEM in upstart|systemd|sysvinit) ;; *) fail "/host/boot.conf: INIT_SYSTEM \"$INIT_SYSTEM\"";; esac
+log "boot manifest: firmware target $TARGET"
+
+# --- lgemu.ko (guest/kernel/modules/lgemu): LG kernel interfaces the firmware uses, such as
+# /sys/kernel/mm/low_mem_notify for memchuted, and the board's I2C devices (the micom, the NVM
+# EEPROM, the amplifier), and /proc/partinfo, LG's eMMC partition map. webOS starts without it
+# (memchute's job fails). Its EEPROM is the state disk boot.conf's NVM_EEPROM names, its partition
+# map the one on PARTINFO_DISK. Then boot.conf's SOC_MODULES, the SoC vendor's drivers its
+# userland needs (guest/kernel/modules/<name>; lg115x's and mstar-utopia's I2C buses carry lgemu's
+# devices), each with the parameters in MODULE_PARAMS_<name, - as _>. media-pool.ko
+# (guest/kernel/modules/media-pool) is the media pool's device, where the VM has the pool (a VM
+# without a unit has not: it stays unloaded and the media ports carry the pictures). ---
+[ -z "$NVM_EEPROM" ] || MODULE_PARAMS_lgemu="${MODULE_PARAMS_lgemu:-} nvm_disk=$(disk "$NVM_EEPROM")"
+[ -z "$PARTINFO_DISK" ] || [ -z "$(disk "$PARTINFO_DISK")" ] ||
+	MODULE_PARAMS_lgemu="${MODULE_PARAMS_lgemu:-} partinfo_disk=$(disk "$PARTINFO_DISK")"
+for m in lgemu media-pool $SOC_MODULES; do
+	eval "params=\${MODULE_PARAMS_$(echo "$m" | tr - _):-}"
+	# and the cmdline's <module>.<param>=<value> words (- as _), as modprobe passes them
+	for w in $(cat /proc/cmdline); do
+		case $w in "$(echo "$m" | tr - _)."*=*) params="$params ${w#*.}";; esac
+	done
+	if insmod "/lib/modules/$m.ko" $params 2>/run/insmod.err; then
+		log "$m.ko loaded"
+	else
+		log "$m.ko not loaded: $(cat /run/insmod.err)"
+	fi
+done
+
+# --- boot.conf's PERIPHERAL_MODULES: the kernel's own modules (/lib/modules/<release>, with the
+# modules.dep of the kernel build's depmod), the USB class drivers and filesystems of the stock
+# LG kernel, loaded with their dependencies before webOS starts. webOS never loads them itself: its
+# udev and modprobe look in the firmware's /lib/modules, for its own kernel's release. ---
+if [ -n "${PERIPHERAL_MODULES:-}" ]; then
+	if modprobe -a $PERIPHERAL_MODULES 2>/run/modprobe.err; then
+		log "peripheral modules loaded: $PERIPHERAL_MODULES"
+	else
+		log "peripheral modules: modprobe failed: $(cat /run/modprobe.err)"
+	fi
+fi
+
+# --- the per-VM layer: the read-only share "vm", RUN_DIR/share/vm, which the launcher assembles
+# from the VM's identity directory at each start (host/core/beanjar/qemu.py guest_layer). boot.conf's LAYERS has it as "vm", on top of every other layer.
+mkdir -p /run/vm
+if mount -t 9p -o ro,trans=virtio,version=9p2000.L,msize=1048576 vm /run/vm 2>/dev/null; then
+	log "per-VM share mounted at /run/vm"
+else
+	rmdir /run/vm
+fi
+
+# --- stock rootfs (boot.conf's ROOTFS: its disk serial) ---
+ROOTDEV=$(disk "$ROOTFS")
+[ -n "$ROOTDEV" ] || fail "no disk with serial '$ROOTFS'"
+mkdir -p /lower/rootfs
+mount -t squashfs -o ro "$ROOTDEV" /lower/rootfs || fail "cannot mount $ROOTDEV"
+
+# --- state disks (boot.conf's STATE_DISKS; STATE in host/core/beanjar/qemu.py): the TV's
+# read-write eMMC partitions. The firmware's own fstabs and scripts reach them as
+# /dev/mmcblk0pN (made below).
+# The launchers always attach them; with STATE=none they are throwaway (snapshot=on) disks.
+STATE_MISSING=
+for p in $STATE_DISKS; do [ -n "$(disk "$p")" ] || STATE_MISSING="$STATE_MISSING $p"; done
+if [ -n "$STATE_MISSING" ]; then
+	log "state: no disk with serial$STATE_MISSING; mount-readwrite will fail (use host/scripts/vm-launcher run)"
+else
+	log "state: disks for $STATE_DISKS"
+	# A VM is often killed rather than shut down. ext4's journal keeps the disks consistent, but
+	# with delayed allocation a file's data waits for page writeback (30 s by default), so a
+	# file written 7 s before a kill came back empty. Write dirty data back after 5 s instead.
+	# host/scripts/vm-launcher stop also syncs first.
+	echo 500 > /proc/sys/vm/dirty_expire_centisecs
+	echo 100 > /proc/sys/vm/dirty_writeback_centisecs
+fi
+
+# --- layers (boot.conf's PAK_LOWERS and LAYERS, bottom to top) ---
+# Each layer is a read-only squashfs image made on the host (host/core/beanjar/layerimage.py:
+# root-owned files, while the host's stay the user's), a disk with the serial layer-<name>, mounted
+# in place at /run/layers/<name>: nothing is copied (docs/dev/architecture/build-and-boot.md, "Layer
+# images"). /host/layer-sources says where each was made from. "vm", the per-VM share at /run/vm,
+# is small and new at each start: it is copied into tmpfs at /run/layers/vm, root's, and the trust
+# steps below write into that copy. A lower layer made from a pak (PAK_LOWERS,
+# serial:subdirectory) is that directory of the pak, mounted read-only.
+LOWER=
+add_lower() { # add_lower DIR: DIR above the layers added before (overlayfs: leftmost is on top)
+	LOWER=$1:$LOWER
+}
+for l in $PAK_LOWERS; do
+	dev=$(disk "${l%%:*}")
+	[ -n "$dev" ] || fail "pak ${l%%:*} (a lower layer) not attached"
+	mkdir -p "/lower/${l%%:*}"
+	mount -t squashfs -o ro "$dev" "/lower/${l%%:*}" || fail "cannot mount $dev"
+	[ -d "/lower/${l%%:*}/${l#*:}" ] || fail "pak ${l%%:*} has no ${l#*:}"
+	add_lower "/lower/${l%%:*}/${l#*:}"
+	log "layer ${l%%:*}:${l#*:} from the pak"
+done
+for name in $LAYERS; do
+	mkdir -p "/run/layers/$name"
+	if [ "$name" = vm ]; then
+		[ -d /run/vm ] || fail "no per-VM share \"vm\""
+		cp -a /run/vm/. /run/layers/vm/
+		chown -R 0:0 /run/layers/vm
+		add_lower /run/layers/vm
+		log "layer vm from /run/vm"
+		continue
+	fi
+	dev=$(disk "layer-$name")
+	[ -n "$dev" ] || fail "layer $name of boot.conf: no disk with serial layer-$name"
+	mount -t squashfs -o ro "$dev" "/run/layers/$name" || fail "cannot mount $dev (layer $name)"
+	add_lower "/run/layers/$name"
+	log "layer $name from $dev ($(awk -v n="$name" '$1 == n { print $2; exit }' /host/layer-sources 2>/dev/null))"
+done
+
+# --- trust in the mode=mitm proxy's CA ---
+# With mode=mitm the per-VM layer has the proxy CA's certificate (its library's, shared by its VMs;
+# the checkout VM's own), etc/emulator/netstub-ca.pem, and its OpenSSL subject hash
+# (netstub-ca.hash, computed on the host). It is added, in the per-VM layer's
+# tmpfs copy (the other layers are read-only images), to the firmware's own trust stores, each copied from the stock rootfs with the CA appended: boot.conf's TRUST_BUNDLES
+# (the system bundle, and a second one that some clients load instead) and, in TRUST_HASH_DIR
+# (the hashed directory of Qt 5.0 / QtWebKit), <hash>.<n>, a certificate copy at the first
+# n the firmware leaves free. Clients with compiled-in roots (Node 0.10) or pinning cannot be
+# covered; the proxy passes them through instead (host/helpers/network/mitm_addon.py). Without the file
+# the stores stay stock.
+VMCA=/run/layers/vm/etc/emulator/netstub-ca.pem
+if [ -f "$VMCA" ] && [ -n "$TRUST_BUNDLES" ]; then
+	for b in $TRUST_BUNDLES; do
+		if [ ! -f "/lower/rootfs/$b" ]; then
+			log "trust: no $b in the rootfs"
+			continue
+		fi
+		mkdir -p "/run/layers/vm/${b%/*}"
+		{
+			cat "/lower/rootfs/$b"
+			[ -z "$(tail -c 1 "/lower/rootfs/$b")" ] || echo
+			cat "$VMCA"
+		} > "/run/layers/vm/$b"
+		chmod 644 "/run/layers/vm/$b"
+	done
+	hash=$(cat /run/layers/vm/etc/emulator/netstub-ca.hash 2>/dev/null)
+	case $hash in
+	[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f])
+		n=0
+		while [ -e "/lower/rootfs/$TRUST_HASH_DIR/$hash.$n" ] || [ -L "/lower/rootfs/$TRUST_HASH_DIR/$hash.$n" ]; do
+			n=$((n + 1))
+		done
+		mkdir -p "/run/layers/vm/$TRUST_HASH_DIR"
+		# Native jails mount /etc/ssl but not /etc/emulator. Keep this public
+		# certificate inside the mounted directory instead of a dangling link.
+		cp "$VMCA" "/run/layers/vm/$TRUST_HASH_DIR/$hash.$n"
+		chmod 644 "/run/layers/vm/$TRUST_HASH_DIR/$hash.$n"
+		log "trust: the proxy's CA in the firmware's bundles and as /$TRUST_HASH_DIR/$hash.$n" ;;
+	*) log "trust: the proxy's CA in the firmware's bundles; no hash link (netstub-ca.hash: '$hash')" ;;
+	esac
+fi
+
+# --- overlay ---
+mkdir -p /run/upper
+mount -t tmpfs -o mode=755 upper /run/upper
+mkdir -p /run/upper/data /run/upper/work
+mount -t overlay -o "lowerdir=${LOWER}/lower/rootfs,upperdir=/run/upper/data,workdir=/run/upper/work" \
+	webos /webos || fail "overlay mount failed"
+
+# Provision the immutable kernel store before any firmware consumer starts. The host helper
+# compiled the TOML; this transport never logs values or copies keys into app jails.
+if [ "$INIT_SYSTEM" != sysvinit ] && [ ! -f /webos/etc/emulator/sestore.bin ]; then
+	fail "secure-store snapshot missing from the VM layer"
+fi
+if [ -f /webos/etc/emulator/sestore.bin ]; then
+	/bin/sestore-load /webos/etc/emulator/sestore.bin || fail "secure-store provisioning failed"
+	log "secure-store snapshot provisioned (values omitted)"
+fi
+
+# The shared kernel store supplies model identity to HAL/DILE/nyx. Its host helper resolved any
+# synthetic fallback, and strict missing policy is part of the same snapshot.
+if [ "$INIT_SYSTEM" = sysvinit ]; then
+	:
+elif [ -f /webos/etc/emulator/sestore.bin ]; then
+	log "SDP: model-key reads use the provisioned kernel store"
+else
+	log "SDP: no secure-store snapshot provisioned"
+fi
+
+# --- the other paks (boot.conf's PAKS, serial:mount point), where the firmware expects them ---
+# A layer's files under a pak's mount point lie over the pak, as the layers lie over the rootfs
+# (the same order: the highest layer on top): the pak is then the bottom of a read-only overlay
+# (NetCast 4.5: the netcast45 layer's libgal.so in the vendor pak, docs/dev/architecture/netcast45.md).
+for p in $PAKS; do
+	dev=$(disk "${p%%:*}")
+	[ -n "$dev" ] || { log "pak ${p%%:*} not attached"; continue; }
+	mp=${p#*:}
+	mkdir -p "/webos$mp"
+	over=
+	for name in $LAYERS; do
+		[ -d "/run/layers/$name$mp" ] && over="/run/layers/$name$mp${over:+:$over}"
+	done
+	if [ -z "$over" ]; then
+		mount -t squashfs -o ro "$dev" "/webos$mp" && log "pak ${p%%:*} -> $mp"
+		continue
+	fi
+	mkdir -p "/run/paks/${p%%:*}"
+	mount -t squashfs -o ro "$dev" "/run/paks/${p%%:*}" &&
+		mount -t overlay -o "lowerdir=$over:/run/paks/${p%%:*}" "pak-${p%%:*}" "/webos$mp" &&
+		log "pak ${p%%:*} -> $mp, under $over"
+done
+
+# --- pseudo filesystems (proc is mounted by /run/webos-init inside the new PID namespace) ---
+mount -t sysfs sysfs /webos/sys
+mount -t devtmpfs devtmpfs /webos/dev
+# devtmpfs hides the firmware's packaged mount-point directories. Stock NetCast
+# lginit mounts devpts and a second devtmpfs there; creating the directories does
+# not replace either filesystem or the firmware's own mount operations.
+mkdir -p /webos/dev/pts /webos/dev/devtmp
+# webOS gets its own console on the virtio console (hvc0), like the TV's serial port. LG daemons
+# started with "console output" read from it too, so it must not be the debug shell's tty.
+WEBOS_CONSOLE=/dev/console
+if [ -c /dev/hvc0 ]; then
+	WEBOS_CONSOLE=/dev/hvc0
+	mount --bind /dev/hvc0 /webos/dev/console
+fi
+# The eMMC partitions, /dev/mmcblk0pN as LG's kernel names them (lgemmc.c registers the map's
+# entry N-1 as partition N of mmcblk0): block nodes of the disks that back them, boot.conf's
+# PART_NODES (N:serial, from the VM's own partition map, which lgemu.ko serves as /proc/partinfo). root:root 0600, as on a set. The number is the virtio disk's: the
+# firmware opens these by path and never checks the major.
+for n in $PART_NODES; do
+	dev=$(disk "${n#*:}")
+	if [ -z "$dev" ]; then
+		log "partition ${n%%:*}: no disk with serial ${n#*:}"
+		continue
+	fi
+	if [ "${n#*:}" = appstore ]; then
+		# PDM matches the mounted source to the kernel's block-event name.
+		# Stock mount resolves this alias to the actual disk (e.g. /dev/vdi).
+		ln -s "$dev" "/webos/dev/mmcblk0p${n%%:*}" || log "partition ${n%%:*}: no link"
+	else
+		numbers=$(cat "/sys/block/${dev#/dev/}/dev")
+		mknod -m 0600 "/webos/dev/mmcblk0p${n%%:*}" b "${numbers%%:*}" "${numbers#*:}" || log "partition ${n%%:*}: no node"
+	fi
+done
+[ -z "$PART_NODES" ] || log "eMMC partitions: /dev/mmcblk0p{$(echo $PART_NODES | sed 's/:[^ ]*//g; s/ /,/g')}"
+# The stock systemd EFS scripts skip mapping creation when the block node exists.
+# Prepare an upstream dm-linear mapping, then let their own mkswap/swapon run.
+# Only firmwares with an attached EFS backing disk get this integration.
+if [ "$INIT_SYSTEM" = systemd ] && [ -n "$(disk efs)" ]; then
+	cp /bin/beanjar-eswap /webos/usr/sbin/beanjar-eswap
+	for service in efs-on f2io-on swap-on; do
+		[ -f "/webos/etc/systemd/system/$service.service" ] || continue
+		mkdir -p "/webos/etc/systemd/system/$service.service.d"
+		printf '%s\n' '[Unit]' 'After=mount-readwrite.service' '[Service]' \
+			'Environment=USE_EFS_SWAP=YES' 'ExecStartPre=/usr/sbin/beanjar-eswap' \
+			> "/webos/etc/systemd/system/$service.service.d/beanjar-eswap.conf"
+	done
+	log "EFS: stock tasks will activate ordinary disk-backed swap"
+fi
+# The GL layer's Qt adapter is not the Weston display path. Queue's stock shell
+# expects TV-1/TV-2, including an e-streamer window even with one display declared.
+# Its own user/default ini selection and service start remain in control.
+if [ "$INIT_SYSTEM" = systemd ] && \
+	[ -x /webos/usr/libexec/beanjar/weston-setup ] && \
+	[ -f /webos/usr/share/weston/weston.ini ]; then
+	mkdir -p /webos/etc/systemd/system/surface-manager-daemon.service.d
+	printf '%s\n' '[Service]' 'Environment=LD_PRELOAD=/usr/lib/libkms-cursor-compat.so' \
+		'Environment=WESTON_DISABLE_ATOMIC=1' \
+		'ExecStartPre=/usr/libexec/beanjar/weston-setup' \
+		> /webos/etc/systemd/system/surface-manager-daemon.service.d/zz-beanjar-weston.conf
+	# Stock QtWayland selects its primary screen by DISPLAY_ID. Without it,
+	# reverse registry initialization makes the tall secondary output primary.
+	# TV-1 has the verified display_id=0; pass the supported selector to stock
+	# systemd clients, including the native application launchers.
+	mkdir -p /webos/etc/systemd/system.conf.d
+	printf '%s\n' '[Manager]' 'DefaultEnvironment=DISPLAY_ID=0' \
+		> /webos/etc/systemd/system.conf.d/zz-beanjar-display.conf
+	log "Weston: stock shell on virtual primary and secondary outputs"
+fi
+# SimpleSmart (sysvinit): the nodes of the firmware's /etc/device_table, which on a set
+# kdrv_msd93f2g.ko's devices put on devtmpfs before rc.local runs lginit (whose own
+# `makedevs -D /etc/device_table` runs in the read-only lginit squashfs and makes nothing): the
+# firmware's makedevs, from its root, before it starts. A node that is there already (the virtio
+# disks', mstar-utopia.ko's) stays. And its /dev/fb0, the GOP's frame buffer that its HAL, DirectFB
+# and lginit's /dev/gfx link reach, is mstar-utopia.ko's GOP node (gop_fb), in the firmware's
+# namespace only: the initramfs's /dev/fb0 stays virtio-gpu's.
+if [ "$INIT_SYSTEM" = sysvinit ]; then
+	chroot /webos /sbin/makedevs -D /etc/device_table >/run/makedevs.log 2>&1 ||
+		log "makedevs: $(tail -n 1 /run/makedevs.log)"
+	log "device_table nodes made"
+	# BusyBox's init (NetCast 4.5's /sbin/init; SimpleSmart's is sysvinit) opens an inittab line's
+	# first field as its terminal, /dev/<id>: the stock "si::sysinit:/etc/init.d/rcS" runs rcS on
+	# /dev/si, which no node is. Each such id gets the firmware's console.
+	case $(ls -l /webos/sbin/init 2>/dev/null) in       # (no readlink in this BusyBox)
+	*" -> "*busybox)
+		ids=$(sed -n 's/^\([A-Za-z0-9]\{1,\}\):[^:]*:\(sysinit\|wait\|once\|respawn\|askfirst\|shutdown\|restart\|ctrlaltdel\):.*/\1/p' /webos/etc/inittab)
+		for id in $ids; do
+			[ -e "/webos/dev/$id" ] || ln -s "${WEBOS_CONSOLE#/dev/}" "/webos/dev/$id"
+		done
+		log "BusyBox init: inittab terminals $(echo $ids) -> ${WEBOS_CONSOLE#/dev/}" ;;
+	esac
+	# The GPU's render node for every user, as the NetCast firmware's own GPU nodes are (its
+	# root.pak packs /dev/mali and /dev/ump with mode 0777): its browser (lb6wk) renders with
+	# Mesa as uid 502 (guest/layers/netcast45); without it, Mesa falls back to software.
+	for n in /webos/dev/dri/renderD*; do [ -c "$n" ] && chmod 0666 "$n"; done
+	if [ -c /dev/mstar-gop-fb ]; then
+		[ -e /webos/dev/fb0 ] || : > /webos/dev/fb0
+		mount --bind /dev/mstar-gop-fb /webos/dev/fb0 && log "/dev/fb0: mstar-utopia's GOP frame buffer"
+	else
+		log "no /dev/mstar-gop-fb: the firmware has no /dev/fb0 of its own"
+	fi
+fi
+# Some LG daemon opens /dev/ttyAMA* (micom/BT UARTs on the TV) and puts it in raw mode, which
+# would take the debug shell's tty away. Hide the real UART from webOS.
+for t in /webos/dev/ttyAMA*; do [ -c "$t" ] && mount --bind /dev/null "$t"; done
+if [ -n "$HOSTSHARE" ]; then
+	mkdir -p /webos/mnt/host
+	mount --bind /host /webos/mnt/host
+	[ -z "$OUTSHARE" ] || mount --bind /host/out /webos/mnt/host/out
+fi
+
+# --- per-file bind mounts for experiments (guest/layers/binds.conf, which the launcher renders into the
+# host share with each source beside it): "<source under /host> <target in webos>" per line ---
+if [ -f /host/binds.conf ]; then
+	grep -v -e '^#' -e '^[[:space:]]*$' /host/binds.conf | while read -r src dst; do
+		mount --bind "/host/$src" "/webos$dst" && log "bind /host/$src -> $dst"
+	done
+fi
+
+# --- PmLog: keep every message (webos.pmlog=full, the default); boot.conf's PMLOG_MODE and
+# PMLOG_JOB (the release's, host/core/beanjar/targets.py) say how ---
+# The release PmLogDaemon drops every message whose "CONTEXT/MSGID" is not in
+# /etc/PmLogDaemon/whitelist.txt: debug and freetext messages, plain syslog(), and the per-app
+# /var/log/*.log files all stay empty. The stock job only starts it at init-boot-done (15-45 s
+# in), and what is logged before goes nowhere; here it starts once both hubs are up. Then:
+#   preload (webOS 1, 2): the webos layer's libpmlog-keep-all.so, LD_PRELOADed by the override,
+#     makes the daemon's own whitelist lookup never miss (guest/layers/webos/src/pmlogd/pmlog-keep-all.c)
+#   devlog (webOS 3): LG's devlog switch, which also turns off libPmLogLib's whitelist in every
+#     client; the webos layer's emulator-pmlog-devlog job, started here, turns it on over the bus.
+#   preload-env (webOS 4): the preload again, but the stock job exports its own LD_PRELOAD and
+#     starts before the hubs: the webos layer's override appends $PMLOG_PRELOAD to it, set here
+#     (appended to that override), and the start stays stock.
+#   preload-systemd (webOS 5 on): the preload in the stock unit PMLOG_JOB.service, whose own
+#     Environment=LD_PRELOAD (libsystrim) a drop-in replaces with both; the start stays stock.
+#     libPmLogLib's client whitelist is back there and stays.
+# The executable is stock, and so are its conf routing, rotation and the com.webos.pmlogd service.
+pmlog=$(arg webos.pmlog full)
+[ -n "$(arg webos.pmlog_debug "")" ] && pmlog=full
+[ -n "$PMLOG_MODE" ] || pmlog=none       # a release with no PmLog (SimpleSmart)
+if [ "$pmlog" = full ] && [ "$PMLOG_MODE" = preload-systemd ]; then
+	mkdir -p "/webos/etc/systemd/system/$PMLOG_JOB.service.d"
+	printf '%s\n' '# initramfs (webos.pmlog=full, preload-systemd)' '[Service]' \
+		'Environment=LD_PRELOAD=/usr/lib/libsystrim.so.3:/usr/lib/libpmlog-keep-all.so' \
+		> "/webos/etc/systemd/system/$PMLOG_JOB.service.d/emulator-pmlog.conf"
+	log "PmLog: whitelist off ($PMLOG_MODE)"
+elif [ "$pmlog" = full ] && [ "$PMLOG_MODE" = preload-env ]; then
+	printf '%s\n' '# initramfs (webos.pmlog=full, preload-env)' \
+		'env PMLOG_PRELOAD=/usr/lib/libpmlog-keep-all.so' >> "/webos/etc/init/$PMLOG_JOB.override"
+	log "PmLog: whitelist off ($PMLOG_MODE)"
+elif [ "$pmlog" = full ]; then
+	{
+		echo "# initramfs (webos.pmlog=full, $PMLOG_MODE): start as soon as both hubs are up"
+		[ "$PMLOG_MODE" = preload ] && echo 'env LD_PRELOAD=/usr/lib/libpmlog-keep-all.so'
+		echo 'start on ls-hubd_public-ready'
+	} > "/webos/etc/init/$PMLOG_JOB.override"
+	[ "$PMLOG_MODE" = devlog ] && printf '%s\n' '# initramfs (webos.pmlog=full)' \
+		"start on started $PMLOG_JOB" > /webos/etc/init/emulator-pmlog-devlog.override
+	log "PmLog: whitelist off ($PMLOG_MODE), early start"
+fi
+
+# --- bootd's fallback timers for a slow guest (webos.time_scale=N, the launcher's TCG factor,
+# host/core/beanjar/qemu.py TIME_SCALE) ---
+# bootd waits for each boot signal with a fixed timeout and goes on without it on expiry; under TCG
+# the producers are late only because the guest is slow. N > 1 LD_PRELOADs the webos layer's
+# libbootd-scale.so (guest/layers/webos/src/bootd-scale), which multiplies bootd's timeouts of 5 s and more
+# by N. The job is "bootd" in every Upstart release, its script `exec /usr/sbin/bootd`; the override
+# exports the preload in that script, not as an `env` stanza, which would load it into the job's
+# shell, whose constructor would take it out of the environment before the exec. N = 1 (KVM, and
+# the default) loads nothing.
+scale=$(arg webos.time_scale 1)
+if [ "$scale" != 1 ] && [ "$INIT_SYSTEM" = upstart ]; then
+	printf '%s\n' "# initramfs (webos.time_scale=$scale): bootd timeouts of 5 s and more x$scale" 'script' \
+		"	export LD_PRELOAD=/usr/lib/libbootd-scale.so BOOTD_TIMEOUT_SCALE=$scale" \
+		'	exec /usr/sbin/bootd' 'end script' >> /webos/etc/init/bootd.override
+	log "bootd: timeouts x$scale"
+fi
+
+# --- systemd (INIT_SYSTEM=systemd): /run and the BSP marker ---
+# systemd mounts a tmpfs on /run only where none is mounted yet (as when an initrd hands it over), so
+# /run gets its tmpfs here and what init puts in it reaches systemd. It is mounted as systemd mounts
+# it, source "tmpfs": mount-readonly-volatile's `mount -a` (util-linux) passes over the stock fstab's
+# "tmpfs /run" only when source and target match, and with another source it mounted a second
+# tmpfs over this one, hiding systemd's sockets. On a TV, mount-bsp overlays the
+# bsppart pak and bsp-mounted.path waits for the directory that makes, which starts
+# local-fs-pre-starfish.target. Here the pak is a lower layer already (PAK_LOWERS) and mount-bsp
+# does nothing (the release layer's drop-in), so /run/emulator/bsp-mounted says the BSP is in
+# place, and the release layer's drop-in on bsp-mounted.path watches it.
+if [ "$INIT_SYSTEM" = systemd ]; then
+	mount -t tmpfs -o mode=755,nosuid,nodev,strictatime tmpfs /webos/run || fail "no tmpfs on the webOS /run"
+	mkdir -p /webos/run/emulator
+	: > /webos/run/emulator/bsp-mounted
+	log "systemd: BSP marker /run/emulator/bsp-mounted"
+fi
+
+# WAM and the native browser engine use the firmware's SQL NSS database.
+# Import before any browser process opens it; the overlay keeps stock files intact.
+if [ -f /webos/etc/emulator/netstub-ca.pem ] && [ -f /webos/etc/pki/nssdb/cert9.db ]; then
+	if chroot /webos /usr/bin/certutil -A -d sql:/etc/pki/nssdb \
+		-n 'Beanjar netstub local CA' -t 'C,,' -i /etc/emulator/netstub-ca.pem \
+		> /run/nss-ca-import.log 2>&1; then
+		log "trust: the proxy's CA in the firmware NSS database"
+	else
+		log "trust: NSS CA import failed (see /run/nss-ca-import.log)"
+	fi
+fi
+
+# --- /proc/cmdline as the firmware expects it: our cmdline plus the board parameters
+# (boot.conf's BOARD_CMDLINE) ---
+# A VM's own identity (webos.ethaddr=, webos.serial=; the launcher validated both) replaces
+# board.cmdline's ethaddr= and serialNum=. webos.ethaddr= stays in front: a parser that finds
+# "ethaddr=" anywhere reads the same MAC there.
+board=$(grep -v '^#' "/webos$BOARD_CMDLINE" | tr '\n' ' ')
+# BOARD_IN_KERNEL=1 (SimpleSmart): the launcher put them on the kernel's line already
+[ "$BOARD_IN_KERNEL" != 1 ] || board=
+mac=$(arg webos.ethaddr "")
+[ -z "$mac" ] || board=$(echo " $board" | sed -E "s/ ethaddr=[^ ]*/ ethaddr=$mac/")
+# SimpleSmart's MBoot passes the board MAC as macadr=
+[ -z "$mac" ] || board=$(echo " $board" | sed -E "s/ macadr=[^ ]*/ macadr=$mac/")
+serial=$(arg webos.serial "")
+[ -z "$serial" ] || board=$(echo " $board" | sed -E "s/ serialNum=[^ ]*/ serialNum=$serial/")
+# The VM's debug_mode (the launcher validated it) replaces board.cmdline's debugMode=; one stays.
+debugmode=$(arg webos.debugmode "")
+[ -z "$debugmode" ] || board=$(echo " $board" | sed -E "s/ debugMode=[^ ]*/ debugMode=$debugmode/")
+echo "$(cat /proc/cmdline) $board" | tr -s ' ' > /run/cmdline
+log "board: $(grep -o ' ethaddr=[^ ]*' /run/cmdline | tail -n 1) $(grep -o 'serialNum=[^ ]*' /run/cmdline)"
+
+# --- start the firmware's init in its own namespaces (see /bin/webos-start) ---
+if [ "$TARGET" = lm14-netcast45 ]; then
+	# devtmpfs hides the packed /dev/shm. Restore its mount point so stock
+	# mountvirtfs mounts its tmpfs before resmgr and fxui need shared locks.
+	mkdir -p -m 0777 /webos/dev/shm || fail "NetCast: cannot create /dev/shm"
+	# Keep appctrl's PRE initialization, then hold its genuine ready call until
+	# RELEASE's lifecycle query confirms registration.
+	sh /webos/etc/emulator/prepare-services /webos || fail "NetCast appctrl startup configuration failed"
+	log "NetCast: appctrl readiness waits for RELEASE registration"
+	# procmgr consumes 1280x720 logical coordinates and scales them to the panel.
+	virtio-pointer "$(arg webos.input_size 1280x720)" > /run/virtio-pointer.log 2>&1 || \
+		log "pointer bridge failed: see /run/virtio-pointer.log"
+fi
+if [ "$INIT_SYSTEM" = sysvinit ]; then
+	# SimpleSmart: the GOP's planes to virtio-gpu's display (guest/initramfs/src/gop-present.c), and the
+	# remote's keys, which its RELEASE reads from the micom's event poll as webOS's tvservice does
+	# (MICOM_Task); NetCast's pointer bridge is started above
+	gop-present > /run/gop-present.log 2>&1 &
+	log "GOP presenter started (log /run/gop-present.log)"
+	virtio-ir > /run/virtio-ir.log 2>&1 || log "IR pump failed: see /run/virtio-ir.log"
+else
+pointer_flags=
+[ "${POINTER_WAKEUP:-0}" != 1 ] || pointer_flags=--mrcu-wakeup
+virtio-pointer "$(arg webos.input_size 1920x1080)" $pointer_flags > /run/virtio-pointer.log 2>&1 || \
+	log "pointer bridge failed: see /run/virtio-pointer.log"
+# a touch screen where the machine has one (the launcher attaches it to a touch model,
+# targets.Soc.touch): LG's panel device (guest/initramfs/src/virtio-touch.c)
+if grep -qx "QEMU Virtio MultiTouch" /sys/class/input/input*/name 2>/dev/null; then
+	virtio-touch > /run/virtio-touch.log 2>&1 || log "touch bridge failed: see /run/virtio-touch.log"
+fi
+# a model that turns to portrait (targets.Soc.portrait, the webos.rotation port): msc's orientation
+# to the host, the viewers' picture (bin/beanjar-rotation)
+if grep -qx webos.rotation /sys/class/virtio-ports/*/name 2>/dev/null; then
+	beanjar-rotation > /run/beanjar-rotation.log 2>&1 &
+fi
+# the TV remote's IR, the webos.ir port to lgemu.ko's micom (guest/initramfs/src/virtio-ir.c)
+virtio-ir > /run/virtio-ir.log 2>&1 || log "IR pump failed: see /run/virtio-ir.log"
+# the antenna, the webos.tuner port <-> dtv_soc.ko where the board has it (guest/initramfs/src/virtio-tuner.c)
+virtio-tuner > /run/virtio-tuner.log 2>&1 || log "tuner pump failed: see /run/virtio-tuner.log"
+# the scaler's video windows where a driver of ours has them (mstar-utopia.ko's XC), lgemu.ko to
+# the webos.video port (guest/initramfs/src/virtio-video.c)
+virtio-video > /run/virtio-video.log 2>&1 || log "video window pump failed: see /run/virtio-video.log"
+fi
+# the guest's swap to the webos.memory port every 2 s, the viewer's memory meter (guest/initramfs/src/virtio-meminfo.c)
+virtio-meminfo > /run/virtio-meminfo.log 2>&1 || log "memory pump failed: see /run/virtio-meminfo.log"
+# The capture bridge stays in the initramfs and waits for a viewer provider hello.
+for capture_name in /sys/class/virtio-ports/*/name; do
+	[ -f "$capture_name" ] || continue
+	if [ "$(cat "$capture_name")" = webos.capture ]; then
+		virtio-capture > /run/virtio-capture.log 2>&1 &
+		break
+	fi
+done
+echo "$WEBOS_CONSOLE" > /run/webos-console
+echo "$(arg webos.init_args "" | tr , ' ')" > /run/webos-init-args
+# the firmware's kernel's highest capability (boot.conf's CAP_LAST_CAP), which webos-start shows
+# as /proc/sys/kernel/cap_last_cap in the webOS namespace
+case $CAP_LAST_CAP in ''|*[!0-9]*) rm -f /run/cap_last_cap ;; *) echo "$CAP_LAST_CAP" > /run/cap_last_cap ;; esac
+# webos.locksample=S (debugging): for the first S seconds of uptime, every 0.3 s, the kernel's file
+# locks (/proc/locks: holders, and waiters after "->") and tvservice's threads (tid, comm, state,
+# wchan; for a futex wait its /proc/<tid>/syscall: the futex's address, sp and pc); every 9 s
+# tvservice's maps, every 3 s which /dev/shm/file.mstar.* the inodes are. Into
+# /run/locksample.txt, which guest/scripts/save-logs.sh keeps.
+locksample() {
+	n=0 tv=
+	while [ "$(cut -d. -f1 /proc/uptime)" -lt "$1" ]; do
+		echo "T $(cut -d' ' -f1 /proc/uptime)"
+		grep FLOCK /proc/locks
+		if [ -z "$tv" ] || [ ! -d /proc/$tv ]; then
+			tv=
+			for c in /proc/[0-9]*/comm; do
+				[ "$(cat $c 2>/dev/null)" = tvservice ] && { tv=${c#/proc/}; tv=${tv%/comm}; break; }
+			done
+		fi
+		[ -z "$tv" ] || for t in /proc/$tv/task/*; do
+			w=$(cat $t/wchan 2>/dev/null)
+			echo "  ${t##*/} $(cat $t/comm 2>/dev/null) $(cut -d' ' -f3 $t/stat 2>/dev/null) $w"
+			# a futex wait: the syscall's arguments, sp and pc (the futex's address against maps)
+			[ "$w" != __futex_wait ] || echo "    syscall $(cat $t/syscall 2>/dev/null)"
+		done
+		[ -z "$tv" ] || [ $((n % 30)) != 15 ] || { echo "M $tv"; cat /proc/$tv/maps; }
+		if [ $((n % 10)) = 0 ]; then
+			for l in /proc/[0-9]*/fd/*; do
+				f=$(stat -c %N "$l" 2>/dev/null); f=${f##*-> }; f=${f#?}; f=${f%?}
+				case $f in /dev/shm/file.mstar.*) echo "F ${l#/proc/} $f $(stat -L -c %i "$l" 2>/dev/null)";; esac
+			done | awk '!seen[$3]++'
+		fi
+		n=$((n + 1))
+		sleep 0.3
+	done > /run/locksample.txt 2>&1
+}
+[ -z "$(arg webos.locksample)" ] || locksample "$(arg webos.locksample)" &
+if [ "$(arg webos.init 1)" = 1 ]; then
+	log "starting $INIT_SYSTEM (hostname $(cat /webos/etc/hostname 2>/dev/null))"
+	webos-start
+fi
+
+# --- debug shell on the console, forever ---
+log "webOS console on $WEBOS_CONSOLE; debug shell here, 'webos-enter' for a shell inside webOS"
+while true; do
+	setsid cttyhack sh -l
+	sleep 1
+done

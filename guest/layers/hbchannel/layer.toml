@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The hbchannel layer (host/core/beanjar/layermeta.py reads this file).
+description = "Homebrew Channel, elevated; its root SSH on port 6622"
+# HBC installs apps through appinstalld's dev/install, which developer mode gates
+requires = ["devmode"]
+# both are root SSH on the guest's port 22
+conflicts = ["rootssh"]
+# its Dropbear; SSH_PORT replaces the host port. Its telnet (23) is not forwarded.
+forwards = [{ guest = 22, host = 6622 }]

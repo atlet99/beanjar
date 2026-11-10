@@ -1,0 +1,59 @@
+# Board parameters the bootloader (Realtek's U-Boot 2012.07, LG's build for K5LP) puts on the kernel
+# command line, parsed by libdile_boardinfo, tvservice, tvconfig-gen and the Upstart jobs. The
+# initramfs appends these to the real cmdline and bind-mounts the result over /proc/cmdline inside
+# webOS. Format and order follow W19P's U-Boot (LG's GPL source of it, RTK_Boot_0219_4:
+# arch/arm/lib/bootm.c, customer/src/CusCmnio.c, cmd_lg/cmd_nvm.c); the values describe a
+# 43UM7500PLA, a German model that runs W19P 05.40.97, in W19P's own encodings; they are not read from a real set. U-Boot's kernel-only
+# parameters (root=, console=, rtdlog=, mmcoops=, resume=, pwm_mode=, intdemod=, ...) are left out,
+# and so are sver= and bver= (the boot versions, which only tvconfig-gen's version check prints).
+#
+# chip=K5LPA0 is a constant in this U-Boot.
+ethaddr=a8:23:fe:12:34:56
+devtmpfs.mount=1
+# 9 ADC levels (initHW_model_option): country 2, tuner 2, back end 0 (V-by-One), reserved 0,
+# PMIC/EWBS 1 (no EWBS), reserved 0, PCB 3 ("NEW K5LP PCB"), model options 0 0
+modelopt=220010300
+# 18 hex digits as U-Boot's modelOpt_parsing writes them and W19P's tvconfig-gen (SystemHdrInit)
+# reads them: d0 country 2 (EU in {TW_CO, CN_HK, EU, AJ_JA}), d2 panel interface 2 (V-by-One),
+# d3 panel resolution 2 (UD), d4 FRC 0, d8 tuner 2 (gmodelopt_rtd2873_tuner_comb[EU][2]: DVB-T2 and
+# S, not dual, not internal), d10 EWBS 0, d11 DDR 3 (1.5 GB, U-Boot's fixed K5LP value), d12 optic
+# 0, d14 graphic resolution 2 (1920x1080, U-Boot's fixed K5LP value); the rest U-Boot's reserved 0
+hwopt=202200002003002000
+# U-Boot passes ToolOption1..6 of the NVM ToolOptionDB (setToolOptToNVM), which the launcher
+# programs into a new EEPROM (host/core/beanjar/nvm.py; ToolOption7..9 keep tvservice's
+# default record's). W19P's encodings (tvconfig-gen's DWARF TOOL_OPTIONn_T and enums) with its
+# RELEASE.cfg, whose defaults are the UM75 43":
+#   ToolOpt1 131466: INCH_43 10 (bits 0-4), TOOL_UM75 12 (5-10), MODULE_LGD 0 (11-15), CELL RGB 0
+#     (16), TCON_PMIC_APPLY 1 (17-19), BL_DIRECT_L 0 (20-24), LED_BAR_6 0 (25-28), VCOM 0 (29).
+#   ToolOpt2 16406: AUDIO_POWER_13V 6 (0-2), PWM2_DUTY_41 2 (3-5), MAX_PWM_DEFAULT 0 (6-8),
+#     scanning backlight 0 (9), BPL_CURRENT_OFF 0 (10-12), MODE_SELECT_2 2 (13-14).
+#   ToolOpt3 5568: PANEL_GAMUT_NORMAL 0, no Dolby Vision, no local dimming, AMP_WA15_6828B_1AMP 7
+#     (6-9), AUDIO_SPEAKER_10W 1 (10-11), luminance up 1 (12), motion pro 0.
+#   ToolOpt4 65: LOCAL_KEY_TYPE_ONEKEY 1 (0-1), no logo light, no fan, CAM_NOT_SUPPORT 0 (4-5),
+#     WOL 1 (6), HDMI_SWITCH_NONE 0 (7-9), the rest 0.
+#   ToolOpt5 60351521: video and audio input index 1 (0-4, 5-9), two USB ports 1 (10-11, the
+#     count less one), USB_CTL2 2 (12-13), USB_CTL3 3 (14-15), USB_NONE 0 (16-17), no headphone,
+#     CompRCACommon 1 (19), CI_AP 1 (20), MAC_AP 1 (23), ESN_AP 1 (24), WIDEVINE_AP 1 (25).
+#   ToolOpt6 543313193: EYE_SENSOR 1 (0-1), adaptive dimming 1 (3), MOTION_STEP3 2 (4-7), default
+#     standard backlight 13 (8-11; RELEASE.cfg's 90 as OSA_MD_InitToolOption scales it,
+#     (90 - 25) / 5), SOUND_MODE_LG_SOUND_ENGINE
+#     0 (12-13), ISF 1 (14), DVR ready 1 (17), WIFI_11AC_COMBO_MTK 4 (19-21), MOTION_REMOCON_ON 1
+#     (22-24), EYE_CURVE_DERIVATION_INITIAL_CURVE 0 (25-27), EDID_DTS 2 (28-29).
+ToolOpt=131466:16406:5568:65:60351521:543313193
+# Printed after ToolOpt= always (boot.pak's "debugMode=%d "): the NVM sysdb's encrypted debug
+# status, 3 = DEBUG, 4 = EVENT, 5 = RELEASE, checked against its plain copy; 5 when it is not
+# 3-5, when they differ or when it does not decrypt. A retail set passes 5, RELEASE
+# (faultmanager's release handlers, panic_on_oom, and the tvservice and lginit_app jobs start the
+# reboot job when they end); the emulator deliberately runs DEBUG on every board.
+debugMode=3
+# modelName, serialNum (the NVM ModelInfoDB's). The EEPROM's area (ContinentOptionDB) is the
+# factory's, not U-Boot's: targets.py's Soc.continent.
+modelName=43UM7500PLA serialNum=905RAXX00001
+# the ModelInfoDB's group code: 4 = EU (libdile_boardinfo's countryGrpMatch)
+countryGrp=4
+chip=K5LPA0
+# 0x + 9 hex digits (U-Boot's 0x%01lx%08lx): 7.5 GB eMMC, as M2's (the state disks' sizes are the
+# launcher's, not this)
+emmc_size=0x1d2000000
+# U-Boot ends with cmdEnd, and puts a space after every value.
+cmdEnd

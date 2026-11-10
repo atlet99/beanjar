@@ -1,0 +1,109 @@
+Restore Wayland 1.0.3's return-after-read behavior for the untimed dispatch APIs.
+
+QtWayland 5.0 selects the display fd before dispatching its default queue.
+A read containing only Mesa EGL-queue events must be allowed to return zero;
+otherwise WAM polls again forever and cannot answer QtWebProcess's sync IPC.
+Keep both timeout APIs (including a NULL timeout) on the modern behavior.
+The first read still blocks; pending events, read coordination and errors retain
+upstream handling. Roundtrip/EGL callers already loop until their callback fires.
+
+--- a/src/wayland-client.c
++++ b/src/wayland-client.c
+@@ -2062,32 +2062,10 @@
+ 	return ret;
+ }
+ 
+-/** Dispatch events in an event queue with a timeout
+- *
+- * \param display The display context object
+- * \param queue The event queue to dispatch
+- * \param timeout A timeout describing how long the call should block trying to
+- * dispatch events
+- * \return The number of dispatched events on success, -1 on failure
+- *
+- * This function behaves identical to wl_display_dispatch_queue() except
+- * that it also takes a timeout and returns 0 if the timeout elapsed.
+- *
+- * Passing NULL as a timeout means an infinite timeout. An empty timespec
+- * causes wl_display_dispatch_queue_timeout() to return immediately even if no
+- * events have been dispatched.
+- *
+- * If a timeout is passed to wl_display_dispatch_queue_timeout() it is updated
+- * to the remaining time.
+- *
+- * \sa wl_display_dispatch_queue()
+- *
+- * \memberof wl_display
+- */
+-WL_EXPORT int
+-wl_display_dispatch_queue_timeout(struct wl_display *display,
+-				  struct wl_event_queue *queue,
+-				  const struct timespec *timeout)
++static int
++dispatch_queue_timeout(struct wl_display *display,
++		       struct wl_event_queue *queue,
++		       const struct timespec *timeout, bool legacy)
+ {
+ 	int ret;
+ 	struct timespec now;
+@@ -2147,7 +2125,11 @@
+ 			break;
+ 
+ 		ret = wl_display_dispatch_queue_pending(display, queue);
+-		if (ret != 0)
++		/* QtWayland 5.0 polls the fd before calling the untimed API.
++		 * A read containing only EGL-queue events must return to Qt,
++		 * even when nothing was dispatched from its default queue.
++		 * Keep the timeout APIs' wait-for-an-event behavior unchanged. */
++		if (ret != 0 || legacy)
+ 			break;
+ 
+ 		/* We managed to read data from the display but there is no
+@@ -2157,6 +2139,36 @@
+ 	}
+ 
+ 	return ret;
++}
++
++/** Dispatch events in an event queue with a timeout
++ *
++ * \param display The display context object
++ * \param queue The event queue to dispatch
++ * \param timeout A timeout describing how long the call should block trying to
++ * dispatch events
++ * \return The number of dispatched events on success, -1 on failure
++ *
++ * This function behaves identical to wl_display_dispatch_queue() except
++ * that it also takes a timeout and returns 0 if the timeout elapsed.
++ *
++ * Passing NULL as a timeout means an infinite timeout. An empty timespec
++ * causes wl_display_dispatch_queue_timeout() to return immediately even if no
++ * events have been dispatched.
++ *
++ * If a timeout is passed to wl_display_dispatch_queue_timeout() it is updated
++ * to the remaining time.
++ *
++ * \sa wl_display_dispatch_queue()
++ *
++ * \memberof wl_display
++ */
++WL_EXPORT int
++wl_display_dispatch_queue_timeout(struct wl_display *display,
++				  struct wl_event_queue *queue,
++				  const struct timespec *timeout)
++{
++	return dispatch_queue_timeout(display, queue, timeout, false);
+ }
+ 
+ WL_EXPORT int
+@@ -2213,8 +2225,8 @@
+ {
+ 	int ret;
+ 
+-	ret = wl_display_dispatch_queue_timeout(display, queue, NULL);
+-	assert(ret == -1 || ret > 0);
++	ret = dispatch_queue_timeout(display, queue, NULL, true);
++	assert(ret >= -1);
+ 
+ 	return ret;
+ }

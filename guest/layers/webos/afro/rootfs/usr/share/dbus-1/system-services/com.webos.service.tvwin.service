@@ -1,0 +1,7 @@
+# tvservice layer: the stock file, with tvservice's private view of the OS
+# (/usr/lib/libtvservice-private.so) LD_PRELOADed into tvwin, which links libhal_lg115x too, when
+# ls-hubd starts it on demand; the library drops itself from LD_PRELOAD once loaded.
+[D-BUS Service]
+Name=com.webos.service.tvwin;com.webos.service.tvwin.xpa;com.webos.service.tvwin.db;com.webos.service.tvwin.sysprop;com.webos.service.tvwin.tvpowerd
+Exec=/usr/bin/env LD_PRELOAD=/usr/lib/libtvservice-private.so /usr/sbin/tvwin
+Type=dynamic

@@ -1,0 +1,87 @@
+// SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+// SPDX-License-Identifier: GPL-2.0-or-later
+// A VM in the window's list (window.blp's vm_list; beanjar_ui/manager/widgets.py, VMRow): a TV icon, the
+// name, the firmware and hardware, and the state with a coloured dot, followed while the VM runs
+// by its uptime and CPU%; a display icon while its viewer is open. The texts are bound to the
+// row's gui.VMItem in Python, so a refresh changes them in place.
+using Gtk 4.0;
+
+template $ManagerVMRow: Gtk.ListBoxRow {
+  child: Gtk.Box {
+    spacing: 12;
+    margin-top: 6;
+    margin-bottom: 6;
+    margin-start: 6;
+    margin-end: 6;
+
+    Gtk.Image icon {
+      icon-name: "tv-symbolic";
+      pixel-size: 32;
+      valign: center;
+    }
+
+    Gtk.Box {
+      orientation: vertical;
+      spacing: 2;
+      hexpand: true;
+      valign: center;
+
+      Gtk.Label title {
+        xalign: 0;
+        ellipsize: end;
+
+        styles [
+          "heading",
+        ]
+      }
+
+      Gtk.Label specs {
+        xalign: 0;
+        ellipsize: middle;
+
+        styles [
+          "caption",
+          "dimmed",
+        ]
+      }
+
+      Gtk.Box {
+        spacing: 4;
+
+        Gtk.Label dot {
+          label: "●";
+
+          styles [
+            "caption",
+          ]
+        }
+
+        Gtk.Label state {
+          xalign: 0;
+          ellipsize: end;
+
+          styles [
+            "caption",
+          ]
+        }
+
+        Gtk.Label activity {
+          xalign: 0;
+          ellipsize: end;
+
+          styles [
+            "caption",
+            "dimmed",
+            "numeric",
+          ]
+        }
+      }
+    }
+
+    Gtk.Image viewer {
+      icon-name: "video-display-symbolic";
+      tooltip-text: "Viewer open";
+      valign: center;
+    }
+  };
+}

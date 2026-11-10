@@ -1,0 +1,14 @@
+# Candidate decoded by this firmware's own model generators; synthetic identity.
+ethaddr=02:00:00:12:34:56
+devtmpfs.mount=1
+countryGrp=4
+modelopt=000000000
+hwopt=201000000003006000
+ToolOpt=80742:32790:69632:65:98829367:158583307
+modelName=32LQ570B6LA
+debugMode=3
+serialNum=000RAXX00001
+chip=K8APA0
+tvregion=DVB
+emmc_size=0x1d2000000
+cmdEnd

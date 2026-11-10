@@ -1,0 +1,75 @@
+# dreadlocks2: webOS 3.5 and later (W17H's 3.9.3, "dreadlocks2-dudhwa"): dreadlocks' paks at the
+# same mount points (W17H's squashfs fstab: p29 tvservice, p31 otncabi, p32 otycabi, p33 fonts,
+# p34 smartkey, p36 license) and bsppart as its lower (its mount-bsp job is dreadlocks'
+# byte for byte). sedata-dvb (the security engine's raw data, no fstab names it), kernel,
+# lxboot and tzfw are not attached. The three state partitions and a fourth, uhdcp (p48,
+# /mnt/lg/uhdcp, which mount-readwrite now mounts; its size is not in the firmware). The
+# EEPROM: the ToolOptionDB as dreadlocks' (0x4E4, 76 bytes, mark 0x20150625), the ModelInfoDB
+# webOS 3.5's (below), the ContinentOptionDB at 0x1C54 and the Last_Input_info DB at
+# 0x1BC8 (DIL_NVM_InitContinentOptionDB, DIL_NVM_PWRON_InitLastInfo, which writes it under the
+# same conditions as dreadlocks'); DIL_NVM_Read sends offsets up to 0x1CEF to the EEPROM. The
+# PmLog devlog switch and the trust stores as dreadlocks'.
+# tvconfig-gen's DDR_SIZE_TYPE_T is reordered from webOS 3.5 (W17H, W18R, W19P alike): 768M, 1G,
+# 1_25G, 1_5G, 2G, 2_5G, 3G, 2G_ADV, 2G_STD; its parser reads the digits in base 16.
+
+base = "dreadlocks"
+version = "3.5"
+# LG's 4.4 kernels (W17H's linux-4.4-lg115x, W18R's, W19P's linux_pop and W20L's linux-4.4.3:
+# include/uapi/linux/capability.h line 355, CAP_LAST_CAP CAP_AUDIT_READ)
+cap_last_cap = 37
+ddr_sizes = [768, 1024, 1280, 1536, 2048, 2560, 3072, 2048, 2048]
+peripherals = [
+    "usbhid", "hid-axff", "hid-dr", "hid-logitech", "hid-pl", "hid-sony", "hid-zpff", "xpad",
+    "uvcvideo", "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii",
+    "nls_utf8", "nls_iso8859-1", "snd-usb-audio", "cdc-acm", "uhid", "input-leds",
+    "hid-playstation", "ftdi_sio", "pl2303", "option", "sierra", "lgfs",
+]
+state_disks = { db8 = "512M", cmn_data = "1G", appstore = "2G", uhdcp = "16M" }
+emmc_disks = ["partinfo", "authcxt", "sestore", "wossestore", "sedata"]
+
+# the local key type two bits wide (W17H's and W18R's TOOL_OPTION3_T eLocalKeyType:2 at bit 18,
+# TVCO_CFG_NEW_LOCAL_KEY_TYPE_T JOYSTICK 0, ONEKEY 1, NINEKEY 2); the onekey's tap and hold are
+# IR_FRONT_ONEKEY_SHORT and _LONG (1034, 1035) from here on
+[nvm]
+eeprom = "eeprom"
+records = { pak = "tvservice-dvb", path = "/mnt/lg/tvservice/lgapp/tvservice" }
+# webOS 3.5's (W17H's tvservice, DWARF MODEL_INFO_DB, 56 bytes): mark 0x20160630, aModelName[24] at +4,
+# aSerialNum[17] at +28, then group_code, country_code, pad; still at 0x924 (DIL_NVM_InitModelInfoDB)
+modelinfo_offset = 0x924
+modelinfo_mark = 0x20160630
+model_field = [4, 24]
+serial_field = [28, 17]
+tooloption_offset = 0x4E4
+tool_option_words = 9
+tool_option_word_bytes = 4
+tool_option_first = 8
+tool_option_mark = 0x20150625
+continent_offset = 0x1C54
+continent_table = { symbol = "_aDefineContinent", size = 36 }
+lastinput_offset = 0x1BC8
+factory_offset = 0x294
+local_key = { word = 3, offset = 18, width = 2, names = ["joystick", "onekey", "ninekey"] }
+debug_status_offset = 0x1A1
+
+# W17H's table (55 partitions, partinfo p2) adds wossestore, libsestore's secure storage
+# (SESTORE_SSMGR_GetEmmcPartitionDevicePath), and uhdcp
+[partitions]
+partinfo = "partinfo"
+mapbak = "partinfo"
+authcxt = "authcxt"
+nvram = "nvram"
+sestore = "sestore"
+sedata = "sedata"
+rootfs = "rootfs"
+tvservice = "tvservice"
+otncabi = "otncabi"
+otycabi = "otycabi"
+fonts = "fonts"
+smartkey = "smartkey"
+db8 = "db8"
+data = "cmn_data"
+apps = "appstore"
+bsppart = "bsppart"
+license = "license"
+wossestore = "wossestore"
+uhdcp = "uhdcp"

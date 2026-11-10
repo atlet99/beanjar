@@ -1,0 +1,2402 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Regression run over every supported firmware target (docs/dev/guides/build.md, "Regression runs"):
+
+  scripts/regress (--host HOST | --local) [--target TARGET]... [--fw NAME]... [--headless] [--tv]
+                  [--no-build] [--no-sync] [--keep-going] [--timeout S] [--settle S] [--run NAME]
+                  [--dry-run] [-j N] [--viewer] [--tv-steps LIST] [--decode-cases LIST]
+
+Drives the VM host over ssh from this machine (--host HOST, or REGRESS_HOST in the environment: an
+ssh destination, with no built-in default; the checkout there is the directory DEST, default
+beanjar, relative to its home), or this machine itself with --local. First, here:
+`FW=<fw> scripts/build.sh guest` for each target's firmware (--no-build: only checks that the
+published kernel and the target's layers exist), then the command named by REGRESS_SYNC (an
+executable that copies this checkout to the VM host; it gets HOST and DEST in its environment) and
+`scripts/build.sh host` on the VM host (--no-sync skips both: sync and build the host yourself). The
+VM host boots each target's firmware from its own firmware collections (`host/scripts/vm-launcher config
+FIRMWARE_DIRS` there), by the name chosen here; nothing is copied to it, and a target whose firmware
+is not there fails without booting.
+Then, strictly one target at a time, the checkout's development VM of the target (INSTANCE=<target>: a
+development VM is bound to one firmware; never a library VM, and nothing starts while any VM,
+mitmweb, slirp4netns or viewer runs on the VM host):
+  start      FW=<fw> STATE=none LAYERS=normal,gl DISPLAY_BACKEND=dbus BUILD=0 host/scripts/vm-launcher start
+             (NET_LINK and NET_MODE as the environment gives them, nat and direct by default; LAYERS,
+             DISPLAY_BACKEND, NET_LINK, NET_MODE, AUDIO,
+             ACCEL, PMLOG_DEBUG, MEM, SMP, KERNEL_ARGS, QEMU_EXTRA and GPU_DEVICE pass through; those of them not
+             given are passed empty, the launcher's defaults, never what the VM's vm.toml kept)
+  boot       tests/regress/guest.sh boot: bootd's boot-done, the guest's uptime at it
+  check-m1   guest/scripts/check-m1.sh ("M1 PASS")
+  app-calls  tests/regress/tvservice/app-calls.sh ("APP-CALLS PASS")
+  checklist  the bring-up checklist: tests/regress/guest.sh checklist gathers the facts, and
+             tests/regress/lib/checklist.py judges each item PASS, WARN or FAIL here (a WARN does not
+             fail the target); the items' verdicts go into the summary and summary.json
+  shot       once no Home launcher shows by itself (guest.sh home-idle: webOS 3.5's Home Auto
+             Launch), HOME on the remote (tests/regress/ir-key.py), SETTLE s, tests/regress/virgl/dbus-grab.py (the
+             screen: the UI over a black video plane); a Home that stays (webOS 4.5) gets HOME twice
+  standby    Quick Start+ (docs/dev/architecture/suspend.md), where the firmware and the model offer it
+             (tvpowerd opens /dev/lgib, tvservice's instantBooting; SKIP elsewhere): guest.sh standby-prep turns it on; the remote's POWER
+             (ir-key.py 0x08); tests/regress/standby.py waits for the standby (the guest's
+             webos.standby port), measures QEMU's CPU in it from STANDBY_SETTLE s on (the vCPUs
+             idle in s2idle: under STANDBY_CPU %), presses the power key (QMP system_powerdown) and waits for the wake;
+             guest.sh resumed: tvpowerd Active, the same tvservice and tvpowerd answering, the
+             resume's time; then HOME as for shot and tests/regress/virgl/dbus-grab.py (<target>-resume.png)
+  stop       host/scripts/vm-launcher stop, the guest's logs saved; device-census.json summarizes one
+             completed snapshot's request counters and explicit failed opens (evidence, not a verdict);
+             then no qemu, mitmweb, slirp4netns, viewer
+             or regress unit (beanjar-vm-regress-*, in beanjar-regress.slice) may be left (a leftover
+             ends the run whatever --keep-going says)
+  capture    NET_LINK=off only: after stop, validate this target's fresh NIC pcap and check it for LG
+             contacts; save net.pcap and pcap-lg.txt in the target's result directory
+--headless, a system sanity run without graphics (on KVM, or TCG with --local on x86):
+  start      FW=<fw> STATE=none LAYERS=normal,headless DISPLAY_BACKEND=none BUILD=0 host/scripts/vm-launcher start
+  ready      tests/regress/guest.sh ready: core-boot-done made by tvservice's tv-ready (bootd's
+             log has the generateSignal), not by bootd's timeout, which fails at once; the guest's
+             uptime at it (a firmware with no TV service, N21D: core-boot-done itself). Headless
+             boot-done waits on the first app and the CPU-idle check, so
+             it is left to check-m1, which waits up to 150 s for it
+  check-m1   as above (its gl checks skip: no gl layer)
+  app-calls  as above
+  tvservice  tests/regress/guest.sh tvservice: the same tvservice process as at ready, answering
+  checklist  as above
+  standby    as above, with tvpower's powerOff (reason remoteKey, guest.sh power-off) for POWER
+             (headless has no compositor to take the key) and no screenshot
+  stop       as above
+  No HOME, no screenshot.
+--headless runs -j N targets at once (--local: default 2, each SMP 4 vCPUs; on a VM host default 2, capped by its CPUs at two vCPUs each; capped by the CPUs at SMP vCPUs per VM, by
+the targets' RAM (MEM, else each model's, nvm.board_ram: the largest ones running together must fit in the host's
+MemAvailable, read at the start, less HEADROOM_MB = 1 GiB), and by the targets), each in an instance of its own, INSTANCE=<target>
+(launch.instance_env: build/instances/<target>/ for its runtime files, logs, shares and state, the unit
+beanjar-vm-regress-<target> in beanjar-regress.slice, its own slot and so its own host address, 127.0.1.<slot>, where its ports are at
+their stock numbers: `host/scripts/vm-launcher config ADDRESS`), with NET_MODE=direct by default (QEMU's private slirp;
+NET_MODE=mitm too, its inspector on the instance's address) and each target's model's RAM (nvm.board_ram; MEM overrides it). A failure (without --keep-going) or a leftover starts no further target; each target's leftover
+check is its instance's, and the host as a whole is checked after the run. Every target's host/ has
+meminfo-{start,ready,end}.txt (the host's free -m and /proc/meminfo).
+--tv, the TV feature suite (tests/regress/lib/tvsuite.py; docs/dev/guides/build.md, "TV feature suite") instead of the
+boot checks, in either mode, with NET_LINK=nat NET_MODE=direct (another network is a usage error):
+  start      as above
+  boot|ready as above (graphics: boot-done; headless: core-boot-done from tv-ready)
+  luna-info  tests/regress/guest.sh luna-info runs tests/regress/tv.sh in webOS, which calls the public
+             Luna APIs LG documents for apps (getSystemInfo's keys, getSystemSettings' option and
+             caption keys and localeInfo, connectionmanager getStatus under both names,
+             deviceid/getIDs, time/getSystemTime, getAppLoadStatus, mrcu, camera and blegatt
+             getters), tvservice's identity keys and getCurrentCountryGroup, and every key of
+             nyx-cmd OSInfo and DeviceInfo, read-only; tvsuite.judge_luna checks each answer's
+             documented fields and its value against the target's board (board.cmdline's model,
+             serial, MAC, chip, RAM), firmware (name: version, OTA id; release) and broadcast standard
+  network    tests/regress/http-token.py serves a random token on the VM host's 127.0.0.1 (slirp's
+             10.0.2.2) for the step; guest.sh network: eth0's lease and routes, the connection
+             manager's status, a name through the guest's resolver, the token fetched with wget;
+             tvsuite.judge_network: dhcp-lease, connman-wired, dns (against the VM host's own
+             answer), http (the token, and the server's log of the request), online (connman's
+             online state against what the VM host gets of the firmware's Ipv4StatusUrl)
+  apps       each stock app of tests/regress/tv-expect.json's apps (Settings first), through guest.sh
+             app-launch, app-state and app-close (tv.sh): sam's launch, in front, the remote's keys
+             (ir-key.py), still in front in the same process, a screenshot (dbus-grab.py) not black,
+             closed (an app needing terms the set has not agreed to, tv-expect.json's eula from its
+             requiredEULA: LG's terms screen that sam opens in its place, the same way); the
+             test web app (tests/regress/tvapp, ares-package'd here into the run
+             directory) installed with dev/install (graphics LAYERS add devmode) and the same.
+             No crash report of the app's process from launch to close. Headless: every app
+             launched, no keys or screenshot; none can stay up there (no WebAppMgr, no compositor,
+             the input apps' stand-in ends), and each must be gone after a pause, sam answering
+  tee        where the firmware has a TEE client (tv-expect.json's tee; else SKIP, citing that no ELF
+             of its paks names /dev/tee): guest.sh tee runs tests/regress/tee/tee-probe in webOS through the
+             firmware's own libteec: /dev/tee0, the secure-store TA's session and each shipped
+             TA's (ITEM_NOT_FOUND by design), the secure-store commands with their round trips,
+             checked against the VM's identity/tee-huk (tests/regress/lib/teeref.py), and no crash
+             report of a TEE client since the boot (tvsuite.judge_tee)
+  draw       graphics: the test app's pattern with canvas 2D and with WebGL, judged on the
+             screenshot (tvsuite.judge_draw)
+  audio      QEMU records the card on the VM host (tests/regress/audio/capture.py: HMP wavcapture on its
+             audiodev) while guest.sh audio plays a tone per phase with paplay: the set's volume,
+             five volumeDown, setMuted, unmuted and five volumeUp, each read back with the Audio
+             API's getVolume (tv-expect.json's audio); at the set's volume also one with aplay to
+             ALSA's default (the pulse plugin) and one with aplay to pcm_output's hw PCM (heard
+             only: it bypasses PulseAudio); graphics: the test app's WebAudio tone too;
+             tvsuite.tone_facts measures each tone's level on the VM host, tvsuite.judge_audio
+             judges
+  decode     graphics: the test app (its copy in the run directory, with the clips
+             tests/regress/video/make-clips.sh --decode makes here) plays each case of tvsuite.DECODE_CASES
+             (H.264+AAC, HEVC+AAC, VP9, MPEG-2+AAC in TS, VP9+Opus and AV1+Opus in WebM with <video>;
+             H.264+AAC, HEVC+AAC, VP9, VP9+Opus and AV1+Opus with its Media Source player) that tv-expect.json's decode row expects (else SKIP, citing it),
+             while a viewer of the case's own decodes what the guest's sinks send (headless, or the
+             --viewer window: the one judged), recording its log, a capture a second and the media
+             audio (never played); tvsuite.media_facts on the VM host, tvsuite.judge_decode here:
+             the page's playing, currentTime and ended, the host's decoder, pictures shown and their
+             pts, end of stream, captures with a changing picture at the window, filling the page's
+             video rect whole, the audio's level.
+             Headless: SKIP. Then dev/remove of the test app
+  smp        graphics: the SMP check app (tests/regress/smp/pack.sh here, with build/tests/smp/smpcheck and an
+             8 s H.264 clip) installed with dev/install, launched by sam (guest.sh smp): a
+             StarfishMediaAPIs client as ss4s's player, which feeds the clip and logs every
+             callback; the viewer decodes what the sink sends; tvsuite.judge_smp: FRAMEREADY
+             while it plays, advancing to the clip's end, the clip decoded on the host. Then
+             dev/remove. Headless, or a firmware whose library lacks a symbol the app looks up
+             (tv-expect.json's smp row, tvsuite.smp_plan): SKIP
+  stop       as above
+  Each check is PASS or FAIL, or SKIP where tests/regress/tv-expect.json (tests/regress/tv-expect-gen.py,
+  from the firmware) has the API, method or key absent from the target's firmware, citing the
+  evidence; no WARN. A step fails if any of its checks fails. The table has each step's verdict
+  and its PASS/FAIL/SKIP counts, then every FAIL; summary.json has every check under "tv".
+  --tv-steps LIST runs only those of the lane's steps. The apps' screenshots and facts are in each
+  target's apps/, and gallery.html in the run directory shows them.
+A graphics run (LAYERS with gl) skips a target whose build makes no gl layer, as guest/layers/gl/meson.build
+decides from the chip's table: a guest/layers/soc/<chip>/meson.build with neither gl_vendor_stubs nor
+gl_vendor_gl (no GPU vendor stand-ins). It neither builds nor boots it; its row says SKIP. A target
+that should have one and has none after the build (or with --no-build) fails the run.
+Each step has TIMEOUT seconds (default 300). Under TCG (--local on x86, or ACCEL=tcg) every deadline
+of the run's own (TIMEOUT, check-m1's boot-done wait, the standby's waits) is stretched by the
+launcher's TCG factor, qemu.TIME_SCALE, as the guest's bootd timers are; under KVM it is 1. Results, on the VM host and copied back here:
+  build/regress/<run>/<target>.png      the home screen (opaque RGB, as a TV shows it)
+  build/regress/<run>/<target>/         <step>.txt and .rc (the guest's), start/stop/shot/orphans.txt,
+                                      saved/ (the logs saved at stop and check-m1's), host/ (the
+                                      launcher's console.log, webos.log, qemu.out, network logs)
+  build/regress/<run>/summary.txt     the table printed at the end (and summary.json), the mode
+                                      (graphics or headless) on each target's row
+The targets are targets.MODELS' (`host/scripts/vm-launcher config TARGETS`); a target whose model is in targets.BRING_UP is still being
+brought up and is left out without --target (named, it runs); a target's firmware is the one in the host's
+firmware collections (beanjar host config's firmware_dirs) that resolves to it (paths.firmware_target: its model code and the
+release its rootfs names; the default firmware first; --fw NAME picks one where there are several). Exits 1 if any target failed, 2 on a usage error.
+"""
+
+import argparse
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+TOP = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(TOP, "host", "core"))
+sys.path.insert(0, os.path.join(TOP, "tests", "regress", "lib"))
+from beanjar import guestlayers, launch, nvm, targets, paths, qemu, vmunits  # noqa: E402
+import checklist  # noqa: E402
+import device_census  # noqa: E402
+import tvsuite  # noqa: E402
+
+STEPS = {
+    "graphics": (
+        "start",
+        "boot",
+        "check-m1",
+        "app-calls",
+        "checklist",
+        "ssh",
+        "shot",
+        "standby",
+        "stop",
+        "capture",
+    ),
+    "headless": (
+        "start",
+        "ready",
+        "check-m1",
+        "app-calls",
+        "tvservice",
+        "checklist",
+        "ssh",
+        "standby",
+        "stop",
+        "capture",
+    ),
+}
+# --tv: the TV feature suite instead of the boot checks (tests/regress/lib/tvsuite.py)
+TV_STEPS = {
+    "graphics": (
+        "start",
+        "boot",
+        "luna-info",
+        "network",
+        "apps",
+        "tee",
+        "draw",
+        "audio",
+        "decode",
+        "smp",
+        "stop",
+    ),
+    "headless": (
+        "start",
+        "ready",
+        "luna-info",
+        "network",
+        "apps",
+        "tee",
+        "audio",
+        "decode",
+        "smp",
+        "stop",
+    ),
+}
+TV_LAYERS = "normal,gl,devmode"  # graphics --tv: developer mode, for the test app's dev/install
+SMP_IPK = "build/regress/{run}/smpcheck.ipk"  # the SMP check app (tests/regress/smp), packed by its pack.sh
+TV_IPK = (
+    "build/regress/{run}/tvsuite.ipk"  # the test app (tests/regress/tvapp), packed by ares-package
+)
+TV_NET = {
+    "NET_LINK": "nat",
+    "NET_MODE": "direct",
+}  # the network step's server is the VM host's 127.0.0.1, slirp's 10.0.2.2
+STANDBY_CPU = 10.0  # QEMU's CPU in standby, % of one host CPU, at most
+RESUME_SETTLE = 12  # s from the resume to HOME for its screenshot
+STANDBY_SETTLE = 2  # s from the standby port to the CPU measure: the micom's
+# standby comes first, then the s2idle entry (under 1 s on TCG)
+PASSTHROUGH = (
+    "NET_LINK",
+    "NET_MODE",
+    "AUDIO",
+    "ACCEL",
+    "PMLOG_DEBUG",
+    "MEM",
+    "SMP",
+    "KERNEL_ARGS",
+    "QEMU_EXTRA",
+    "GPU_DEVICE",
+)
+DEFAULTS = {
+    "graphics": {"LAYERS": "normal,gl", "DISPLAY_BACKEND": "dbus"},
+    "headless": {"LAYERS": "normal,headless", "DISPLAY_BACKEND": "none"},
+}
+M1_WAIT = {"graphics": 10, "headless": 150}  # check-m1's wait for boot-done, once booted / ready
+# --local --headless: each target in an instance of its own (launch.instance_env), JOBS at once, each
+# counted as SMP vCPUs (QEMU's TCG threads) against the host's CPUs and its RAM (MEM, else its model's,
+# nvm.board_ram) against MemAvailable
+JOBS = 2  # measured, docs/dev/guides/build.md "Two lanes": 560 s for six targets, against 1017-1150 s at -j 3 and -j 4
+PI_JOBS = 2  # --headless over ssh: targets at once by default
+KVM_OVERSUB = 2  # vCPUs per host CPU a KVM VM host may carry
+HEADROOM_MB = 1024  # of the VM host's MemAvailable left to the host itself and a GUI: the guests' RAM fits in the rest
+INSTANCE_DEFAULTS = {
+    "NET_LINK": "nat",
+    "NET_MODE": "direct",
+}  # QEMU's own slirp: private, no namespace helpers
+# The launcher settings a lane leaves to the launcher's own default: given empty unless passed through, so
+# that a target's development VM (its vm.toml, written by whichever run made it, development.prepare) cannot
+# carry an earlier run's into this one (an AUDIO=dbus from a graphics run failed every headless start).
+# LAYERS, DISPLAY_BACKEND, NET_LINK and NET_MODE are each lane's own; MAC and SERIAL, the VM's identity, are kept.
+LAUNCHER_DEFAULTED = (
+    "AUDIO",
+    "MEM",
+    "SMP",
+    "ACCEL",
+    "PMLOG_DEBUG",
+    "KERNEL_ARGS",
+    "QEMU_EXTRA",
+    "GPU_DEVICE",
+)
+# What a stopped checkout VM must not leave on its host. `pgrep -x` (a remote shell's own command line
+# never matches it); QEMU's name is cut to 15 characters.
+ORPHANS = (
+    "for p in qemu-system-aar vhost-user-gpu mitmweb slirp4netns beanjar-viewer beanjar-mediahu; do pgrep -ax $p; done; "
+    "systemctl --user list-units --no-legend --plain --state=active,activating,deactivating "
+    "'beanjar-vm-regress-*' 2>/dev/null; true"
+)
+_print = threading.Lock()
+
+
+def regress_unit(iid):
+    """The unit of the regress VM iid (a target; None: the checkout VM), the same on every VM host:
+    beanjar-vm-regress-<iid>, in beanjar-regress.slice (vmunits.unit_slice)."""
+    return f"{vmunits.UNIT_PREFIX}regress-{iid or 'default'}"
+
+
+class Usage(Exception):
+    pass
+
+
+def say(line):
+    say_raw(f"[regress] {line}")
+
+
+def say_raw(line):
+    with _print:
+        print(line, flush=True)
+
+
+def bring_up_targets():
+    return [targets.name(p) for p in targets.all_targets() if targets.in_bring_up(p)]
+
+
+def all_targets():
+    """The supported targets' names, as `host/scripts/vm-launcher config TARGETS` prints them."""
+    return [targets.name(p) for p in targets.all_targets()]
+
+
+def gl_expected(target, top=TOP):
+    """Whether the chip enables GL through vendor stand-ins or gl_standard_abi.
+    Values absent from its table come from its base (docs/dev/guides/build.md "Layer bases")."""
+    chip = leaf = target.split("-")[0]
+    stubs = gl = standard = None
+    if not os.path.isdir(os.path.join(top, "guest", "layers", "soc", chip)):
+        return False  # a chip with no soc layer (NetCast's lm14): no gl layer either
+    while chip:
+        d = os.path.join(top, "guest", "layers", "soc", chip)
+        with open(os.path.join(d, "meson.build")) as f:
+            text = f.read()
+        standard = standard or re.search(r"^gl_standard_abi\s*=\s*(true|false)", text, re.M)
+        stubs = stubs or re.search(r"^gl_vendor_stubs\s*=\s*\[([^]]*)\]", text, re.M)
+        gl = gl or re.search(r"^gl_vendor_gl\s*=\s*'([^']*)'", text, re.M)
+        try:
+            with open(os.path.join(d, "base")) as f:
+                chip = f.read().strip()
+        except FileNotFoundError:
+            chip = None
+    if not stubs or not gl:
+        raise ValueError(f"guest/layers/soc/{leaf}/meson.build: no gl_vendor_stubs or gl_vendor_gl")
+    return bool(stubs.group(1).strip() or gl.group(1) or (standard and standard.group(1) == "true"))
+
+
+def firmware_dirs():
+    """The host's firmware collections (paths.firmware_dirs: config.toml's firmware_dirs)."""
+    try:
+        return paths.firmware_dirs()
+    except ValueError as e:
+        raise Usage(str(e)) from None
+
+
+def find_firmwares(dirs):
+    """{target name: {firmware name: its directory}} of the firmware directories in dirs, each by the target
+    it resolves to (paths.firmware_target; one that does not resolve is not a firmware of this tree), a
+    name in several dirs from the first."""
+    found = {}
+    for d in dirs:
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            continue
+        for n in names:
+            if paths.model_of(n) not in targets.MODELS or not os.path.isdir(os.path.join(d, n)):
+                continue
+            try:
+                target = targets.name(paths.firmware_target(os.path.join(d, n), n))
+            except ValueError:
+                continue
+            found.setdefault(target, {}).setdefault(n, os.path.join(d, n))
+    return found
+
+
+def select(want, fws, found, default_fw=paths.FW_NAME):
+    """[(target, firmware name)] in TARGETS order: the targets wanted (all but those in bring-up without --target), each with its
+    firmware (--fw, else the default firmware, else the only one found that is not a bring-up model's, unless the
+    whole target is in bring-up, or of several the one that boots the chip's default board: paths.default_candidates).
+    found: find_firmwares(). Usage on anything unclear."""
+    known = all_targets()
+    for p in want:
+        if p not in known:
+            raise Usage(f"unknown target {p} (targets: {', '.join(known)})")
+    chosen = {}
+    for fw in fws:
+        target = next((p for p, names in found.items() if fw in names), None)
+        if target is None:
+            raise Usage(
+                f"--fw {fw}: not a firmware of a supported target in the host's firmware collections "
+                f"({':'.join(firmware_dirs())})"
+            )
+        if target in chosen:
+            raise Usage(f"--fw given twice for {target}")
+        chosen[target] = fw
+    out = []
+    for p in known:
+        if want and p not in want or not want and p in bring_up_targets():
+            continue
+        if p not in chosen:
+            # a bring-up model's firmware on a target that is not in bring-up (W21Z on W21P's target) only with --fw
+            cands = paths.default_candidates(targets.by_name(p), found.get(p, {}))
+            if default_fw in cands:
+                chosen[p] = default_fw
+            elif len(cands) == 1:
+                chosen[p] = cands[0]
+            elif not cands:
+                raise Usage(
+                    f"no firmware for {p} in the host's firmware collections ({':'.join(firmware_dirs())})"
+                )
+            else:
+                raise Usage(f"several firmwares for {p}: {', '.join(cands)}; pick one with --fw")
+        out.append((p, chosen[p]))
+    return out
+
+
+def parser():
+    p = argparse.ArgumentParser(
+        prog="scripts/regress",
+        description="regression run over the supported targets",
+        epilog="See the header of scripts/regress and docs/dev/guides/build.md.",
+    )
+    p.add_argument(
+        "--target",
+        action="append",
+        default=[],
+        help="a target to run (repeatable, or comma-separated; "
+        "default: every target but those in bring-up, targets.BRING_UP)",
+    )
+    p.add_argument(
+        "--fw", action="append", default=[], help="the firmware (name) of its target (repeatable)"
+    )
+    p.add_argument(
+        "--tv",
+        action="store_true",
+        help="the TV feature suite (luna-info, network, apps, tee, draw, audio, decode) after "
+        "the boot, instead of the boot checks; NET_LINK=nat NET_MODE=direct",
+    )
+    p.add_argument(
+        "--tv-steps",
+        metavar="LIST",
+        help="--tv: only these of its steps (comma-separated; default all of the lane's)",
+    )
+    p.add_argument(
+        "--decode-cases",
+        metavar="LIST",
+        help="--tv: only these of the decode step's cases "
+        "(tvsuite.DECODE_CASES, comma-separated; default all)",
+    )
+    p.add_argument(
+        "--headless",
+        action="store_true",
+        help="system sanity: LAYERS=normal,headless, no GPU, "
+        "ready at tvservice's core-boot-done, no HOME or screenshot",
+    )
+    p.add_argument(
+        "--no-build", action="store_true", help="do not build; check the published files are there"
+    )
+    p.add_argument(
+        "--no-sync",
+        action="store_true",
+        help="do not sync to the VM host (nor build its host side)",
+    )
+    p.add_argument(
+        "--keep-going", action="store_true", help="go on with the next target after a failure"
+    )
+    p.add_argument(
+        "--timeout", type=int, default=300, metavar="S", help="each step's limit (default 300)"
+    )
+    p.add_argument(
+        "--settle", type=int, default=8, metavar="S", help="HOME to screenshot (default 8)"
+    )
+    p.add_argument("--run", help="the run's name (default: UTC time, YYYYmmddTHHMMSSZ)")
+    p.add_argument(
+        "--host",
+        metavar="HOST",
+        help="the VM host: an ssh destination (default: $REGRESS_HOST); its checkout is the "
+        "directory $DEST (default beanjar) in its home",
+    )
+    p.add_argument("--local", action="store_true", help="boot on this machine instead of over ssh")
+    p.add_argument("--dry-run", "-n", action="store_true", help="print what would run, run nothing")
+    p.add_argument(
+        "--viewer",
+        action="store_true",
+        help="graphics: show each VM in the viewer on the VM host's "
+        "desktop (build/viewer/beanjar-viewer --no-audio --no-media), opened at its start and closed "
+        "before its stop; what the run tests does not change",
+    )
+    p.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        metavar="N",
+        help=f"--headless: targets at once, each in an instance "
+        f"of its own (default {JOBS} with --local, {PI_JOBS} on a VM host; capped by the VM host's CPUs and MemAvailable)",
+    )
+    return p
+
+
+def meminfo_kb(field="MemAvailable", path="/proc/meminfo"):
+    with open(path) as f:
+        for line in f:
+            k, _, v = line.partition(":")
+            if k == field:
+                return int(v.split()[0])
+    raise ValueError(f"no {field} in {path}")
+
+
+def start_env(a, fw, net_dump=""):
+    """The environment of a target's `vm-launcher start`: the lane's settings, and every other launcher setting
+    (LAUNCHER_DEFAULTED) empty where the run does not give it, never the development VM's stored one."""
+    env = dict(FW=fw, STATE="none", BUILD="0", **a.vm_env)
+    for k in LAUNCHER_DEFAULTED:
+        env.setdefault(k, "")
+    env["NET_DUMP"] = net_dump
+    return env
+
+
+def cap_jobs(jobs, n_targets, cpus, avail_kb, mems, smp=4, oversub=1, headroom_mb=HEADROOM_MB):
+    """(the targets to run at once, why it is fewer than jobs or ""): no more than the targets, the
+    host's CPUs (times oversub: KVM's idle vCPUs cost nothing, TCG's threads are busy) over each VM's SMP vCPUs,
+    and as many as the RAM of the targets (mems: MiB each, or one number for all) allows: the sum of the n largest
+    must fit in MemAvailable less headroom_mb, whichever n run together; at least one."""
+    ram = sorted(mems if isinstance(mems, (list, tuple)) else [mems] * n_targets, reverse=True)
+    room = avail_kb // 1024 - headroom_mb
+    fit = 0
+    while fit < len(ram) and sum(ram[: fit + 1]) <= room:
+        fit += 1
+    limits = [
+        (n_targets, f"{n_targets} target(s)"),
+        (cpus * oversub // smp, f"{cpus} CPUs x {oversub} / {smp} vCPUs per VM"),
+        (
+            fit,
+            f"MemAvailable {avail_kb // 1024} MB less {headroom_mb} MB headroom, guests of up to "
+            f"{ram[0] if ram else 0} MB",
+        ),
+    ]
+    n, why = jobs, ""
+    for limit, text in limits:
+        if limit < n:
+            n, why = limit, text
+    return max(n, 1), why
+
+
+# Targets whose core-boot-done takes ~20 s or more on KVM (the rest 3-7 s): a parallel run starts
+# them alternately with the light ones, so two heavy VMs are not booting side by side where avoidable.
+HEAVY = ("h13-afro", "m16p-dreadlocks2", "m3-goldilocks")
+
+
+def interleave(items, heavy=HEAVY):
+    """items (each (target, fw)) with the heavy targets and the light ones alternating, heavy first,
+    each kind in its own order; the rest of the longer kind at the end."""
+    h = [i for i in items if i[0] in heavy]
+    l = [i for i in items if i[0] not in heavy]
+    out = []
+    while h or l:
+        for q in (h, l):
+            if q:
+                out.append(q.pop(0))
+    return out
+
+
+def host_capacity(h):
+    """(CPUs, MemAvailable kB) of the VM host h (this machine without a host, the VM host over ssh)."""
+    if not h.host:
+        return os.cpu_count() or 1, meminfo_kb()
+    rc, out = h.run("nproc; grep MemAvailable /proc/meminfo", 30)
+    f = out.split()
+    if rc or len(f) < 3 or not f[0].isdigit() or not f[2].isdigit():
+        raise RuntimeError(f"cannot read the VM host's CPUs and MemAvailable: {out.strip()}")
+    return int(f[0]), int(f[2])
+
+
+def parse(argv, found=None, env=None):
+    """(args, [(target, fw)]); found: find_firmwares() (default: the real firmware directories)."""
+    a = parser().parse_args(argv)
+    a.target = [x for p in a.target for x in p.split(",") if x]
+    if a.timeout <= 0 or a.settle < 0:
+        raise Usage("--timeout must be positive, --settle not negative")
+    if a.viewer and a.headless:
+        raise Usage("--viewer needs a graphics run (no --headless)")
+    a.run = a.run or time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    # The run name becomes a path in VM-host shell commands and in the rsync source.
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", a.run):
+        raise Usage(f"bad run name {a.run}")
+    env = os.environ if env is None else env
+    if a.local and a.host:
+        raise Usage("--host and --local exclude each other")
+    a.host = None if a.local else a.host or env.get("REGRESS_HOST")
+    if not a.local and not a.host:
+        raise Usage(
+            "no VM host: give --host HOST (or set REGRESS_HOST) for a run over ssh, or --local to boot on this machine"
+        )
+    a.dest = env.get("DEST") or "beanjar"
+    a.sync = env.get("REGRESS_SYNC") or ""
+    a.mode = "headless" if a.headless else "graphics"
+    a.vm_env = {k: env.get(k) or v for k, v in DEFAULTS[a.mode].items()}
+    if env.get("NET"):
+        raise Usage(
+            "NET is replaced by NET_LINK (nat, off) and NET_MODE (mitm, direct): docs/dev/architecture/network.md"
+        )
+    if a.tv:
+        if any(env.get(k, v) != v for k, v in TV_NET.items()):
+            raise Usage(
+                "--tv needs NET_LINK=nat NET_MODE=direct: the network step's server is the VM host, slirp's 10.0.2.2"
+            )
+        a.vm_env.update(TV_NET)
+        if not a.headless and not env.get("LAYERS"):
+            a.vm_env["LAYERS"] = TV_LAYERS
+    lane = [s for s in tvsuite.STEPS if s in TV_STEPS[a.mode]]
+    a.tv_steps = [x for x in (a.tv_steps or ",".join(lane)).split(",") if x]
+    cases = [c for c, *_ in tvsuite.DECODE_CASES]
+    a.decode_cases = [x for x in (a.decode_cases or ",".join(cases)).split(",") if x]
+    if [x for x in a.decode_cases if x not in cases]:
+        raise Usage(f"--decode-cases: one of {', '.join(cases)}")
+    bad = [x for x in a.tv_steps if x not in lane]
+    if bad:
+        raise Usage(
+            f"--tv-steps: {', '.join(bad)} not a step of the {a.mode} TV suite ({', '.join(lane)})"
+        )
+    # every target in an instance of its own (a development VM is bound to its firmware: the default
+    # instance cannot take the next target's); --local --headless JOBS at once, graphics one at a time
+    if a.jobs is not None and not a.headless:
+        raise Usage("-j/--jobs needs --headless (graphics runs one VM at a time)")
+    if a.jobs is not None and a.jobs < 1:
+        raise Usage("-j must be at least 1")
+    a.jobs = (JOBS if a.local else PI_JOBS) if a.jobs is None else a.jobs
+    if not a.headless:
+        a.jobs = 1
+    a.instances = True
+    a.vm_env.update(INSTANCE_DEFAULTS)
+    a.vm_env.update({k: env[k] for k in PASSTHROUGH if env.get(k)})
+    # the deadlines are for hangs, not for the guest's speed: TCG's factor, as the launcher's for bootd
+    a.accel = a.vm_env.get("ACCEL") or (qemu.default_accel() if a.local else "kvm")
+    a.scale = qemu.time_scale(a.accel)
+    a.timeout *= a.scale
+    return a, select(a.target, a.fw, find_firmwares(firmware_dirs()) if found is None else found)
+
+
+class Instance:
+    """Where one VM's runtime files are, as `host/scripts/vm-launcher` finds them: the default instance (build/,
+    beanjar-vm-regress-default; iid None) or INSTANCE=<iid>'s (launch.instance_env), relative to the VM host's
+    checkout. env: what each command of this VM gets in its environment. Each instance is a VM with
+    a slot of its own: its ports are on its own address (`host/scripts/vm-launcher config ADDRESS`)."""
+
+    def __init__(self, iid=None):
+        self.iid = iid
+        if iid is None:
+            self.run_dir = self.log_dir = "build"
+            self.unit = regress_unit(None)
+            self.env = dict(RUN_DIR="build", LOG_DIR="build", UNIT=self.unit)
+        else:
+            d = os.path.join(TOP, "build", "instances", iid)
+            e = launch.instance_env(
+                dict(INSTANCE=iid, RUN_DIR=d, LOG_DIR=d, UNIT=regress_unit(iid))
+            )
+            rel = lambda p: os.path.relpath(p, TOP)  # noqa: E731
+            self.run_dir, self.log_dir, self.unit = rel(e["RUN_DIR"]), rel(e["LOG_DIR"]), e["UNIT"]
+            # INSTANCE for host/scripts/vm-launcher, its paths for the tests' own tools (standby.py, ir-key.py: RUN_DIR)
+            self.env = {k: e[k] for k in ("INSTANCE", "RUN_DIR", "LOG_DIR", "UNIT")}
+        self.guest_out = (
+            f"{self.run_dir}/share/out/regress"  # RUN_DIR/share/out: the guest's /host/out
+        )
+        # what this instance may leave running, as a command for the VM host (Host.run, where its
+        # checkout's RUN_DIR is in the environment): processes whose command line names RUN_DIR (QEMU's
+        # pidfile, the console bridge; NET_MODE=mitm's helpers run inside its unit), its unit if still up.
+        # The shell's own command line has "$RUN_DIR" unexpanded, and only builtins see the expansion.
+        self.orphans = (
+            ORPHANS
+            if iid is None
+            else (
+                "m=\"$RUN_DIR/\"; for f in /proc/[0-9]*/cmdline; do c=$(tr '\\0' ' ' 2>/dev/null < \"$f\") || continue; "
+                'case "$c" in *"$m"*) p=${f#/proc/}; echo "${p%/cmdline} $c";; esac; done; '
+                f"s=$(systemctl --user is-active {self.unit}.service 2>/dev/null); "
+                f'case "$s" in active|activating|deactivating|reloading) echo "{self.unit}.service $s";; esac; true'
+            )
+        )
+
+
+class Host:
+    """Shell commands on the VM host (in its checkout), or here with --local; printed in dry runs.
+    inst: the VM's Instance (its INSTANCE in every command's environment)."""
+
+    def __init__(self, host, dest, dry, inst=None):
+        self.host, self.dest, self.dry = host, dest, dry
+        self.inst = inst or Instance()
+
+    def argv(self, cmd):
+        prefix = "".join(f"{k}={shlex.quote(v)} " for k, v in self.inst.env.items())
+        if self.host:
+            # the VM host's checkout is elsewhere than this one: its paths, from where the command starts
+            rel = {"RUN_DIR": self.inst.run_dir, "LOG_DIR": self.inst.log_dir}
+            prefix = "".join(
+                f'{k}="$PWD"/{shlex.quote(rel[k])} ' if k in rel else f"{k}={shlex.quote(v)} "
+                for k, v in self.inst.env.items()
+            )
+            return [
+                "ssh",
+                self.host,
+                f"cd {shlex.quote(self.dest)} && {'export ' + prefix + '&& ' if prefix else ''}{cmd}",
+            ]
+        return ["sh", "-c", cmd]
+
+    def run(self, cmd, timeout):
+        """(exit status, output); 124 when timeout passes (the command killed)."""
+        where = self.host or "local"
+        if self.inst.iid:
+            where += f" {self.inst.iid}"
+        if self.dry:
+            say_raw(f"  [{where}] {cmd}")
+            return 0, ""
+        try:
+            r = subprocess.run(
+                self.argv(cmd),
+                cwd=TOP,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=timeout,
+                env=dict(os.environ, **self.inst.env) if not self.host else None,
+            )
+        except subprocess.TimeoutExpired as e:
+            out = e.output or b""
+            return 124, out.decode(errors="replace")
+        return r.returncode, r.stdout.decode(errors="replace")
+
+
+def local(cmd, dry, env=None):
+    """A command here (build, sync, copy back); its exit status."""
+    shown = " ".join(f"{k}={shlex.quote(v)}" for k, v in (env or {}).items())
+    print(f"  [here] {(shown + ' ') if shown else ''}{shlex.join(cmd)}", flush=True)
+    if dry:
+        return 0
+    return subprocess.run(
+        cmd, cwd=TOP, env=dict(os.environ, **(env or {})), stdin=subprocess.DEVNULL
+    ).returncode
+
+
+class Result:
+    def __init__(self, target, fw, mode="graphics", tv=False):
+        self.target, self.fw, self.mode, self.tv = target, fw, mode, tv
+        self.steps = {s: "-" for s in (TV_STEPS if tv else STEPS)[mode]}
+        self.items = {}  # --tv: {step: [(check, PASS/FAIL/SKIP, reason)]}
+        self.boot_done = "-"  # graphics: boot-done; headless: core-boot-done (tv-ready)
+        self.tvservice = ""  # headless: tvservice's pids at ready (guest.sh's comma-joined set)
+        self.shot = "-"
+        self.window = ("", "")
+        self.orphans = ""
+        self.text = ""  # the last guest step's output
+        self.skipped = ""  # why the target was not run (graphics: no gl layer)
+        self.failed = ""  # why the target failed without booting (its firmware not on the VM host)
+        self.checklist = []  # [(item, PASS/WARN/FAIL, reason)]: tests/regress/lib/checklist.py
+        self.standby = "-"  # the standby step's numbers, or why it was skipped
+        self.seconds = None  # the target's whole run, start to stopped
+        self.instance = None  # its INSTANCE (every target runs in one of its own)
+        self.identity = {}  # the started VM's MAC, SERIAL and IDENTITY (vm_identity)
+        self.device_census = None  # evidence status only; never a hardware coverage verdict
+
+    @property
+    def ok(self):
+        # a checklist WARN does not fail the target; its FAIL does; no Quick Start+ skips standby
+        return (
+            bool(self.skipped)
+            or all(v in ("PASS", "WARN", "SKIP", "dry", "not run") for v in self.steps.values())
+            and not self.orphans
+        )
+
+    def row(self):
+        if self.tv:
+            return (
+                [self.target, self.mode, self.boot_done]
+                + [
+                    tvsuite.short(self.items[s]) if self.items.get(s) else self.steps.get(s, "-")
+                    for s in tvsuite.STEPS
+                ]
+                + [
+                    f"{self.window[0]}-{self.window[1]}",
+                    "-" if self.seconds is None else f"{self.seconds:.0f} s",
+                    "SKIP" if self.skipped else "PASS" if self.ok else "FAIL",
+                ]
+            )
+        last = self.shot if self.mode == "graphics" else self.steps["tvservice"]
+        cl = checklist.short(self.checklist) if self.checklist else self.steps["checklist"]
+        return [
+            self.target,
+            self.mode,
+            self.boot_done,
+            self.steps["check-m1"],
+            self.steps["app-calls"],
+            cl,
+            self.steps["ssh"],
+            last,
+            self.standby if self.steps["standby"] in ("PASS", "SKIP") else self.steps["standby"],
+            self.steps["capture"],
+            f"{self.window[0]}-{self.window[1]}",
+            "-" if self.seconds is None else f"{self.seconds:.0f} s",
+            "SKIP" if self.skipped else "PASS" if self.ok else "FAIL",
+        ]
+
+
+def table(results, mode="graphics", tv=False):
+    """The summary: a row per target, then each target's checklist items that are not PASS (--tv: the
+    suite's checks that are not PASS)."""
+    if tv:
+        head = [
+            "target",
+            "mode",
+            "core-boot-done" if mode == "headless" else "boot-done",
+            *tvsuite.STEPS,
+            "run window (UTC)",
+            "total",
+            "result",
+        ]
+    elif mode == "headless":
+        head = [
+            "target",
+            "mode",
+            "core-boot-done",
+            "check-m1",
+            "app-calls",
+            "checklist",
+            "ssh",
+            "tvservice",
+            "standby",
+            "capture",
+            "run window (UTC)",
+            "total",
+            "result",
+        ]
+    else:
+        head = [
+            "target",
+            "mode",
+            "boot-done",
+            "check-m1",
+            "app-calls",
+            "checklist",
+            "ssh",
+            "screenshot",
+            "standby",
+            "capture",
+            "run window (UTC)",
+            "total",
+            "result",
+        ]
+    rows = [head] + [r.row() for r in results]
+    w = [max(len(row[i]) for row in rows) for i in range(len(head))]
+    out = ["  ".join(c.ljust(w[i]) for i, c in enumerate(row)).rstrip() for row in rows]
+    notes = [
+        f"  {r.target}: {s} {item}: {why}"
+        for r in results
+        for item, s, why in r.checklist
+        if s != "PASS"
+    ]
+    if notes:
+        out += ["", "checklist (not PASS):"] + notes
+    fails = [
+        f"  {r.target}: {s} {step} {item}: {why}"
+        for r in results
+        for step, items in r.items.items()
+        for item, s, why in items
+        if s == "FAIL"
+    ]
+    if fails:
+        out += ["", "TV suite (FAIL):"] + fails
+    unrun = [f"  {r.target}: {r.failed}" for r in results if r.failed]
+    if unrun:
+        out += ["", "not run:"] + unrun
+    return "\n".join(out)
+
+
+def now():
+    return time.strftime("%H:%M:%S", time.gmtime())
+
+
+def guest_step(h, a, r, step, arg, out):
+    """Type tests/regress/guest.sh STEP on the console (in the background), wait for its .rc, copy
+    its output into the target's directory; the step's exit status (124: timed out)."""
+    gout = h.inst.guest_out
+    line = f"TIME_SCALE={a.scale} sh /host/tests/regress/guest.sh {step} {arg} </dev/null >/dev/null 2>&1 &".replace(
+        "  ", " "
+    )
+    # a step that runs twice (home-idle, before each screenshot) must not find its last .rc
+    rc, text = h.run(
+        f"rm -f {gout}/{step}.rc && host/scripts/vm-launcher console {shlex.quote(line)} 1 >/dev/null",
+        60,
+    )
+    if rc:
+        return rc
+    f = f"{gout}/{step}.rc"
+    wait = a.timeout + 20 * a.scale  # the boot step's own limit is TIMEOUT
+    rc, _ = h.run(f"timeout {wait} sh -c 'until [ -f {f} ]; do sleep 2; done'", wait + 30)
+    if rc:
+        h.run(f"cp {gout}/{step}.txt {out}/ 2>/dev/null; true", 30)
+        return 124
+    r.text = ""
+    rc, text = h.run(
+        f"cp {gout}/{step}.txt {gout}/{step}.rc {out}/ && cat {f} {gout}/{step}.txt", 30
+    )
+    if a.dry_run:
+        return 0
+    lines = text.splitlines()
+    try:
+        status = int(lines[0])
+    except (IndexError, ValueError):
+        return rc or 1
+    r.text = "\n".join(lines[1:])
+    return status
+
+
+VIEWER_PID = "regress-viewer.pid"
+
+
+CAPTURE_CTL = "regress-capture.ctl"  # in the run dir: the decode viewer's capture switch
+VIEWER_WAV = (
+    "host/viewer-media.wav"  # in the target's dir: the viewer's media audio, sliced per case
+)
+
+
+def viewer_args(h, out):
+    """What the run's viewer (the --viewer window, or the decode step's headless one) is given: the
+    VM's display without its audio (the recording is QEMU's wavcapture) and without the remote
+    (ir.sock takes one client, ir-key.py: a path that does not exist); the media decoded and drawn,
+    its audio recorded (out/VIEWER_WAV), never played; captures (480x270, one a second) while the
+    run dir's CAPTURE_CTL names where (tv_decode)."""
+    return (
+        f"unix:path=$PWD/{h.inst.run_dir}/dbus.sock --no-audio --media-silent --media-wav {out}/{VIEWER_WAV} "
+        f"--capture-control $PWD/{h.inst.run_dir}/{CAPTURE_CTL} "
+        f"--ir-socket $PWD/{h.inst.run_dir}/regress-viewer-no-ir.sock"
+    )
+
+
+def viewer(h, out, start, headless=False):
+    """--viewer: the VM's D-Bus display in build/viewer/beanjar-viewer on the VM host's desktop (its
+    Wayland socket in XDG_RUNTIME_DIR, else X :0), from QEMU's start to the stop, one window for the
+    whole run; with headless, the decode step's own viewer when there is no window. viewer_args says
+    what it is given; with the media hub (host/helpers/media-helper) it may come and go at any time. Or that
+    viewer closed (TERM: its exit reports, then KILL). Its output goes to out/host/viewer.log."""
+    pid = f"{h.inst.run_dir}/{VIEWER_PID}"
+    if start:
+        if headless:
+            env, size = "", "--headless --size 960x540 --screenshot-every 1000"
+        else:
+            env = (
+                f"rt=${{XDG_RUNTIME_DIR:-/run/user/$(id -u)}}; w=$(cd $rt 2>/dev/null && ls -d wayland-[0-9]* "
+                f"2>/dev/null | grep -v lock | head -n 1); XDG_RUNTIME_DIR=$rt WAYLAND_DISPLAY=$w DISPLAY=${{DISPLAY:-:0}} "
+                f"DBUS_SESSION_BUS_ADDRESS=unix:path=$rt/bus "
+            )
+            size = "--size 1280x720 --capture-every 1000"
+        rc, _ = h.run(
+            f"mkdir -p {out}/host && rm -f {h.inst.run_dir}/{CAPTURE_CTL} {out}/{VIEWER_WAV} && "
+            f"{{ {env}setsid build/viewer/beanjar-viewer {viewer_args(h, out)} {size} "
+            f"</dev/null >>{out}/host/viewer.log 2>&1 & echo $! > {pid}; }}",
+            30,
+        )  # $!: the viewer
+        if rc:
+            say(f"{out}: the viewer did not start (rc {rc})")
+        return
+    h.run(
+        f"if [ -f {pid} ]; then p=$(cat {pid}); kill $p 2>/dev/null; i=0; "
+        f"while kill -0 $p 2>/dev/null && [ $i -lt 20 ]; do sleep 0.5; i=$((i + 1)); done; "
+        f"kill -9 $p 2>/dev/null; rm -f {pid}; fi; "
+        # by its command line too: the pid file's process may not be the viewer's own
+        f'pkill -f "[b]eanjar-viewer unix:path=$PWD/{h.inst.run_dir}/dbus.sock "; true',
+        30,
+    )
+
+
+def target_of(name):
+    return targets.by_name(name)
+
+
+def checklist_args(target, fw):
+    """(the guest step's argument, the broadcast standard) of the checklist: the offset of the release's
+    Last_Input_info DB in the EEPROM (0: the table has none), and the broadcast standard of the firmware's paks
+    (its directory here, else the release's pak names)."""
+    p = target_of(target)
+    off = targets.release(p).nvm.lastinput_offset
+    fw_dir = next(
+        (os.path.join(d, fw) for d in firmware_dirs() if os.path.isdir(os.path.join(d, fw))), None
+    )
+    return (hex(off) if off else "0"), checklist.broadcast_of_firmware(
+        fw_dir, targets.pak_files(p, fw_dir)
+    )
+
+
+def home_shot(h, a, r, out, png, name):
+    """HOME once no Home launcher shows by itself, SETTLE s, the screen to png; the exit status."""
+    guest_step(h, a, r, "home-idle", 60 * a.scale, out)  # not a step of its own: its text is kept
+    # a Home that stays up by itself (webOS 4.5, "HOMESHOWN"): HOME hides it, a second shows it
+    home = "python3 tests/regress/ir-key.py && "
+    if "HOMESHOWN" in r.text:
+        home += f"sleep {a.settle} && " + home
+    rc, _ = h.run(
+        f"{{ {home}sleep {a.settle} && "
+        f"timeout {a.timeout} python3 tests/regress/virgl/dbus-grab.py {png} 3; }} > {out}/{name}.txt 2>&1 "
+        f"&& test -s {png}",
+        a.timeout + a.settle + 30,
+    )
+    return rc
+
+
+def standby(h, a, r, out, rel, target):
+    """The standby step (Quick Start+): r.steps["standby"], and r.standby its numbers: the seconds
+    from POWER to the standby, QEMU's CPU in it, the seconds from the power key to the wake (host)
+    and from the wake line to tvpowerd's Active (guest)."""
+    say(f"{target}: standby")
+    verdict = "dry" if a.dry_run else "FAIL"
+    rc = guest_step(h, a, r, "standby-prep", "", out)
+    if a.dry_run:
+        r.steps["standby"] = "dry"
+    elif rc == 0 and "STANDBY SKIP" in r.text:
+        r.steps["standby"], r.standby = "SKIP", "SKIP"
+        say(f"{target}:   {r.text.strip()}")
+        return
+    m = re.search(r"STANDBY READY (\S+) (\S+)", r.text)
+    if not a.dry_run and (rc or not m):
+        r.steps["standby"] = "TIMEOUT" if rc == 124 else "FAIL"
+        return
+    pids, tvpowerd = m.groups() if m else ("dry", "dry")
+    early = a.headless and os.environ.get("STANDBY_KEY_EARLY")
+    if early:
+        # test hook (docs/dev/guides/build.md): the power key the moment the standby shows, before the s2idle,
+        # which the micom latches; standby.py is started before the power-off, and runs on its own
+        h.run(
+            f"setsid nohup python3 tests/regress/standby.py wake-early {60 * a.scale} "
+            f"> {out}/standby-wake.txt 2>&1 < /dev/null &",
+            30,
+        )
+    if a.headless:
+        rc = guest_step(h, a, r, "power-off", "", out)
+    else:
+        rc, _ = h.run(f"python3 tests/regress/ir-key.py 0x08 > {out}/standby-key.txt 2>&1", 60)
+    numbers = {}
+    steps = (
+        (("wake-wait", 60 * a.scale, "WOKEN"),)
+        if early
+        else (("wait", 60 * a.scale, "STANDBY"), ("cpu", 5, "CPU"), ("wake", 60 * a.scale, "WOKEN"))
+    )
+    for what, arg, mark in steps:
+        if what == "wake-wait":
+            rc, text = h.run(
+                f"for i in $(seq {arg}); do grep -qE 'WOKEN|still|no standby' {out}/standby-wake.txt && break; sleep 1; done; "
+                f"cat {out}/standby-wake.txt",
+                arg + 30,
+            )
+            found = re.search(rf"^{mark} ([0-9.]+)", text, re.M)
+            if not a.dry_run and (rc or not found):
+                say(f"{target}:   standby.py wake-early: {text.strip() or rc}")
+                r.steps["standby"] = verdict
+                return
+            numbers["wait"], numbers["cpu"], numbers["wake"] = (
+                0.0,
+                0.0,
+                float(found.group(1)) if found else 0.0,
+            )
+            continue
+        settle = f"sleep {STANDBY_SETTLE}; " if what == "cpu" else ""
+        rc, text = h.run(
+            f"{settle}python3 tests/regress/standby.py {what} {arg} > {out}/standby-{what}.txt 2>&1; "
+            f"s=$?; cat {out}/standby-{what}.txt; exit $s",
+            arg + STANDBY_SETTLE + 30,
+        )
+        found = re.search(rf"^{mark} ([0-9.]+)", text, re.M)
+        if not a.dry_run and (rc or not found):
+            say(f"{target}:   standby.py {what}: {text.strip() or rc}")
+            r.steps["standby"] = verdict
+            return
+        numbers[what] = float(found.group(1)) if found else 0.0
+    rc = guest_step(h, a, r, "resumed", f"{pids} {tvpowerd} {30 * a.scale}", out)
+    found = re.search(r"^RESUMED (\S+)", r.text, re.M)
+    if not a.dry_run and (rc or not found):
+        r.steps["standby"] = "TIMEOUT" if rc == 124 else "FAIL"
+        return
+    r.standby = (
+        f"{numbers['wait']:.1f}s cpu{numbers['cpu']:.0f}% wake{numbers['wake']:.1f}s "
+        f"active{found.group(1) if found else '?'}s"
+    )
+    say(
+        f"{target}:   standby {numbers['wait']:.1f} s after POWER, QEMU {numbers['cpu']:.1f} % CPU in it, "
+        f"woken {numbers['wake']:.2f} s after the power key, Active {found.group(1) if found else '?'} s "
+        f"after the wake line"
+    )
+    if not a.dry_run and numbers["cpu"] > STANDBY_CPU:
+        say(f"{target}:   QEMU used {numbers['cpu']:.1f} % CPU in standby (at most {STANDBY_CPU})")
+        r.steps["standby"] = "FAIL"
+        return
+    if not a.headless:
+        # the last app is back (Live TV, black without a signal): HOME shows the UI drawn again,
+        # once that app is in front (W18R: a HOME 3.5 s after the resume stayed hidden, one 15 s
+        # after it showed)
+        h.run(f"sleep {RESUME_SETTLE}", RESUME_SETTLE + 30)
+        rc = home_shot(h, a, r, out, f"{rel}/{target}-resume.png", "shot-resume")
+        if rc and not a.dry_run:
+            r.steps["standby"] = "FAIL"
+            return
+    r.steps["standby"] = "dry" if a.dry_run else "PASS"
+
+
+def meminfo(h, out, when):
+    """The VM host's free -m and /proc/meminfo into the target's host/meminfo-<when>.txt."""
+    h.run(
+        f"{{ date -u +%FT%TZ; free -m; cat /proc/meminfo; }} > {out}/host/meminfo-{when}.txt 2>&1; true",
+        30,
+    )
+
+
+def tv_suite(h, a, r, out, target, fw):
+    """--tv: the luna-info and network steps (tests/regress/tv.sh gathers, tvsuite.py judges)."""
+    ident = {k: v for k, v in r.identity.items() if k in ("MAC", "SERIAL")}
+    ctx = tvsuite.context(target, fw, dict(a.vm_env, **ident))
+    for step in tvsuite.STEPS:
+        if step in r.steps and step not in a.tv_steps:
+            r.steps[step] = "not run"
+    if "luna-info" in a.tv_steps:
+        tv_luna(h, a, r, out, target, ctx)
+    if "network" in a.tv_steps:
+        tv_network(h, a, r, out, target, ctx)
+    state = dict(installed=False)
+    if "apps" in a.tv_steps:
+        tv_apps(h, a, r, out, target, ctx, state)
+    if "tee" in a.tv_steps:
+        tv_tee(h, a, r, out, target, ctx)
+    if "draw" in a.tv_steps:
+        tv_draw(h, a, r, out, target, state)
+    if "audio" in a.tv_steps:
+        tv_audio(h, a, r, out, target, ctx, state)
+    if "decode" in a.tv_steps:
+        tv_decode(h, a, r, out, target, ctx, state)
+    if "smp" in a.tv_steps:
+        tv_smp(h, a, r, out, target, ctx)
+    if state["installed"]:
+        say(f"{target}: remove the test app")
+        step = next(
+            s for s in ("decode", "audio", "draw", "apps") if s in a.tv_steps and s in r.steps
+        )
+        gstep(h, a, r, out, "app-remove", tvsuite.TEST_APP, save="apps/testapp.remove")
+        if not a.dry_run:
+            r.items.setdefault(step, []).append(tvsuite.judge_remove(r.text))
+            r.steps[step] = tvsuite.verdict(r.items[step])
+    for step in tvsuite.STEPS:
+        for item, s, why in r.items.get(step, []):
+            if s != "PASS":
+                say(f"{target}:   {s} {step} {item}: {why}")
+        if r.items.get(step):
+            say(f"{target}:   {step}: {tvsuite.counts(r.items[step])}")
+
+
+def tv_luna(h, a, r, out, target, ctx):
+    say(f"{target}: luna-info")
+    rc = guest_step(h, a, r, "luna-info", "", out)
+    if a.dry_run or rc == 124:
+        r.steps["luna-info"] = "dry" if a.dry_run else "TIMEOUT"
+    else:
+        r.items["luna-info"] = tvsuite.judge_luna(r.text, ctx)
+        r.steps["luna-info"] = tvsuite.verdict(r.items["luna-info"])
+
+
+def tv_network(h, a, r, out, target, ctx):
+    say(f"{target}: network")
+    # the server on the VM host's loopback, slirp's 10.0.2.2, for the step only (its own timeout
+    # ends it in any case); the host's own view of the name and of connman's online check
+    token = os.urandom(8).hex()
+    life = int(a.timeout + 60 * a.scale)
+    portfile, pidfile = f"{out}/http-port", f"{out}/http-server.pid"
+    rc, port = h.run(
+        f"rm -f {portfile} && {{ setsid timeout {life} python3 tests/regress/http-token.py {portfile} "
+        f"{token} {life} > {out}/http-server.txt 2>&1 < /dev/null & echo $! > {pidfile}; }} && "
+        f"for i in $(seq 100); do [ -s {portfile} ] && break; sleep 0.1; done; cat {portfile}",
+        60,
+    )
+    port = port.strip()
+    url = ctx["expect"].get("online", {}).get("url") or "http://lgtvonline.lge.com/"
+    _, host_facts = h.run(
+        tvsuite.HOST_PROBE.format(
+            name=tvsuite.DNS_NAME,
+            url=shlex.quote(url),
+            host=shlex.quote(re.sub(r"^\w+://|[:/].*$", "", url)),
+        ),
+        60,
+    )
+    h.run(f"printf '%s\\n' {shlex.quote(host_facts)} > {out}/network-host.txt", 30)
+    if not a.dry_run and (rc or not port.isdigit()):
+        r.steps["network"] = "FAIL"
+        r.items["network"] = [
+            ("http-server", "FAIL", f"the host's server did not start: {port or rc}")
+        ]
+    else:
+        url = f"http://{tvsuite.SLIRP_HOST}:{port or 0}/{token}"
+        rc = guest_step(h, a, r, "network", f"{url} {tvsuite.DNS_NAME}", out)
+        _, served = h.run(f"cat {out}/http-server.txt", 30)
+        if a.dry_run or rc == 124:
+            r.steps["network"] = "dry" if a.dry_run else "TIMEOUT"
+        else:
+            r.items["network"] = tvsuite.judge_network(
+                r.text, ctx, token=token, served=served, host=host_facts
+            )
+            r.steps["network"] = tvsuite.verdict(r.items["network"])
+    h.run(f"[ -s {pidfile} ] && kill $(cat {pidfile}) 2>/dev/null; true", 30)
+
+
+def tv_tee(h, a, r, out, target, ctx):
+    """--tv tee: the TEE through the firmware's own client (tv.sh tee, tests/regress/tee/tee-probe), judged
+    against the VM's own identity/tee-huk (tvsuite.judge_tee); SKIP where the firmware has no
+    client."""
+    say(f"{target}: tee")
+    plan = tvsuite.tee_plan(ctx["expect"], target)
+    if plan is None or a.dry_run:
+        r.items["tee"] = tvsuite.judge_tee("", ctx["expect"])
+        r.steps["tee"] = "dry" if a.dry_run else tvsuite.verdict(r.items["tee"])
+        return
+    lib, tas = plan
+    gstep(h, a, r, out, "tee", lib, tvsuite.SSTORE_UUID, *tas)
+    ident = r.identity.get("IDENTITY") or a.vm_env.get("IDENTITY_DIR", "local")
+    _, huk = h.run(f"cat {shlex.quote(ident)}/tee-huk 2>/dev/null", 30)
+    r.items["tee"] = tvsuite.judge_tee(r.text, ctx["expect"], huk.strip() or None)
+    r.steps["tee"] = tvsuite.verdict(r.items["tee"])
+
+
+def sizes(*paths):
+    """Shell printing each file's size, 0 for one not there yet, so the marks stay in place
+    (a bare `stat` skips a missing file and shifts the rest)."""
+    return "; ".join(f"stat -c %s {p} 2>/dev/null || echo 0" for p in paths)
+
+
+def gstep(h, a, r, out, step, *args, save=None):
+    """guest_step with its arguments quoted for the guest's shell; its output also kept as
+    out/SAVE.txt. r.text is the output ("" when the step failed)."""
+    rc = guest_step(h, a, r, step, " ".join(shlex.quote(str(x)) for x in args), out)
+    if rc:
+        r.text = ""
+    if save:
+        h.run(f"cp {out}/{step}.txt {out}/{save}.txt 2>/dev/null; true", 30)
+    return rc
+
+
+def keys(h, codes):
+    """The remote's buttons (ir-key.py, the micom's IR path)."""
+    h.run("python3 tests/regress/ir-key.py " + " ".join(hex(c) for c in codes), 60)
+
+
+def grab(h, a, png):
+    """The screen (dbus-grab.py) to png; image_facts of it, judged here."""
+    rc, text = h.run(
+        f"timeout {a.timeout} python3 tests/regress/virgl/dbus-grab.py {png} 3 > {png[:-4]}.grab.txt 2>&1 && "
+        f"python3 tests/regress/lib/tvsuite.py image {png}",
+        a.timeout + 60,
+    )
+    if a.dry_run:
+        return None
+    try:
+        return json.loads(text.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return dict(error=f"dbus-grab.py or the image facts failed ({rc}): {text.strip()[-160:]}")
+
+
+def tv_app(h, a, r, out, role, row, state, params="{}"):
+    """One app's launch, keys, screenshot and close (tests/regress/tv.sh app-*): its judge's item.
+    state["crashes"]: the crash reports the last app's facts ended with."""
+    lane, limit, app_id = a.mode, 40 * a.scale, row.get("id")
+    design = lane == "headless" and not (row.get("headless") or {}).get("runs", True)
+    png = f"{out}/apps/{role}.png"
+    img, after = None, ""
+
+    def judged(launch, after, close):
+        item = tvsuite.judge_app(
+            role, row, launch, after, close, img, lane, state.get("crashes"), r.target
+        )
+        last = tvsuite.parse(close or after or launch)
+        if "crashes" in last:
+            state["crashes"] = tvsuite.crashes(last)
+        return item
+
+    if row.get("kind") == "key":
+        # webOS 1 and 2's launcher, the compositor's: HOME shows it, HOME again hides it
+        keys(h, [tvsuite.HOME_KEY])
+        h.run(f"sleep {a.settle}", a.settle + 30)
+        gstep(h, a, r, out, "app-state", lane, save=f"apps/{role}.launch")
+        launch = r.text
+        keys(h, tvsuite.NAV_KEYS)
+        gstep(h, a, r, out, "app-state", lane, save=f"apps/{role}.keys")
+        after = r.text
+        img = grab(h, a, png)
+        keys(h, [tvsuite.HOME_KEY])
+        h.run(f"sleep {a.settle}", a.settle + 30)
+        gstep(h, a, r, out, "app-state", lane, save=f"apps/{role}.close")
+        return judged(launch, after, r.text)
+    if not app_id:
+        return tvsuite.judge_app(role, row, "", "", "", None, lane)
+    # an app that cannot stay up headless: launched, then a look after a pause, no wait for it
+    gstep(
+        h,
+        a,
+        r,
+        out,
+        "app-launch",
+        app_id,
+        params,
+        lane,
+        0 if design else limit,
+        *([row["eula"]["screen"]] if (row.get("eula") or {}).get("screen") else []),
+        save=f"apps/{role}.launch",
+    )
+    launch = r.text
+    if "present=no" in launch:
+        # sam does not know it (getAppInfo before the launch): nothing launched or to close
+        return judged(launch, "", "")
+    # LG's terms screen in the app's place (terms the set has not agreed to): it gets the keys and
+    # the close (tvsuite.terms_first)
+    app_id = tvsuite.terms_first(row, launch) or app_id
+    up = "front_wait=none" not in launch and "TV FACTS END" in launch
+    if up and lane == "graphics":
+        keys(h, tvsuite.NAV_KEYS)
+        h.run(f"sleep {a.settle}", a.settle + 30)
+        gstep(h, a, r, out, "app-state", lane, save=f"apps/{role}.keys")
+        after = r.text
+        img = grab(h, a, png)
+    elif up or design:
+        # an app that cannot run headless is looked at again until sam no longer lists it (up to 6
+        # times): one that ends by crashing stays listed while crashd writes its report, which
+        # under TCG with other VMs takes tens of seconds
+        for _ in range(6 if design else 1):
+            h.run(f"sleep {5 * a.scale}", 5 * a.scale + 30)
+            gstep(h, a, r, out, "app-state", lane, save=f"apps/{role}.keys")
+            after = r.text
+            if not tvsuite.running_entry(tvsuite.parse(after).get("running"), app_id):
+                break
+    gstep(h, a, r, out, "app-close", app_id, 20 * a.scale, lane, save=f"apps/{role}.close")
+    return judged(launch, after, r.text)
+
+
+def install(h, a, r, out, target, state):
+    """The test app's dev/install (once): its item."""
+    say(f"{target}: install the test app (dev/install)")
+    h.run(f"cp {TV_IPK.format(run=a.run)} {h.inst.guest_out}/tvsuite.ipk", 30)
+    gstep(
+        h,
+        a,
+        r,
+        out,
+        "app-install",
+        "/mnt/host/out/regress/tvsuite.ipk",
+        tvsuite.TEST_APP,
+        save="apps/testapp.install",
+    )
+    item = tvsuite.judge_install(r.text)
+    # remove it at the end whatever the answer: a half-done install may have left it
+    state["installed"] = True
+    state["ok"] = item[1] == "PASS"
+    return item
+
+
+def tv_apps(h, a, r, out, target, ctx, state):
+    """--tv apps: each stock app of the target (tv-expect.json's apps) launched, in front, the
+    remote's keys, still in front in the same process, its screenshot (graphics), closed;
+    graphics: our test app installed and the same. Headless: launched and running only."""
+    say(f"{target}: apps")
+    h.run(f"mkdir -p {out}/apps", 30)
+    run, items = tvsuite.app_plan(ctx["expect"], a.mode)
+    items = list(items)
+    for role, row in run:
+        say(f"{target}:   {role}: {row.get('id') or row.get('what')}")
+        items.append(tv_app(h, a, r, out, role, row, state))
+    if a.mode == "graphics":
+        items.append(install(h, a, r, out, target, state))
+        row = dict(present=True, id=tvsuite.TEST_APP, type="web", what="the test web app")
+        items.append(
+            tv_app(h, a, r, out, "testapp", row, state, '{"mode":"canvas"}')
+            if state["ok"]
+            else ("app.testapp", "FAIL", "not installed")
+        )
+    if a.dry_run:
+        r.steps["apps"] = "dry"
+        return
+    r.items["apps"] = items
+    r.steps["apps"] = tvsuite.verdict(items)
+
+
+def tv_draw(h, a, r, out, target, state):
+    """--tv draw: the test app's pattern with canvas 2D and with WebGL, on the screen where it puts
+    it (tvsuite.judge_draw)."""
+    say(f"{target}: draw")
+    h.run(f"mkdir -p {out}/apps", 30)
+    items = []
+    if not state["installed"]:
+        items.append(install(h, a, r, out, target, state))
+    for mode in tvsuite.pattern()["modes"]:
+        if not state.get("ok"):
+            items.append((f"draw.{mode}", "FAIL", "the test app is not installed"))
+            continue
+        gstep(
+            h,
+            a,
+            r,
+            out,
+            "app-launch",
+            tvsuite.TEST_APP,
+            json.dumps({"mode": mode}, separators=(",", ":")),
+            a.mode,
+            40 * a.scale,
+            save=f"apps/draw-{mode}.launch",
+        )
+        if "front_wait=none" in r.text or "TV FACTS END" not in r.text:
+            items.append(
+                (f"draw.{mode}", "FAIL", f"the test app is not in front: {r.text.strip()[-160:]}")
+            )
+        else:
+            h.run(f"sleep {a.settle}", a.settle + 30)
+            facts = tvsuite.parse(r.text)
+            item = tvsuite.judge_draw(mode, grab(h, a, f"{out}/apps/draw-{mode}.png"))
+            if item[1] == "FAIL" and facts.get("console"):
+                item = (item[0], item[1], f"{item[2]}; the page logged: {facts['console'][:200]}")
+            items.append(item)
+        gstep(
+            h,
+            a,
+            r,
+            out,
+            "app-close",
+            tvsuite.TEST_APP,
+            20 * a.scale,
+            a.mode,
+            save=f"apps/draw-{mode}.close",
+        )
+    if a.dry_run:
+        r.steps["draw"] = "dry"
+        return
+    r.items["draw"] = items
+    r.steps["draw"] = tvsuite.verdict(items)
+
+
+def record(h, a, wav, start):
+    """QEMU's WAV tap of the card (tests/regress/audio/capture.py) on or off; its exit status."""
+    rc, text = h.run(
+        f"python3 tests/regress/audio/capture.py start {wav}"
+        if start
+        else "python3 tests/regress/audio/capture.py stop",
+        60,
+    )
+    if rc:
+        say(f"  capture: {text.strip()[-200:]}")
+    return rc
+
+
+def tones(h, a, wav, freqs):
+    """tvsuite.tone_facts of a recording, computed on the VM host."""
+    rc, text = h.run(
+        f"python3 tests/regress/lib/tvsuite.py tones {wav} {','.join(map(str, freqs))}", 300
+    )
+    if a.dry_run:
+        return None
+    try:
+        return json.loads(text.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return dict(error=f"the tone facts failed ({rc}): {text.strip()[-160:]}")
+
+
+def tv_audio(h, a, r, out, target, ctx, state):
+    """--tv audio: tones through the firmware's own sound path to the card, recorded by QEMU on the
+    VM host (tests/regress/audio/capture.py) and judged by frequency and level (tvsuite.judge_audio): a
+    native client's (paplay into PulseAudio) at the set's volume, after volumeDown, muted, and
+    restored, with the Audio API's getVolume read back; graphics: the test app's WebAudio tone."""
+    say(f"{target}: audio")
+    row = ctx["expect"].get("audio") or {}
+    h.run(f"mkdir -p {out}/audio {h.inst.guest_out}/tones", 30)
+    freqs = [f for _, f in tvsuite.AUDIO_PHASES + tvsuite.ALSA_TONES]
+    for name, f in tvsuite.AUDIO_PHASES + tvsuite.ALSA_TONES:
+        h.run(
+            f"python3 tests/regress/audio/check-audio.py --make-tone {h.inst.guest_out}/tones/{name}.wav --freq {f} "
+            f"--seconds {tvsuite.AUDIO_SECONDS} --level {tvsuite.AUDIO_LEVEL} >/dev/null",
+            60,
+        )
+    facts, web = None, None
+    if row.get("api", {}).get("present", True):
+        wav = f"{out}/audio/volume.wav"
+        if record(h, a, wav, True) == 0:
+            svc = row.get("service", tvsuite.AUDIO_SERVICE)
+            hw = row.get("alsa_hw") or {}
+            gstep(
+                h,
+                a,
+                r,
+                out,
+                "audio",
+                "/mnt/host/out/regress/tones",
+                svc,
+                tvsuite.AUDIO_STEPS,
+                (row.get("readback") or {}).get("uri", svc + "/getVolume"),
+                hw.get("device") if hw.get("present") else "-",
+            )
+            text = r.text
+            record(h, a, wav, False)
+            facts = (text, tones(h, a, wav, freqs + [tvsuite.WEBAUDIO_HZ]))
+        else:
+            facts = ("", dict(error="QEMU's wavcapture did not start"))
+    if a.mode == "graphics":
+        if not state["installed"]:
+            install(h, a, r, out, target, state)
+        if state.get("ok"):
+            wav = f"{out}/audio/webaudio.wav"
+            record(h, a, wav, True)
+            params = json.dumps(
+                {"mode": "audio", "freq": tvsuite.WEBAUDIO_HZ, "seconds": tvsuite.AUDIO_SECONDS},
+                separators=(",", ":"),
+            )
+            gstep(
+                h,
+                a,
+                r,
+                out,
+                "app-launch",
+                tvsuite.TEST_APP,
+                params,
+                a.mode,
+                40 * a.scale,
+                save="audio/webaudio.launch",
+            )
+            launch = r.text
+            h.run(f"sleep {tvsuite.AUDIO_SECONDS + 3 * a.scale}", 60 * a.scale)
+            record(h, a, wav, False)
+            gstep(
+                h,
+                a,
+                r,
+                out,
+                "app-close",
+                tvsuite.TEST_APP,
+                20 * a.scale,
+                a.mode,
+                save="audio/webaudio.close",
+            )
+            web = (launch, tones(h, a, wav, freqs + [tvsuite.WEBAUDIO_HZ]))
+        else:
+            web = ("", dict(error="the test app is not installed"))
+    if a.dry_run:
+        r.steps["audio"] = "dry"
+        return
+    r.items["audio"] = tvsuite.judge_audio(facts, web, row, a.mode)
+    r.steps["audio"] = tvsuite.verdict(r.items["audio"])
+
+
+def tv_decode(h, a, r, out, target, ctx, state):
+    """--tv decode: the test app plays each case of tvsuite.DECODE_CASES the target's decode row
+    expects, with <video> or with its Media Source player, while the run's viewer (the --viewer
+    window, else one started for the step; the media hub serves it) decodes and records what the
+    guest's sinks send; each case gets its part of the viewer's log and audio and its captures
+    (decode/<case>/), judged on those and the page's events (tvsuite.judge_decode). Headless: SKIP."""
+    say(f"{target}: decode")
+    run, items = tvsuite.decode_plan(ctx["expect"].get("decode"), a.mode)
+    run = [x for x in run if x[0] in a.decode_cases]
+    items = [x for x in items if x[0][len("decode.") :] in a.decode_cases]
+    if run and not state["installed"]:
+        items.append(install(h, a, r, out, target, state))
+    if run and not a.viewer:
+        viewer(h, out, True, headless=True)  # the step's viewer; with --viewer the run's window
+    log, wav, ctl = (
+        f"{out}/host/viewer.log",
+        f"{out}/{VIEWER_WAV}",
+        f"{h.inst.run_dir}/{CAPTURE_CTL}",
+    )
+    helper_log = f"{h.inst.run_dir}/media-helper.out"
+    # the page's beacons (its log lines as GETs) to a server on the VM host, slirp's 10.0.2.2: not
+    # every firmware's WebAppMgr puts the app's console in PmLog
+    token = os.urandom(8).hex()
+    life = int(len(run) * 120 * a.scale + 60)
+    portfile, pidfile, served = (
+        f"{out}/decode/http-port",
+        f"{out}/decode/http-server.pid",
+        f"{out}/decode/http-server.txt",
+    )
+    port = ""
+    if run:
+        _, port = h.run(
+            f"mkdir -p {out}/decode && rm -f {portfile} && {{ setsid timeout {life} python3 "
+            f"tests/regress/http-token.py {portfile} {token} {life} > {served} 2>&1 < /dev/null & "
+            f"echo $! > {pidfile}; }} && for i in $(seq 100); do [ -s {portfile} ] && break; sleep 0.1; done; "
+            f"cat {portfile}",
+            60,
+        )
+        port = port.strip()
+    for case, path, vc, ac, exp in run:
+        say(f"{target}:   {case}")
+        d = f"{out}/decode/{case}"
+        if not state.get("ok"):
+            items.append((f"decode.{case}", "FAIL", "the test app is not installed"))
+            continue
+        # the case's part of the viewer's log and audio: their sizes now and after the close;
+        # its captures: CAPTURE_CTL names d while the case runs
+        _, marks = h.run(
+            f"rm -rf {d} && mkdir -p {d} && echo $PWD/{d}/shot.ppm > {ctl} && "
+            f"{{ {sizes(log, wav, helper_log)}; }}; true",
+            30,
+        )
+        h.run(f"sleep {2 * a.scale}", 30 * a.scale)
+        params = json.dumps(
+            {
+                "mode": "decode",
+                "case": case,
+                "seconds": tvsuite.DECODE_PAGE,
+                "log": f"http://{tvsuite.SLIRP_HOST}:{port or 0}/{token}/",
+            },
+            separators=(",", ":"),
+        )
+        gstep(
+            h,
+            a,
+            r,
+            out,
+            "app-launch",
+            tvsuite.TEST_APP,
+            params,
+            a.mode,
+            40 * a.scale,
+            save=f"decode/{case}.launch",
+        )
+        launch = r.text
+        page = ""
+        if "front_wait=none" in launch or "TV FACTS END" not in launch:
+            item = (
+                f"decode.{case}",
+                "FAIL",
+                f"the test app is not in front: {launch.strip()[-160:]}",
+            )
+        else:
+            # the page logs its end at "ended" (the clip's 8 s) or after DECODE_PAGE s
+            h.run(f"sleep {int(tvsuite.DECODE_CLIP + 4) * a.scale}", 60 * a.scale)
+            for _ in range(5):
+                _, beacons = h.run(f"cat {served}", 30)
+                lines = tvsuite.beacon_lines(beacons, token, case)
+                if any(ln.startswith("end ") for ln in lines):
+                    break
+                h.run(f"sleep {4 * a.scale}", 30 * a.scale)
+            gstep(h, a, r, out, "decode-log", case, save=f"decode/{case}.page")
+            # the beacons' lines where they came, else the console's from PmLog
+            page = (
+                r.text
+                if not lines
+                else "\n".join("page=" + ln for ln in lines)
+                + "\n"
+                + "\n".join(ln for ln in r.text.splitlines() if not ln.startswith("page="))
+            )
+            h.run(f"printf '%s\\n' {shlex.quote(page)} > {out}/decode/{case}.facts.txt", 30)
+            item = None
+        gstep(
+            h,
+            a,
+            r,
+            out,
+            "app-close",
+            tvsuite.TEST_APP,
+            20 * a.scale,
+            a.mode,
+            save=f"decode/{case}.close",
+        )
+        h.run(
+            f"sleep {2 * a.scale}; rm -f {ctl}", 30 * a.scale
+        )  # the close's reports, then no captures
+        start = (marks.split() + ["0", "0", "0"])[:3]
+        h.run(
+            f"python3 tests/regress/lib/tvsuite.py slice {log} {start[0]} {d}/viewer.log && "
+            f"python3 tests/regress/lib/tvsuite.py slice {wav} {start[1]} {d}/media.wav && "
+            f"python3 tests/regress/lib/tvsuite.py slice {helper_log} {start[2]} {d}/media-helper.log; true",
+            60,
+        )
+        if item is None and not a.dry_run:
+            rc, text = h.run(f"python3 tests/regress/lib/tvsuite.py media {d} --prune", 120)
+            try:
+                media = json.loads(text.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                media = dict(error=f"media facts failed ({rc}): {text.strip()[-160:]}")
+            before = sorted(tvsuite.crashes(tvsuite.parse(launch)))
+            item = tvsuite.judge_decode(
+                case, path, vc, ac, exp, tvsuite.page_facts(page), media, before
+            )
+        if item:
+            items.append(item)
+            say(f"{target}:     {item[1]} {item[2][:200]}")
+    if run:
+        h.run(
+            f"[ -s {pidfile} ] && kill $(cat {pidfile}) 2>/dev/null; rm -f {wav}; true", 30
+        )  # sliced
+    if run and not a.viewer:
+        viewer(h, out, False)
+    if a.dry_run:
+        r.steps["decode"] = "dry"
+        return
+    r.items["decode"] = items
+    r.steps["decode"] = tvsuite.verdict(items)
+
+
+def tv_smp(h, a, r, out, target, ctx):
+    """--tv smp: the SMP check app (tests/regress/smp) installed with dev/install, run by sam while the run's
+    viewer (the --viewer window, else a headless one) decodes what the sink sends; its lines and the
+    viewer's log judged (tvsuite.judge_smp); removed. Headless, or a firmware whose StarfishMediaAPIs
+    library lacks a symbol the app looks up (the expected table's smp row): SKIP."""
+    say(f"{target}: smp")
+    skip = (
+        [("smp.frameready", "SKIP", tvsuite.SMP_HEADLESS)]
+        if a.mode != "graphics"
+        else tvsuite.smp_plan(ctx["expect"])
+    )
+    if skip:
+        r.items["smp"] = skip
+        r.steps["smp"] = tvsuite.verdict(skip)
+        return
+    d = f"{out}/smp"
+    h.run(f"mkdir -p {d} && cp {SMP_IPK.format(run=a.run)} {h.inst.guest_out}/smpcheck.ipk", 30)
+    gstep(
+        h,
+        a,
+        r,
+        out,
+        "app-install",
+        "/mnt/host/out/regress/smpcheck.ipk",
+        tvsuite.SMP_APP,
+        save="smp/install",
+    )
+    items = [tvsuite.judge_install(r.text, tvsuite.SMP_APP)]
+    if items[0][1] == "PASS":
+        if not a.viewer:
+            viewer(h, out, True, headless=True)
+        log, ctl = f"{out}/host/viewer.log", f"{h.inst.run_dir}/{CAPTURE_CTL}"
+        helper_log = f"{h.inst.run_dir}/media-helper.out"
+        # the viewer's log from here on, and its captures while the app runs (one kept, to look at)
+        _, mark = h.run(f"echo $PWD/{d}/shot.ppm > {ctl} && {{ {sizes(log, helper_log)}; }}", 30)
+        gstep(h, a, r, out, "smp", tvsuite.SMP_APP, 60, save="smp/run")
+        text = r.text
+        h.run(f"sleep {2 * a.scale}; rm -f {ctl}", 30 * a.scale)
+        start = (mark.split() + ["0", "0"])[:2]
+        h.run(
+            f"python3 tests/regress/lib/tvsuite.py slice {log} {start[0]} {d}/viewer.log && "
+            f"python3 tests/regress/lib/tvsuite.py slice {helper_log} {start[1]} {d}/media-helper.log; true",
+            60,
+        )
+        if not a.viewer:
+            viewer(h, out, False)
+        media = {}
+        if not a.dry_run:
+            rc, ftext = h.run(f"python3 tests/regress/lib/tvsuite.py media {d} --prune", 120)
+            try:
+                media = json.loads(ftext.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                media = dict(error=f"media facts failed ({rc}): {ftext.strip()[-160:]}")
+            items.append(tvsuite.judge_smp(text, media))
+            say(f"{target}:     {items[-1][1]} {items[-1][2][:200]}")
+    gstep(h, a, r, out, "app-remove", tvsuite.SMP_APP, save="smp/remove")
+    if not a.dry_run:
+        items.append(tvsuite.judge_remove(r.text, tvsuite.SMP_APP))
+    r.items["smp"] = items
+    r.steps["smp"] = "dry" if a.dry_run else tvsuite.verdict(items)
+
+
+def vm_identity(h, a):
+    """The started VM's identity, as its launcher has it: {MAC, SERIAL, IDENTITY} (a development VM
+    has its own MAC, serial and identity directory, with its tee-huk); {} on a dry run."""
+    if a.dry_run:
+        return {}
+    _, text = h.run(
+        "for k in MAC SERIAL IDENTITY; do printf '%s=' $k; host/scripts/vm-launcher config $k; done",
+        60,
+    )
+    return {
+        k: v
+        for k, _, v in (x.partition("=") for x in text.splitlines())
+        if k in ("MAC", "SERIAL", "IDENTITY") and v
+    }
+
+
+def run_target(h, a, target, fw):
+    r = Result(target, fw, a.mode, a.tv)
+    r.window = (now(), "")
+    began = time.monotonic()
+    rel = f"build/regress/{a.run}"
+    out = f"{rel}/{target}"
+    net_off = a.vm_env.get("NET_LINK", "nat") == "off"
+    capture = f"{out}/net.pcap"
+    report = f"{out}/pcap-lg.txt"
+    if not net_off and "capture" in r.steps:
+        r.steps["capture"] = "SKIP"
+    env = " ".join(
+        f"{k}={shlex.quote(v)}" for k, v in start_env(a, fw, capture if net_off else "").items()
+    )
+    verdict = {0: "PASS", 124: "TIMEOUT"}
+    if a.dry_run:
+        verdict[0] = "dry"
+    try:
+        say(f"{target}: start ({fw})")
+        rc, _ = h.run(
+            f"mkdir -p {out}/host && "
+            + (f"rm -f {shlex.quote(capture)} {shlex.quote(report)} && " if net_off else "")
+            + f"rm -rf {h.inst.guest_out}",
+            30,
+        )
+        if rc:
+            r.steps["start"] = "FAIL"
+            return r
+        meminfo(h, out, "start")
+        rc, _ = h.run(
+            f"{env} timeout {a.timeout} host/scripts/vm-launcher start > {out}/start.txt 2>&1",
+            a.timeout + 30,
+        )
+        r.steps["start"] = verdict.get(rc, "FAIL")
+        if rc:
+            return r
+        r.identity = vm_identity(h, a)
+        if a.viewer:
+            viewer(h, out, True)
+        put = (
+            "tests/regress/tv.sh build/tests/tee"
+            if a.tv
+            else "tests/regress/tvservice/app-calls.sh"
+        )
+        rc, _ = h.run(f"host/scripts/vm-launcher put tests/regress/guest.sh {put} >/dev/null", 60)
+        if rc:
+            r.steps["boot"] = "FAIL"
+            return r
+        boot, mark = ("ready", "READY ") if a.headless else ("boot", "BOOTDONE ")
+        say(
+            f"{target}: waiting for {'core-boot-done from tv-ready' if a.headless else 'boot-done'} "
+            f"(up to {a.timeout} s)"
+        )
+        rc = guest_step(h, a, r, boot, a.timeout, out)
+        r.steps[boot] = verdict.get(rc, "FAIL")
+        # the mark's line, wherever it is: a guest shell's job notice ("Terminated", a luna-send its
+        # 10 s timeout ended on a loaded TCG host) may come before it
+        line = next((x for x in r.text.splitlines() if x.startswith(mark)), None)
+        if a.dry_run:
+            r.boot_done = "dry"
+        elif rc == 0 and line:
+            meminfo(h, out, "ready")
+            r.boot_done = f"{float(line.split()[1]):.1f} s"
+            r.tvservice = " ".join(line.split()[3:4])
+        else:
+            r.boot_done = r.steps[boot] = "TIMEOUT" if rc == 124 else "FAIL"
+            return r
+        if a.tv:
+            tv_suite(h, a, r, out, target, fw)
+            return r
+        checks = [
+            (
+                "check-m1",
+                f"regress-{a.run}-{target}-check-m1 {M1_WAIT[a.mode] * a.scale}",
+                "M1 PASS",
+            ),
+            ("app-calls", fw, "APP-CALLS PASS"),
+        ]
+        if a.headless:
+            checks.append(("tvservice", r.tvservice or "none", "TVSERVICE PASS"))
+        for step, arg, mark in checks:
+            say(f"{target}: {step}")
+            rc = guest_step(h, a, r, step, arg, out)
+            if rc == 0 and not a.dry_run and mark not in r.text:
+                rc = 1
+            r.steps[step] = verdict.get(rc, "FAIL")
+        say(f"{target}: checklist")
+        lastinput, broadcast = checklist_args(target, fw)
+        rc = guest_step(h, a, r, "checklist", lastinput, out)
+        if a.dry_run or rc == 124:
+            r.steps["checklist"] = verdict.get(rc, "FAIL")
+        else:
+            r.checklist = checklist.judge(r.text, broadcast)
+            r.steps["checklist"] = checklist.verdict(r.checklist)
+            for item, s, why in r.checklist:
+                say(f"{target}:   {s} {item}: {why}")
+        # root SSH (tests/regress/rootssh/check-ssh.sh, on the VM host): only with the rootssh
+        # layer, which the default LAYERS leave out, and a network (NET_LINK=off forwards no host
+        # port); otherwise the step SKIPs. Each instance's port is on its own address (its slot).
+        say(f"{target}: ssh")
+        skip = (
+            "LAYERS has no rootssh"
+            if "rootssh" not in a.vm_env["LAYERS"].split(",")
+            else "NET_LINK=off forwards no host port"
+            if net_off
+            else None
+        )
+        if skip:
+            r.steps["ssh"] = "SKIP" if not a.dry_run else "dry"
+            if not a.dry_run:
+                say(f"{target}: ssh SKIP ({skip})")
+        else:
+            rc, _ = h.run(
+                "IDENT=$(host/scripts/vm-launcher config IDENTITY) && "
+                "HOST=$(host/scripts/vm-launcher config ADDRESS) && "
+                'HOST=$HOST tests/regress/rootssh/check-ssh.sh "$IDENT"',
+                300,
+            )
+            r.steps["ssh"] = "dry" if a.dry_run else verdict.get(rc, "FAIL")
+        if a.headless:
+            standby(h, a, r, out, rel, target)
+            return r
+        say(f"{target}: HOME, screenshot")
+        png = f"{rel}/{target}.png"
+        rc = home_shot(h, a, r, out, png, "shot")
+        r.steps["shot"] = verdict.get(rc, "FAIL")
+        if rc == 0:
+            r.shot = png
+        standby(h, a, r, out, rel, target)
+        return r
+    finally:
+        say(f"{target}: stop")
+        if a.viewer:
+            viewer(h, out, False)
+        meminfo(h, out, "end")
+        rc, _ = h.run(
+            f'SAVED_LOG_DIR="$PWD/{out}/saved" LOG_TAG=regress timeout {a.timeout} host/scripts/vm-launcher stop '
+            f"> {out}/stop.txt 2>&1",
+            a.timeout + 30,
+        )
+        r.steps["stop"] = verdict.get(rc, "FAIL")
+        if net_off:
+            say(f"{target}: capture (NET_LINK=off guest NIC)")
+            check = (
+                f"if test -f {shlex.quote(capture)}; then "
+                f"python3 tests/regress/netstub/pcap-summary.py {shlex.quote(capture)} --lg; "
+                f"else printf '%s\\n' 'capture missing: {capture}'; false; fi"
+            )
+            cap_rc, cap_text = h.run(
+                f"{{ {check}; }} > {shlex.quote(report)} 2>&1; "
+                f"s=$?; cat {shlex.quote(report)}; exit $s",
+                60,
+            )
+            r.steps["capture"] = (
+                "dry" if a.dry_run else ("PASS" if cap_rc == 0 and rc == 0 else "FAIL")
+            )
+            if not a.dry_run and r.steps["capture"] != "PASS":
+                say(
+                    f"{target}:   capture FAIL: "
+                    + (
+                        "VM stop failed; capture may not be flushed"
+                        if rc
+                        else cap_text.strip() or "capture check failed"
+                    )
+                )
+        logs = h.inst.log_dir
+        h.run(
+            f"for f in console.log webos.log qemu.out netstub.log netstub-mitm.log netns-*.log; do "
+            f"[ -f {logs}/$f ] && cp {logs}/$f {out}/host/; done; true",
+            60,
+        )
+        # the unit and its helpers take a moment to go; an instance's own only (others run beside it)
+        for _ in range(1 if a.dry_run else 10):
+            _, r.orphans = h.run(h.inst.orphans, 30)
+            r.orphans = r.orphans.strip()
+            if not r.orphans:
+                break
+            time.sleep(2)
+        if r.orphans:
+            h.run(f"cat > {out}/orphans.txt <<'EOF'\n{r.orphans}\nEOF", 30)
+            say(f"{target}: left running on the VM host:\n{r.orphans}")
+        r.window = (r.window[0], now())
+        r.seconds = time.monotonic() - began
+        if a.host:
+            if not a.dry_run:
+                os.makedirs(os.path.join(TOP, rel), exist_ok=True)
+            if local(
+                ["rsync", "-a", f"{a.host}:{a.dest}/{rel}/", os.path.join(TOP, rel) + "/"],
+                a.dry_run,
+            ):
+                say(
+                    f"{target}: copying the results back failed; they are in {a.host}:{a.dest}/{rel}"
+                )
+                if net_off:
+                    r.steps["capture"] = (
+                        "FAIL"  # the capture/report are not retained with this run's results here
+                    )
+        if not a.dry_run:
+            saved = os.path.join(TOP, out, "saved")
+            snapshot, error = device_census.select_latest(Path(saved))
+            try:
+                evidence = (
+                    device_census.report(snapshot, target)
+                    if snapshot
+                    else {
+                        "schema": 1,
+                        "status": "unavailable-evidence",
+                        "issues": [{"status": error}],
+                    }
+                )
+                with open(os.path.join(TOP, out, "device-census.json"), "w") as f:
+                    json.dump(evidence, f, indent=2, sort_keys=True)
+                r.device_census = {
+                    "status": evidence["status"],
+                    "report": f"{target}/device-census.json",
+                    "unknown_command_groups": len(evidence.get("unknown_commands", [])),
+                    "unsupported_counter_rows": evidence.get("unsupported_counter_rows", 0),
+                    "failed_open_groups": len(evidence.get("failed_device_opens", [])),
+                }
+                say(f"{target}: device census {evidence['status']} (device-census.json)")
+            except (OSError, ValueError) as e:
+                r.device_census = {"status": "report-error", "error": type(e).__name__}
+                say(f"{target}: device census report error: {type(e).__name__}")
+        say(
+            f"{target}: {'PASS' if r.ok else 'FAIL'} in {r.seconds:.0f} s "
+            + " ".join(f"{s}={v}" for s, v in r.steps.items())
+        )
+
+
+def schedule(items, jobs, work, stop=lambda r: False):
+    """work(item) for each of items in their order, at most jobs at once; once stop(result) holds
+    for one, no further item starts (those running finish). [(item, result)] of the items that
+    ran, in items' order. A KeyboardInterrupt starts nothing more and waits for the running ones
+    (each ends by stopping its VM)."""
+    lock = threading.Lock()
+    pending = list(enumerate(items))
+    done, halted = {}, []
+
+    def worker():
+        while True:
+            with lock:
+                if halted or not pending:
+                    return
+                i, item = pending.pop(0)
+            r = work(item)
+            with lock:
+                done[i] = (item, r)
+                if stop(r):
+                    halted.append(i)
+
+    threads = [threading.Thread(target=worker, daemon=True) for _ in range(min(jobs, len(items)))]
+    for t in threads:
+        t.start()
+    try:
+        for t in threads:
+            t.join()
+    except KeyboardInterrupt:
+        with lock:
+            halted.append(None)
+        say("interrupted: waiting for the running targets to stop their VMs")
+        for t in threads:
+            while t.is_alive():
+                try:
+                    t.join()
+                except KeyboardInterrupt:
+                    pass
+        raise
+    return [done[i] for i in sorted(done)]
+
+
+def prepare(a, sel):
+    """Build (or check) and sync; False on a failure."""
+    x86 = os.uname().machine == "x86_64"
+    if a.no_build:
+        say("checking what is built")
+    elif x86:
+        for target, fw in sel:
+            say(f"build: guest {target}")
+            if local(["scripts/build.sh", "guest"], a.dry_run, {"FW": fw}):
+                return False
+        if a.local:
+            say("build: host")
+            if local(["scripts/build.sh", "host"], a.dry_run):
+                return False
+    if a.no_build or x86:
+        # every target run has the gl layer graphics boots with: those that make none are skipped
+        # (resolved as the manager does: build/components/<component>/selections.json's variant)
+        layer = "gl" if "gl" in a.vm_env["LAYERS"].split(",") else "soc"
+        missing = [
+            p
+            for p in ("build/Image", "build/initramfs.cpio.gz")
+            if not os.path.exists(os.path.join(TOP, p))
+        ]
+        for target, _ in sel:
+            comp = guestlayers.component(tuple(target.split("-", 1)), layer)
+            try:
+                found = guestlayers.select(
+                    os.path.join(TOP, "build", "components"), tuple(target.split("-", 1)), comp
+                )
+            except ValueError as e:
+                found = None
+                say(str(e))
+            if not found:
+                missing.append(f"build/components/{comp} ({target})")
+        if missing and not a.dry_run:
+            say(f"not built: {', '.join(missing)}")
+            return False
+    elif a.local:
+        say("build: host (no guest builds here: the SDK is x86_64)")
+        if local(["scripts/build.sh", "host"], a.dry_run):
+            return False
+    if a.host and not a.no_sync:
+        say(f"sync: to {a.host}")
+        if not a.sync:
+            say(
+                "no sync command: set REGRESS_SYNC to an executable that copies this checkout to the VM host "
+                "(it gets HOST and DEST in its environment), or sync it yourself and pass --no-sync"
+            )
+            return False
+        if local([a.sync], a.dry_run, {"HOST": a.host, "DEST": a.dest}):
+            return False
+        if not a.no_build:
+            say(f"build: host side on {a.host}")
+            rc, text = Host(a.host, a.dest, a.dry_run).run(
+                "scripts/build.sh host > build/regress-host-build.log 2>&1 || { tail -n 20 build/regress-host-build.log; "
+                "exit 1; }",
+                3600,
+            )
+            if rc:
+                print(text)
+                return False
+    return True
+
+
+def host_firmwares(h, names):
+    """(the VM host's firmware collections, {name: its directory there}) of the firmware names: where
+    `host/scripts/vm-launcher config FIRMWARE_DIRS` there lists it, the first collection that has it.
+    Nothing is copied: a name absent from them is absent from the dict. RuntimeError if the host
+    cannot say."""
+    rc, out = h.run(
+        "dirs=$(host/scripts/vm-launcher config FIRMWARE_DIRS) || exit 1; "
+        'printf "dir %s\\n" $dirs; '
+        f"for n in {' '.join(shlex.quote(n) for n in names)}; do "
+        'for d in $dirs; do [ -d "$d/$n" ] && { echo "fw $n $d/$n"; break; }; done; done; true',
+        60,
+    )
+    if rc:
+        raise RuntimeError(f"cannot read the VM host's firmware collections: {out.strip()}")
+    dirs, found = [], {}
+    for line in out.splitlines():
+        f = line.split(" ", 2)
+        if f[0] == "dir" and len(f) == 2 and f[1]:
+            dirs.append(f[1])
+        elif f[0] == "fw" and len(f) == 3:
+            found.setdefault(f[1], f[2])
+    return dirs, found
+
+
+def missing_firmware(a, sel):
+    """{target: Result} of the targets whose firmware the VM host's collections do not have (failed, not
+    run); None if the host cannot say. --local: none (the firmware was chosen from this machine's)."""
+    if not a.host or not sel:
+        return {}
+    h = Host(a.host, a.dest, a.dry_run)
+    say(f"firmware: from {a.host}'s firmware collections")
+    try:
+        dirs, found = host_firmwares(h, sorted({fw for _, fw in sel}))
+    except RuntimeError as e:
+        say(str(e))
+        return None
+    out = {}
+    for target, fw in sel:
+        if a.dry_run:
+            continue
+        if fw in found:
+            say(f"{target}: {fw} at {found[fw]}")
+            continue
+        r = out[target] = Result(target, fw, a.mode, a.tv)
+        r.steps["start"] = "FAIL"
+        r.failed = (
+            f"firmware {fw} not in the host's firmware collections ({':'.join(dirs) or 'none'})"
+        )
+        say(f"{target}: FAIL ({r.failed})")
+    return out
+
+
+def pack_smp_app(a):
+    """--tv graphics smp: the SMP check app packed here (tests/regress/smp/pack.sh: ares-package, with the
+    guest build's build/tests/smp/smpcheck and its clip) into the run's directory, and copied to
+    the VM host's."""
+    ipk = SMP_IPK.format(run=a.run)
+    tmp = os.path.join(os.path.dirname(ipk), "smp-pkg")
+    if local(
+        [
+            "sh",
+            "-c",
+            f'rm -rf {tmp} && ipk=$(sh tests/regress/smp/pack.sh {tmp}) && mv "$ipk" {ipk} && rm -rf {tmp}',
+        ],
+        a.dry_run,
+    ):
+        return False
+    if a.host:
+        return not (
+            Host(a.host, a.dest, a.dry_run).run(f"mkdir -p {os.path.dirname(ipk)}", 30)[0]
+            or local(["rsync", "-a", ipk, f"{a.host}:{a.dest}/{ipk}"], a.dry_run)
+        )
+    return True
+
+
+def pack_test_app(a):
+    """--tv graphics: the test web app (tests/regress/tvapp) packed here with the SDK's ares-package
+    into the run's directory, and copied to the VM host's."""
+    ipk = TV_IPK.format(run=a.run)
+    tmp = os.path.join(os.path.dirname(ipk), "tvapp-pkg")
+    tool = shutil.which("ares-package") or os.path.expanduser("~/.cargo/bin/ares-package")
+    app = os.path.relpath(tvsuite.TEST_APP_DIR, TOP)
+    if not a.dry_run:
+        os.makedirs(os.path.join(TOP, tmp), exist_ok=True)
+    if "decode" in a.tv_steps:
+        # the decode step's clips, made now (never committed), packed with a copy of the app
+        app = os.path.join(os.path.dirname(ipk), "tvapp")
+        if not a.dry_run:
+            shutil.rmtree(os.path.join(TOP, app), ignore_errors=True)
+            shutil.copytree(tvsuite.TEST_APP_DIR, os.path.join(TOP, app))
+        if local(["sh", "tests/regress/video/make-clips.sh", "--decode", app], a.dry_run):
+            say("tests/regress/video/make-clips.sh --decode failed")
+            return False
+    if local([tool, "-o", tmp, app], a.dry_run):
+        return False
+    if not a.dry_run:
+        built = [f for f in os.listdir(os.path.join(TOP, tmp)) if f.endswith(".ipk")]
+        if len(built) != 1:
+            say(f"ares-package made {built or 'nothing'} in {tmp}")
+            return False
+        os.replace(os.path.join(TOP, tmp, built[0]), os.path.join(TOP, ipk))
+        os.rmdir(os.path.join(TOP, tmp))
+    if a.host:
+        return not (
+            Host(a.host, a.dest, a.dry_run).run(f"mkdir -p {os.path.dirname(ipk)}", 30)[0]
+            or local(["rsync", "-a", ipk, f"{a.host}:{a.dest}/{ipk}"], a.dry_run)
+        )
+    return True
+
+
+def gallery(d, results):
+    """build/regress/<run>/gallery.html: each target's screenshots of the apps and draw steps."""
+    rows = []
+    for r in results:
+        shots = (
+            sorted(f for f in os.listdir(os.path.join(d, r.target, "apps")) if f.endswith(".png"))
+            if os.path.isdir(os.path.join(d, r.target, "apps"))
+            else []
+        )
+        if shots:
+            cells = "".join(
+                f'<figure><a href="{r.target}/apps/{f}"><img src="{r.target}/apps/{f}" width="384"></a>'
+                f"<figcaption>{f[:-4]}</figcaption></figure>"
+                for f in shots
+            )
+            rows.append(f"<h2>{r.target} ({r.fw})</h2><div>{cells}</div>")
+    if rows:
+        with open(os.path.join(d, "gallery.html"), "w") as f:
+            f.write(
+                "<!DOCTYPE html><meta charset=utf-8><title>TV suite gallery</title><style>figure{display:"
+                "inline-block;margin:4px}</style>" + "".join(rows) + "\n"
+            )
+
+
+def main(argv=None):
+    try:
+        a, sel = parse(sys.argv[1:] if argv is None else argv)
+    except Usage as e:
+        print(f"scripts/regress: {e}", file=sys.stderr)
+        return 2
+    say(
+        f"run {a.run} ({a.mode}{', TV suite' if a.tv else ''}): "
+        + ", ".join(f"{p} ({fw})" for p, fw in sel)
+        + f" on {a.host or 'this machine'}"
+        + (" (dry run)" if a.dry_run else "")
+    )
+    skipped = {}
+    if "gl" in a.vm_env["LAYERS"].split(","):
+        for target, fw in sel:
+            if not gl_expected(target):
+                skipped[target] = Result(target, fw, a.mode, a.tv)
+                skipped[
+                    target
+                ].skipped = f"no gl layer: guest/layers/soc/{target.split('-')[0]} has no graphics ABI configured"
+                say(f"{target}: SKIP ({skipped[target].skipped})")
+    run = [(p, fw) for p, fw in sel if p not in skipped]
+    if not prepare(a, run):
+        say("build or sync failed")
+        return 1
+    missing = missing_firmware(a, run)
+    if missing is None:
+        return 1
+    if (
+        a.tv
+        and {"apps", "draw", "audio", "decode"} & set(a.tv_steps)
+        and a.mode == "graphics"
+        and not pack_test_app(a)
+    ):
+        say("packing the test app failed")
+        return 1
+    if a.tv and "smp" in a.tv_steps and a.mode == "graphics" and not pack_smp_app(a):
+        say("packing the SMP check app failed")
+        return 1
+    h = Host(a.host, a.dest, a.dry_run)
+    if a.scale != 1:
+        say(
+            f"{a.accel}: the run's deadlines x{a.scale} (step limit {a.timeout} s), as the guest's bootd timers"
+        )
+    say("checking that nothing runs on the VM host")
+    rc, busy = h.run(ORPHANS, 30)
+    if rc or busy.strip():
+        say(f"not starting: the VM host is busy or unreachable:\n{busy.strip()}")
+        return 1
+    jobs = 1
+    if a.instances:
+        smp = int(a.vm_env.get("SMP") or 4)
+        mems = [int(a.vm_env.get("MEM") or nvm.board_ram(targets.by_name(p))) for p, _fw in run]
+        cpus, avail = (
+            (a.jobs * smp, (sum(sorted(mems)[-a.jobs :]) + HEADROOM_MB) * 1024)
+            if a.dry_run and a.host
+            else host_capacity(h)
+        )
+        jobs, why = cap_jobs(a.jobs, len(run), cpus, avail, mems, smp, KVM_OVERSUB if a.host else 1)
+        say(
+            f"{jobs} VM(s) at once, each in an instance of its own (INSTANCE=<target>, build/instances/<target>)"
+            + (f"; -j {a.jobs} capped by {why}" if jobs < a.jobs and why else "")
+        )
+
+    def work(item):
+        target, fw = item
+        if target in skipped:
+            return skipped[target]
+        if target in missing:
+            return missing[target]
+        r = run_target(
+            Host(a.host, a.dest, a.dry_run, Instance(target) if a.instances else None),
+            a,
+            target,
+            fw,
+        )
+        r.instance = target if a.instances else None
+        return r
+
+    def stop(r):
+        if r.orphans:
+            say(f"{r.target}: left processes behind; starting no more targets")
+            return True
+        if not r.ok and not a.keep_going:
+            say(f"{r.target}: failed; starting no more targets (--keep-going goes on)")
+            return True
+        return False
+
+    began = time.monotonic()
+    results = []
+    try:
+        results = [r for _, r in schedule(interleave(sel) if jobs > 1 else sel, jobs, work, stop)]
+    except KeyboardInterrupt:
+        say("interrupted")
+    wall = time.monotonic() - began
+    left = ""
+    if a.instances and not a.dry_run:
+        # every instance checked its own; now the host as a whole
+        _, left = h.run(ORPHANS, 30)
+        left = left.strip()
+        if left:
+            say(f"left running on the VM host after the run:\n{left.strip()}")
+    summary = table(results, a.mode, a.tv) + f"\n\nwall {wall:.0f} s, {jobs} at once"
+    say_raw(summary)
+    d = os.path.join(TOP, "build", "regress", a.run)
+    if not a.dry_run:
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "summary.txt"), "w") as f:
+            f.write(summary + "\n")
+        if a.tv:
+            gallery(d, results)
+            if "decode" in a.tv_steps and a.mode == "graphics":
+                try:
+                    sheet = tvsuite.decode_sheet(d)  # one capture per case, for looking at
+                    if sheet:
+                        say(f"decode contact sheet: {os.path.relpath(sheet, TOP)}")
+                except (OSError, ImportError) as e:
+                    say(f"decode contact sheet: {e}")
+        with open(os.path.join(d, "summary.json"), "w") as f:
+            json.dump(
+                [
+                    dict(
+                        target=r.target,
+                        fw=r.fw,
+                        mode=r.mode,
+                        vm_env=a.vm_env,
+                        steps=r.steps,
+                        **{"core_boot_done" if r.mode == "headless" else "boot_done": r.boot_done},
+                        shot=r.shot,
+                        standby=r.standby,
+                        window=r.window,
+                        orphans=r.orphans,
+                        ok=r.ok,
+                        skipped=r.skipped,
+                        failed=r.failed,
+                        seconds=r.seconds,
+                        instance=r.instance,
+                        jobs=jobs,
+                        device_census=r.device_census,
+                        checklist=[dict(item=i, status=s, reason=why) for i, s, why in r.checklist],
+                        tv={
+                            step: [dict(item=i, status=s, reason=why) for i, s, why in items]
+                            for step, items in r.items.items()
+                        },
+                    )
+                    for r in results
+                ],
+                f,
+                indent=1,
+            )
+        say(f"results: {os.path.relpath(d, os.getcwd())}")
+    return (
+        0 if results and len(results) == len(sel) and all(r.ok for r in results) and not left else 1
+    )
+
+
+if __name__ == "__main__":
+    sys.exit(main())

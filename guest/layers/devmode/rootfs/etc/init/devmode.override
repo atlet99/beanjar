@@ -1,0 +1,20 @@
+# Developer mode (guest/layers/devmode): run our start-devmode.sh instead of the Developer Mode app's.
+#
+# The stock job (start on minimal-boot-done) runs
+# /media/cryptofs/apps/usr/palm/services/com.palmdts.devmode.service/start-devmode.sh from the LG
+# store app when /var/luna/preferences/devmode_enabled exists. The emulator has no store app;
+# /usr/libexec/emulator-devmode/start-devmode.sh does the same with our own dropbear and key, and
+# execs the jailed server, so this job runs while the server does (the stock script blocks on
+# sshd -D the same way). emulator-devmode-keyserver.conf follows it.
+# Also wait for webos-jail (start on init-boot-done), which makes /var/palm/data and /var/palm/jail
+# and on a new state (or after a firmware change) clears the jails. Here minimal-boot-done can come
+# first, and the jailer then fails ("failed to open jail user file /var/palm/data/jailusers").
+start on minimal-boot-done and stopped webos-jail
+
+console output
+
+script
+	if [ -e /var/luna/preferences/devmode_enabled ] ; then
+		exec /usr/libexec/emulator-devmode/start-devmode.sh
+	fi
+end script

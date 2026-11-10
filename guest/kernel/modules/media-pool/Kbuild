@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# media-pool.ko (main.c): the media pool's device, /dev/lg/webos.media-pool, over the kernel's
+# webos-ivshmem (patch 0018). grants.c: its access rules.
+obj-m := media-pool.o
+media-pool-y := main.o grants.o
+# KUnit tests of the access rules (tests/media-pool-kunit.c), against a kernel with KUnit (the
+# debug kernel, guest/kernel/configs/debug.config); a module even with KUnit built in (=y)
+obj-$(if $(CONFIG_KUNIT),m) += media-pool-kunit.o
+media-pool-kunit-y := tests/media-pool-kunit.o

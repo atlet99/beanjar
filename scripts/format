@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$root"
+export PRE_COMMIT_HOME="$root/build/pre-commit"
+case "${1:-}" in
+    all) exec pre-commit run --all-files --hook-stage pre-commit ;;
+    check) exec pre-commit run --all-files --hook-stage manual ;;
+    *) echo "Usage: scripts/format {all|check}" >&2; exit 2 ;;
+esac

@@ -1,0 +1,20 @@
+# 75UR8000AUA, the US 75-inch UR80: the models DB lists it for this OTA ID (W23P 13.41.13.01).
+# The default board (board_cmdline in guest/targets/soc/): the European board's line with the firmware's own US
+# values. hwopt digit 0 5: hw-option-gen decodes countryType US, nyx-option-gen ATSC; every
+# other field decodes as on the European line but the country's tuner flags.
+# countryGrp 2: configd's USA RMM grpCode. tvregion ATSC: the broadcast system.
+# ToolOpt: LLS's factory default record of this line, with the UR80/75" panelInch
+# and toolType of the firmware's factory tables. Identity placeholders are replaced per VM.
+ethaddr=02:00:00:12:34:56
+devtmpfs.mount=1
+countryGrp=2
+modelopt=000000000
+hwopt=500200000003002000
+ToolOpt=34755987:1323030:1083392:65:3679542:55823371
+modelName=75UR8000AUA
+debugMode=3
+serialNum=000RAXX00001
+chip=K8LPNA0
+tvregion=ATSC
+emmc_size=0x1d2000000
+cmdEnd

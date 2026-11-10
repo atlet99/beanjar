@@ -1,0 +1,45 @@
+# the bootloader's parameters (the soc layer's), in the webOS root
+board_cmdline = "/etc/emulator/board.cmdline"
+
+# the SoC vendor's kernel drivers its userland needs, emulated (guest/initramfs/rootfs/init loads them
+# after lgemu.ko).
+# LG's kdrivers under KADP: /proc/lg/base, the chip
+# identity the stock kernel's BASE_ProbeChipRev derives from the soc layer's board.cmdline.
+# chip_rev is the chip's id (H13 0x13, M14 0x14) << 8 | the revision (B0 0xb0), from chip=;
+# ace_rev is chip_rev without ace= (neither lxboot passes one); platform and graphic_res
+# are from hwopt= digits 3 and 14 on H13 (the 49UB850V's '2', a UD panel: 0x2000; '2':
+# 1920x1080, the graphic plane of a UHD set as of an FHD one), constants on M14.
+# Its I2C buses (/dev/lg/iic<n>, bus n = the HAL's channel n + 1, KADP_I2C_Open) carry the
+# devices lgemu.ko models, device:bus:slave: WT1H's RELEASE.cfg "[i2c]MICOM:2:0x52:0",
+# "[i2c]NVM:5:0xA0:1" and the three amplifiers of NTP7514_3AMP, the one ToolOpt3 selects
+# (AMP_NTP3AMP): front "3:0x54", height "3:0x56", woofer "5:0x54".
+# Its SPI master has two chip selects (spidev0.0 and 0.1 in the firmware's device_table),
+# which a UHD board's tvservice opens for the D14 and U14 (HAL_SPI_Init; LG's HAL crashes
+# on a board without them).
+# Its log manager (/dev/lg/logm, KADP's and liblogs' module logs to printk): WT1H's KADP
+# reads the object table with the 2014 kdriver's 76-byte entries (KADP_LOGM_WriteLog).
+# Its GPIO pins (/dev/lg/gpio0, KADP_GPIO_*): H13's 144 (gpio_core.c's max_num).
+# Its audio master (/dev/lg/amst0, KADP_AUDIO_OpenMaster): the 2014 audio_kapi_master.h's
+# GET_KDRV_HANDLE nr 17 and GET_EVENT nr 41 (0x80044d11 and 0xc0084d29 in WT1H's KADP),
+# the handle LX_AUD_DEV_MAS0, 20; SET_SE_FN nr 16 (amst_se), whose sound-engine function 9
+# is the OSD volume lg115x.ko passes to lgemu's playback gain.
+# Its back end (/dev/lg/be0): the 2014 be_kapi.h's GET_FIRMWARE_INFO_ADDR nr 21 and
+# REG_ACCESS nr 19 (0x80084415, 0xc0104413 in WT1H's KADP).
+# Its SP804 timers at 0xfd100000 (/dev/mem), clocked by the AMBA bus at 198 MHz
+# (lg1154_defconfig's CONFIG_AMBA_CLOCK_MHZ; bootd's Logger::getHWTime divides by it).
+[[modules]]
+name = "lg115x"
+params = [
+    "chip_rev=0x13b0",
+    "ace_rev=0x13b0",
+    "platform=0x2000",
+    "graphic_res=0x07800438",
+    "i2c=micom:1:0x52,nvm:4:0xa0,amp:2:0x54,amp:2:0x56,amp:4:0x54",
+    "spi_cs=2",
+    "logm_obj=76",
+    "gpio_pins=144",
+    "amst=17:41:20",
+    "amst_se=16",
+    "be=21:19",
+    "timer_hz=198000000",
+]

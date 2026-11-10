@@ -1,0 +1,77 @@
+virtio-snd: no stall when the device completes the whole buffer at once
+
+The playback pointer takes the bytes the device consumed as the difference of the ring position
+(hw_ptr, modulo the buffer) since its last call. When every queued message completes between two
+calls, which happens when the guest's vCPU is not scheduled for a buffer's time while the host
+keeps playing (QEMU's audio timer runs in its own thread; a loaded TCG host, 93 ms of buffer),
+the position is back where it was and the difference is 0: the indirect helper then believes the
+buffer is still full, never sends again, and the stream stalls until the application gives up
+(paplay's drain times out). Count the completed bytes instead and advance by those.
+
+--- a/sound/virtio/virtio_pcm.h
++++ b/sound/virtio/virtio_pcm.h
+@@ -54,6 +54,8 @@
+ 	spinlock_t lock;
+ 	size_t buffer_bytes;
+ 	size_t hw_ptr;
++	size_t hw_done;
++	size_t hw_seen;
+ 	bool xfer_enabled;
+ 	bool xfer_xrun;
+ 	bool stopped;
+--- a/sound/virtio/virtio_pcm_msg.c
++++ b/sound/virtio/virtio_pcm_msg.c
+@@ -307,6 +307,8 @@
+ 	 * If the capture substream returned an incorrect status, then just
+ 	 * increase the hw_ptr by the message size.
+ 	 */
++	if (vss->direction == SNDRV_PCM_STREAM_PLAYBACK)
++		vss->hw_done += msg->length;
+ 	if (vss->direction == SNDRV_PCM_STREAM_PLAYBACK ||
+ 	    written_bytes <= sizeof(msg->status))
+ 		vss->hw_ptr += msg->length;
+--- a/sound/virtio/virtio_pcm_ops.c
++++ b/sound/virtio/virtio_pcm_ops.c
+@@ -301,6 +301,7 @@
+ 	vss->msg_count = 0;
+ 
+ 	memset(&vss->pcm_indirect, 0, sizeof(vss->pcm_indirect));
++	vss->hw_done = vss->hw_seen = 0;
+ 	vss->pcm_indirect.sw_buffer_size =
+ 		vss->pcm_indirect.hw_buffer_size =
+ 		snd_pcm_lib_buffer_bytes(substream);
+@@ -441,10 +442,31 @@
+ virtsnd_pcm_pb_pointer(struct snd_pcm_substream *substream)
+ {
+ 	struct virtio_pcm_substream *vss = snd_pcm_substream_chip(substream);
++	struct snd_pcm_indirect *rec = &vss->pcm_indirect;
++	unsigned int bytes;
+ 
+-	return snd_pcm_indirect_playback_pointer(substream,
+-		&vss->pcm_indirect,
+-		vss->hw_ptr);
++	/*
++	 * As snd_pcm_indirect_playback_pointer(), but with the bytes the device
++	 * completed since the last call rather than the difference of two ring
++	 * positions: when the device completes every queued message between two
++	 * calls (a guest that was not scheduled for a buffer's time), the ring
++	 * position is back where it was, the difference is 0, and the stream
++	 * would never get room to send again.
++	 */
++	scoped_guard(spinlock_irqsave, &vss->lock) {
++		bytes = vss->hw_done - vss->hw_seen;
++		vss->hw_seen = vss->hw_done;
++	}
++	if (bytes > rec->hw_ready)
++		bytes = rec->hw_ready;
++	rec->hw_io = (rec->hw_io + bytes) % rec->hw_buffer_size;
++	rec->hw_ready -= bytes;
++	rec->sw_io += bytes;
++	if (rec->sw_io >= rec->sw_buffer_size)
++		rec->sw_io -= rec->sw_buffer_size;
++	if (substream->ops->ack && substream->ops->ack(substream) == -EPIPE)
++		return SNDRV_PCM_POS_XRUN;
++	return bytes_to_frames(substream->runtime, rec->sw_io);
+ }
+ 
+ /**

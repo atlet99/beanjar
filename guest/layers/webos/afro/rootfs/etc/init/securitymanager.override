@@ -1,0 +1,29 @@
+# Emulator: run the stock securitymanager job (com.webos.service.sm), the app-DRM licence
+# installer, unchanged. This override is intentionally a no-op (no `manual`): the stock
+# securitymanager.conf, "start on minimal-boot-done" with LD_PRELOAD=/usr/lib/libsecuretime.so,
+# runs as on a real WT1H.
+#
+# Earlier this job was set `manual` for fear of the secure-boot self-check. That fear does not
+# hold on the emulator's command line, and nothing else in startup touches LG's security engine:
+#
+#  - main() -> SM_ACCESSUSB_Init -> SM_APPDRM_LM_Init (RODB init under
+#    /media/cryptofs/apps/usr/palm/data/appdrm, pre-created by emulator-jail-nodes.conf) ->
+#    SM_LSService_Init/ClientInit (registers com.webos.service.sm) -> xpa_pdm_watchPdmStatus ->
+#    SM_SDI_Init -> SM_SBVerify_Init -> GLib main loop. Verified live: the service starts, stays
+#    up (no crash loop, no tvpowerd shutdown), getDbPath returns the rodbPath and getDrmStatus
+#    answers.
+#  - The one secure-store item it reads at startup is the model secret via
+#    securitymanager's DILE_CRYPTO_ReadMskToSecureStore -> HAL_CRYPTO_ReadMskToSecureStore,
+#    which the soc layer's libhal_crypto already answers (guest/layers/soc/h13). No /dev/lg/se0.
+#  - SM_SBVerify_Init spawns the detached sb_verify_task. That task reads
+#    /proc/cmdline and only runs the KADP_SE_*/`/dev/mem` secure-boot verification loop when the
+#    command line contains "snapshot" AND NOT "fullverify" (two strstr calls on the tokens
+#    'fullverify'/'snapshot' in securitymanager .rodata). board.cmdline has neither token, so the
+#    task hits the "Verify end" exit without ever calling KADP_SE_Initialize,
+#    KADP_SE_ReadFullVerifyOTPFlag, mmap(/dev/mem) or xpa_tvpowerd_shutdown (all confined to
+#    sb_verify_application / sb_sign_image, reachable only from that loop). Confirmed on
+#    the live VM: /proc/cmdline has no such token and the service does not power the set off.
+#
+# If a future board.cmdline gains a "snapshot" token (instant-on), the verify loop would run and
+# need neutralising (an LD_PRELOAD shim for KADP_SE_ReadFullVerifyOTPFlag/sb_verify_application,
+# securestore-style). It does not today, so nothing is stubbed here.

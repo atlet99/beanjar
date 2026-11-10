@@ -1,0 +1,135 @@
+mem: /dev/mem windows a driver backs
+
+LG's userland maps SoC registers through /dev/mem: bootd's Logger::getHWTime (W15M) maps the
+LG115x SP804 timer at 0xfd100000 and reads its free-running counter. The virt machine has nothing
+there: TCG raises an external abort (SIGBUS), KVM reads 0. A driver (lg115x.ko) registers a window
+(linux/devmem_window.h); an mmap of /dev/mem inside it gets fresh pages, each filled with what the
+hardware reads at the mmap, in place of the physical address. Pages are ordinary, cacheable and
+the mapping's own.
+
+--- a/drivers/char/mem.c
++++ b/drivers/char/mem.c
+@@ -28,6 +28,7 @@
+ #include <linux/export.h>
+ #include <linux/io.h>
+ #include <linux/uio.h>
++#include <linux/devmem_window.h>
+ #include <linux/uaccess.h>
+ #include <linux/security.h>
+ 
+@@ -316,6 +317,69 @@
+ }
+ #endif
+ 
++/*
++ * Windows a driver backs (linux/devmem_window.h): an SoC's registers that LG's userland maps through
++ * /dev/mem where the virtual machine has nothing, such as the LG115x timer bootd reads its time from.
++ */
++static LIST_HEAD(devmem_windows);
++static DEFINE_MUTEX(devmem_windows_lock);
++
++int devmem_window_register(struct devmem_window *w)
++{
++	if (!w->fill || !w->size || !PAGE_ALIGNED(w->base) || !PAGE_ALIGNED(w->size))
++		return -EINVAL;
++	mutex_lock(&devmem_windows_lock);
++	list_add_tail(&w->list, &devmem_windows);
++	mutex_unlock(&devmem_windows_lock);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(devmem_window_register);
++
++void devmem_window_unregister(struct devmem_window *w)
++{
++	mutex_lock(&devmem_windows_lock);
++	list_del(&w->list);
++	mutex_unlock(&devmem_windows_lock);
++}
++EXPORT_SYMBOL_GPL(devmem_window_unregister);
++
++/* 0: not in a window; 1: mapped from the window's pages; < 0: an error */
++static int mmap_mem_window(struct vm_area_struct *vma, phys_addr_t offset, size_t size)
++{
++	struct devmem_window *w;
++	int ret = 0;
++
++	mutex_lock(&devmem_windows_lock);
++	list_for_each_entry(w, &devmem_windows, list) {
++		if (offset + size <= w->base || offset >= w->base + w->size)
++			continue;
++		if (offset < w->base || offset + size > w->base + w->size) {
++			ret = -EINVAL;
++			break;
++		}
++		/* ordinary pages, mapped with the vma's own (cacheable) protection; each is the
++		 * mapping's alone and freed with it */
++		for (size_t done = 0; done < size; done += PAGE_SIZE) {
++			struct page *page = alloc_page(GFP_KERNEL | __GFP_ZERO);
++
++			if (!page) {
++				ret = -ENOMEM;
++				break;
++			}
++			w->fill(w, page_address(page), offset + done);
++			ret = vm_insert_page(vma, vma->vm_start + done, page);
++			put_page(page);
++			if (ret)
++				break;
++		}
++		if (!ret)
++			ret = 1;
++		break;
++	}
++	mutex_unlock(&devmem_windows_lock);
++	return ret;
++}
++
+ static const struct vm_operations_struct mmap_mem_ops = {
+ #ifdef CONFIG_HAVE_IOREMAP_PROT
+ 	.access = generic_access_phys
+@@ -326,6 +390,7 @@
+ {
+ 	size_t size = vma->vm_end - vma->vm_start;
+ 	phys_addr_t offset = (phys_addr_t)vma->vm_pgoff << PAGE_SHIFT;
++	int ret;
+ 
+ 	/* Does it even fit in phys_addr_t? */
+ 	if (offset >> PAGE_SHIFT != vma->vm_pgoff)
+@@ -344,6 +409,10 @@
+ 	if (!range_is_allowed(vma->vm_pgoff, size))
+ 		return -EPERM;
+ 
++	ret = mmap_mem_window(vma, offset, size);
++	if (ret)
++		return ret < 0 ? ret : 0;
++
+ 	if (!phys_mem_access_prot_allowed(file, vma->vm_pgoff, size,
+ 						&vma->vm_page_prot))
+ 		return -EINVAL;
+--- /dev/null
++++ b/include/linux/devmem_window.h
+@@ -0,0 +1,24 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef _LINUX_DEVMEM_WINDOW_H
++#define _LINUX_DEVMEM_WINDOW_H
++
++#include <linux/list.h>
++#include <linux/types.h>
++
++/*
++ * A window of /dev/mem a driver backs: an mmap of /dev/mem that lies in [base, base + size) gets
++ * fresh pages, each filled by fill() with what the hardware at that physical address reads at the
++ * moment of the mmap, instead of a mapping of the physical address itself (where the machine has
++ * nothing). Both page-aligned; a mapping that crosses the window's edge is refused.
++ */
++struct devmem_window {
++	phys_addr_t base;
++	size_t size;
++	void (*fill)(const struct devmem_window *w, void *page, phys_addr_t pa);
++	struct list_head list;
++};
++
++int devmem_window_register(struct devmem_window *w);
++void devmem_window_unregister(struct devmem_window *w);
++
++#endif

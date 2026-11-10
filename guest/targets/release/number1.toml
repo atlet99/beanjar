@@ -1,0 +1,14 @@
+# W22H number1 retains mullet's service/map layout, with fonts.pak now unqualified.
+# Stock runtime preparation succeeds through the existing firmware-owned LLS interface.
+
+base = "mullet"
+version = "23"
+paks = [
+    { file = "rootfs", serial = "rootfs", mount = "/" },
+    { file = "bsppart", serial = "bsppart" },
+    { file = "otncabi-global", serial = "otncabi", mount = "/mnt/otncabi" },
+    { file = "otycabi-global", serial = "otycabi", mount = "/mnt/otycabi" },
+    { file = "fonts", serial = "fonts", mount = "/mnt/fonts" },
+    { file = "license", serial = "license", mount = "/mnt/license" },
+]
+partmap = "number1"

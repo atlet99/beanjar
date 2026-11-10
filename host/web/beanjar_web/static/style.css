@@ -1,0 +1,355 @@
+/* SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/* beanjar-web's pages (docs/dev/architecture/web-viewer.md) */
+:root { color-scheme: dark; --bar: #1d1d1f; --line: #333; --text: #ddd; --dim: #888; --accent: #3388dd; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #111; color: var(--text);
+  font: 14px system-ui, sans-serif; }
+a { color: var(--accent); }
+button, select { background: #2a2a2d; color: var(--text); border: 1px solid #444; border-radius: 6px;
+  padding: 5px 10px; font: inherit; cursor: pointer; }
+button:hover, select:hover { background: #343438; }
+button:disabled { opacity: .4; cursor: default; }
+/* Bootstrap Icons (Debian's bootstrap-icons, served from /icons/) as masks in the text colour */
+.bi { display: inline-block; width: 1em; height: 1em; flex: none; background: currentColor;
+  -webkit-mask: var(--i) center / contain no-repeat; mask: var(--i) center / contain no-repeat; }
+button { display: inline-flex; align-items: center; gap: 6px; }
+label .bi { font-size: 15px; }
+/* Bootstrap's speakers fill less of their box than their neighbours: one optical scale for both
+   states, so toggling sound only swaps the waves and the cross */
+#sound .bi { transform: scale(1.2); }
+label { color: var(--dim); font-size: 12px; display: flex; align-items: center; gap: 4px; }
+/* the header bar (the viewer's and the list's), laid out as the GTK windows' (Adwaita's): start, centred titles, end */
+header.bar { flex: none; display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; height: 46px;
+  padding: 0 6px; background: #2e2e32; border-bottom: 1px solid #1b1b1d; }
+header.bar .start, header.bar .end { display: flex; align-items: center; gap: 6px; min-width: 0; }
+header.bar .end { justify-content: flex-end; }
+header.bar .titles { display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-width: 0; line-height: 1.25; }
+#title { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+#sub { color: var(--dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+#sub:empty { display: none; }
+header.bar button, header.bar a.flat { width: 34px; height: 34px; padding: 0; justify-content: center;
+  border: none; border-radius: 6px; background: rgba(255, 255, 255, .1); color: var(--text);
+  font-size: 16px; text-decoration: none; display: inline-flex; align-items: center; }
+header.bar .flat { background: transparent; }
+header.bar button:hover, header.bar a.flat:hover { background: rgba(255, 255, 255, .15); }
+header.bar button:active, header.bar .toggle[aria-pressed="true"],
+header.bar #remote[aria-expanded="true"] { background: rgba(255, 255, 255, .22); }
+header.bar button.reconnecting { color: #f8d668; }
+/* linked: one group, shared edges (GTK's "linked" box) */
+header.bar .linked { display: flex; gap: 1px; }
+header.bar .linked > button { border-radius: 0; }
+header.bar .linked > button:first-child { border-radius: 6px 0 0 6px; }
+header.bar .linked > button:last-child { border-radius: 0 6px 6px 0; }
+/* a popover under its header button (the viewer's Quality), as GTK's: top layer, placed by viewer.js */
+.popover { position: fixed; inset: auto; margin: 0; width: 250px; padding: 12px 14px;
+  background: #38383c; color: var(--text); border: 1px solid #4a4a4f; border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .5); }
+.pop-title { font-weight: 700; margin-bottom: 8px; }
+.pop-row { display: flex; align-items: center; gap: 10px; }
+.pop-row input { flex: 1; accent-color: var(--accent); }
+.pop-row output { width: 1.2em; text-align: right; font-variant-numeric: tabular-nums; }
+.pop-hint { margin-top: 8px; color: var(--dim); font-size: 12px; line-height: 1.35; }
+.pop-hint[hidden], #vnc-settings[hidden], #h264-settings[hidden] { display: none; }
+.pop-sub { margin: 12px 0 4px; font-size: 12px; color: var(--dim); }
+.pop-row output.wide { width: 5.5em; }
+/* the Planes popover's check items */
+.pop-check { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
+.pop-check input { accent-color: var(--accent); margin: 0; }
+/* the picture choice: a linked pair of toggle buttons, as GTK's */
+.segmented { display: flex; gap: 1px; }
+.segmented label { flex: 1; color: var(--text); font-size: 13px; }
+.segmented input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented span { flex: 1; text-align: center; padding: 5px 8px; background: rgba(255, 255, 255, .1);
+  cursor: pointer; }
+.segmented label:first-child span { border-radius: 6px 0 0 6px; }
+.segmented label:last-child span { border-radius: 0 6px 6px 0; }
+.segmented input:checked + span { background: rgba(255, 255, 255, .25); font-weight: 700; }
+.segmented input:disabled + span { opacity: .4; cursor: default; }
+.segmented input:focus-visible + span { outline: 2px solid var(--accent); }
+/* the viewer */
+body.viewer { display: flex; flex-direction: column; overflow: hidden; }
+body.viewer .control-label { display: none; }
+body.viewer #viewer-more,
+body.viewer #input-menu { display: none; position: fixed; inset: auto; margin: 0; width: 210px;
+  padding: 6px; border: 1px solid #505055; border-radius: 12px; background: #353539;
+  box-shadow: 0 8px 28px #0008; color: var(--text); }
+body.viewer #viewer-more:popover-open,
+body.viewer #input-menu:popover-open { display: flex; flex-direction: column; gap: 0; }
+body.viewer #viewer-more button, body.viewer #viewer-more a.flat,
+body.viewer #input-menu button, body.viewer #input-menu a.flat { width: 100%; height: 40px;
+  justify-content: flex-start; gap: 10px; padding: 8px 10px; box-sizing: border-box; }
+body.viewer #viewer-more a.flat[hidden],
+body.viewer #input-menu a.flat[hidden] { display: none; }
+body.viewer #rotate[hidden] { display: none; }
+body.viewer #viewer-more .control-label,
+body.viewer #input-menu .control-label { display: inline; }
+body.viewer #viewer-more button:focus-visible, body.viewer #viewer-more a.flat:focus-visible,
+body.viewer #input-menu button:focus-visible, body.viewer #input-menu a.flat:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+body.viewer #viewer-more [aria-checked="true"]::after,
+body.viewer #input-menu [aria-checked="true"]::after { content: "✓"; margin-left: auto; }
+#remote-pop { padding: 8px; width: 250px; height: min(740px, calc(100dvh - 130px)); }
+#remote-pop:popover-open { display: flex; flex-direction: column; }
+.remote-pop-header { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  flex: none; min-height: 44px; padding-left: 6px; }
+#remote-close { width: 44px; height: 44px; justify-content: center; padding: 0; border: 0; background: transparent; }
+#remote-frame { flex: 1; min-height: 0; width: 100%; border: 0; }
+/* At 640 px the old header still fits the normal title; adapt before the buttons shrink.
+   Keep landscape phones in the desktop layout. Linked system keys stay together at the start,
+   flat viewer controls at the end; secondary actions need the overflow menu at 360 px. */
+@media (max-width: 640px) and (orientation: portrait) {
+  body.viewer { --toolbar-height: calc(56px + env(safe-area-inset-bottom)); height: 100dvh;
+    padding-bottom: var(--toolbar-height); }
+  body.viewer header.bar { height: calc(48px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 6px 0; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 6px; }
+  body.viewer header.bar::after { content: ""; position: fixed; z-index: 3; inset: auto 0 0;
+    height: var(--toolbar-height); background: #2e2e32; border-top: 1px solid #1b1b1d; }
+  body.viewer header.bar button, body.viewer header.bar a.flat { width: 44px; height: 44px; flex: none;
+    touch-action: manipulation; }
+  body.viewer header.bar .linked, body.viewer header.bar .end { position: fixed; z-index: 4;
+    bottom: calc(6px + env(safe-area-inset-bottom)); width: auto;
+    display: flex; gap: 6px; }
+  body.viewer header.bar .linked { left: 8px; gap: 1px; }
+  body.viewer header.bar .end { right: 8px; }
+  body.viewer .popover { max-width: calc(100vw - 12px);
+    max-height: calc(100dvh - 48px - env(safe-area-inset-top) - var(--toolbar-height) - 20px); overflow: auto; }
+  body.viewer .pop-row input { min-width: 0; min-height: 44px; }
+  body.viewer .segmented span { display: flex; align-items: center; justify-content: center; min-height: 44px; }
+  body.viewer #remote-pop { height: min(740px, calc(100dvh - 48px - env(safe-area-inset-top) - var(--toolbar-height) - 20px)); }
+}
+#screen { flex: 1; min-height: 0; position: relative; background: #000; }
+#screen:fullscreen { width: 100vw; height: 100vh; }
+#status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 12px; padding: 20px; text-align: center; color: var(--dim);
+  pointer-events: none; }
+#status.error { color: #e88; }
+#status { z-index: 2; }
+/* the H.264 picture, over noVNC's canvas (placed by viewer.js); the pointer goes through to it */
+#screen canvas.h264 { position: absolute; pointer-events: none; z-index: 1; }
+#screen canvas.h264[hidden] { display: none; }
+#notice { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 3;
+  max-width: 80%; padding: 8px 14px; border-radius: 8px; background: rgba(120, 30, 30, .9);
+  color: #fff; font-size: 13px; pointer-events: none; }
+#notice[hidden] { display: none; }
+#status button { pointer-events: auto; }
+#status[hidden] { display: none; }
+/* VM cards: a quiet state dot over the preview, name and one details line. */
+body.list { display: flex; flex-direction: column; height: auto; min-height: 100%; }
+/* the list's header bar stays in view while the cards scroll under it */
+body.list header.bar { position: sticky; top: 0; z-index: 10; }
+body.list main { flex: 1; width: 100%; max-width: 1200px; margin: 0 auto; padding: 24px 24px 40px; }
+section + section { margin-top: 22px; }
+section h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px 4px; font-size: 13px;
+  font-weight: 700; color: var(--dim); }
+.vm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
+.vm-card { position: relative; min-width: 0; border: 1px solid #37373b; border-radius: 14px;
+  background: #262629; box-shadow: 0 2px 6px #0003; overflow: hidden; }
+.vm-card.open:hover { border-color: #6d6d73; background: #2d2d31; }
+.vm-card:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
+.card-link { position: absolute; inset: 0; z-index: 1; outline: none; border-radius: inherit; }
+.thumbnail { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #18181b; }
+.placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 10px; color: #74747c; font-size: 12px; }
+.placeholder > .bi { width: 64px; height: 64px; }
+.thumbnail.dim .placeholder { opacity: .45; }
+.thumbnail.dim .preview { opacity: .45; filter: grayscale(.5); }
+.preview { display: block; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+/* a portrait model's picture, turned as the viewers show it ((360 - rotation) % 360 clockwise): a
+   quarter turn swaps the box's sides (the box is 16:9, so 9/16 of its width by 16/9 of its height,
+   centred), object-fit then fits the landscape picture in that and the turn puts it upright */
+.preview[data-rotation="180"] { transform: rotate(180deg); }
+.preview[data-rotation="90"], .preview[data-rotation="270"] { inset: auto; width: 56.25%; height: 177.78%;
+  left: 21.875%; top: -38.89%; }
+.preview[data-rotation="90"] { transform: rotate(270deg); }
+.preview[data-rotation="270"] { transform: rotate(90deg); }
+.preview[hidden], .placeholder[hidden] { display: none; }
+.card-start { position: absolute; z-index: 2; right: 12px; bottom: 12px; min-height: 44px;
+  padding: 8px 14px; border-radius: 8px; background: #303035ed; border-color: #ffffff38;
+  box-shadow: 0 2px 8px #0004; opacity: 0; pointer-events: none; transition: opacity .12s; }
+.vm-card:hover .card-start, .vm-card:focus-within .card-start { opacity: 1; pointer-events: auto; }
+.card-start:hover { background: #46464def; }
+.card-start:active { background: #5a5a62; }
+.card-start:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (hover: none) { .card-start { opacity: 1; pointer-events: auto; } }
+.card-info { padding: 14px 16px 16px; min-height: 102px; }
+.vm-card .name { margin: 0 0 9px; font-weight: 650; font-size: 15px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.state-dot { position: absolute; z-index: 2; top: 14px; left: 14px; width: 10px; height: 10px;
+  border-radius: 50%; box-shadow: 0 0 0 3px #17171b99; }
+.state-dot.ok { background: #57e389; }
+.state-dot.warn { background: #f8d668; animation: pulse 1.6s ease-in-out infinite; }
+.state-dot.bad { background: #ff7b63; }
+.state-dot.off { background: #77777c; }
+@keyframes pulse { 50% { opacity: .35; } }
+.details { color: var(--dim); font-size: 12px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.vm-card .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.vm-card .tag { padding: 1px 7px; border-radius: 9px; background: #ffffff1a; color: var(--dim);
+  font-size: 11px; }
+.vm-card .reason { display: block; margin-top: 6px; font-size: 12px;
+  color: #f8d668; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vm-card .reason .bi { margin-right: 4px; vertical-align: -2px; }
+.vm-card .operation { display: block; margin-top: 10px; font-size: 12px; color: var(--dim);
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+.vm-card .operation.error { color: #ff7b63; }
+.card-menu-button { position: absolute; z-index: 2; right: 8px; top: 8px; width: 44px; height: 44px;
+  padding: 0; justify-content: center; background: #242427df; border: 1px solid #ffffff25;
+  border-radius: 50%; font-size: 20px; }
+.card-menu-button:active { background: #505057; }
+.card-menu { position: fixed; inset: auto; margin: 0; width: 168px; padding: 6px; border: 1px solid #505055;
+  border-radius: 12px; background: #353539; color: var(--text); box-shadow: 0 8px 28px #0008; }
+.menu-item { display: flex; gap: 10px; align-items: center; width: 100%; min-height: 44px; padding: 8px 10px;
+  border: 0; border-radius: 7px; background: transparent; color: inherit; text-decoration: none; font-size: 14px; }
+.menu-item:hover, .menu-item:focus-visible { background: #ffffff15; outline: none; }
+.menu-item.destructive { color: #ff8b7c; }
+@media (max-width: 560px) {
+  body.list main { padding: 20px 16px 32px; }
+  .vm-grid { grid-template-columns: 1fr; gap: 18px; }
+}
+.spinner { width: 12px; height: 12px; border: 2px solid #555; border-top-color: var(--dim);
+  border-radius: 50%; animation: spin 1s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spinner, .state-dot.warn { animation: none; }
+  .card-start { transition: none; }
+}
+.status-page { display: flex; flex-direction: column; align-items: center; text-align: center;
+  padding: 90px 20px; color: var(--text); }
+.status-page .big { font-size: 112px; color: #77777c; display: inline-flex; }
+.status-page h2 { margin: 18px 0 6px; font-size: 26px; }
+.status-page p { margin: 0; color: var(--dim); max-width: 460px; }
+/* the remote */
+body.remote { overflow: hidden; background: #000; user-select: none; -webkit-user-select: none;
+  touch-action: none; }
+#panel { position: absolute; transform-origin: 0 0; }
+#panel div { position: absolute; }
+.rk { display: flex; align-items: center; justify-content: center; text-align: center;
+  font-weight: 700; line-height: 1; white-space: pre; cursor: pointer; font-family: "DejaVu Sans", sans-serif; }
+.rk.held { filter: brightness(1.6); }
+.rk.dim { opacity: .3; cursor: default; }
+.print { transform: translate(-50%, -50%); text-align: center; white-space: pre; line-height: 1.05;
+  font-weight: 700; font-family: "DejaVu Sans", sans-serif; }
+#rstatus { position: fixed; left: 0; right: 0; bottom: 0; padding: 3px; font-size: 11px;
+  text-align: center; background: rgba(120, 30, 30, .85); color: #fff; }
+#rstatus[hidden] { display: none; }
+/* the login page (--auth password) and the list's Log Out */
+.login p.error { color: #ff7b63; margin-top: 10px; }
+.login p.error[hidden] { display: none; }
+.login .field { display: flex; gap: 8px; margin-top: 18px; }
+.login input { background: #2a2a2d; color: var(--text); border: 1px solid #444; border-radius: 6px;
+  padding: 6px 10px; font: inherit; width: 240px; }
+.login input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+button.suggested { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.suggested:hover { background: #4499ee; }
+header.bar form { display: contents; }
+header.bar form[hidden] { display: none; }
+
+/* Diagnostic text lets pointer input pass through to noVNC; only Close is interactive. */
+#stats-overlay { position: absolute; z-index: 2; top: 8px; left: 8px;
+  max-width: calc(100% - 16px); padding: 8px 10px; border-radius: 4px;
+  background: #111c; color: #eee; pointer-events: none;
+  font: 12px/1.6 ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+#stats-overlay[hidden] { display: none; }
+.stats-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+#stats-close { pointer-events: auto; justify-content: center; width: 32px; height: 32px;
+  padding: 0; border: 0; background: transparent; }
+#picture-stats, #audio-stats { white-space: pre-line; }
+#audio-stats { margin-top: 6px; }
+
+/* Phones: the lite remote (viewer.html's #lite), shown while body.lite-open and only inside the
+   two phone queries below; desktop never shows it. Keys at least 48 px, held keys in the accent. */
+#lite, #lite .landscape-only { display: none; }
+#lite { --key: rgba(255, 255, 255, .1); --key-hi: rgba(255, 255, 255, .16);
+  --press: rgba(51, 136, 221, .55); background: #232326; border-top: 1px solid #1b1b1d;
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+#lite button { border: 0; border-radius: 14px; background: var(--key); color: var(--text);
+  justify-content: center; padding: 0; font-size: 22px; min-width: 48px; min-height: 48px;
+  transition: background .08s, transform .08s; -webkit-tap-highlight-color: transparent; }
+@media (hover: hover) { #lite button:hover { background: var(--key-hi); } }
+#lite button:active, #lite button.held { background: var(--press); transform: scale(.95); }
+#lite button span { font-size: 11px; color: var(--dim); }
+#lite button:active span, #lite button.held span { color: var(--text); }
+#lite .lite-text { font-size: 14px; font-weight: 700; white-space: pre; line-height: 1.1; text-align: center; }
+.lite-row { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+.lite-row.sys button { flex-direction: column; gap: 2px; height: 56px; }
+.lite-row.media button { height: 52px; }
+#lite button.full { font-size: 15px; font-weight: 700; letter-spacing: .5px; color: var(--dim); }
+.lite-mid { display: grid; grid-template-columns: 60px minmax(0, clamp(150px, calc(100dvh - 590px), 208px)) 60px;
+  gap: 12px; justify-content: center; }
+.rocker { display: flex; flex-direction: column; justify-content: space-between; align-items: stretch;
+  border-radius: 30px; background: var(--key); }
+#lite .rocker button { flex: 1; border-radius: 30px; background: transparent; font-size: 20px; }
+#lite .rocker button:active, #lite .rocker button.held { background: var(--press); }
+.rocker-label, .vol-label { text-align: center; font-size: 11px; font-weight: 700; color: var(--dim);
+  letter-spacing: .5px; padding: 2px 0; }
+/* the D-pad: one ring, four wedge keys (clip-path also clips the hit area), OK on top */
+.dpad { position: relative; width: 100%; aspect-ratio: 1; border-radius: 50%; overflow: hidden;
+  background: var(--key); }
+.dpad::before, .dpad::after { content: ""; position: absolute; left: 50%; top: 50%; width: 142%;
+  height: 2px; background: #232326; pointer-events: none; z-index: 1; }
+.dpad::before { transform: translate(-50%, -50%) rotate(45deg); }
+.dpad::after { transform: translate(-50%, -50%) rotate(-45deg); }
+#lite .wedge { position: absolute; inset: 0; border-radius: 0; background: transparent; font-size: 20px;
+  color: var(--text); transform: none; }
+#lite .wedge:active, #lite .wedge.held { background: var(--press); transform: none; }
+#lite .wedge.up { clip-path: polygon(0 0, 100% 0, 50% 50%); align-items: flex-start; padding-top: 11%; }
+#lite .wedge.down { clip-path: polygon(0 100%, 100% 100%, 50% 50%); align-items: flex-end; padding-bottom: 11%; }
+#lite .wedge.left { clip-path: polygon(0 0, 0 100%, 50% 50%); justify-content: flex-start; padding-left: 11%; }
+#lite .wedge.right { clip-path: polygon(100% 0, 100% 100%, 50% 50%); justify-content: flex-end; padding-right: 11%; }
+#lite .ok { position: absolute; z-index: 2; left: 50%; top: 50%; width: 42%; height: 42%;
+  transform: translate(-50%, -50%); border-radius: 50%; background: #3a3a3f;
+  box-shadow: 0 0 0 5px #232326; font-size: 17px; font-weight: 700; }
+#lite .ok:active, #lite .ok.held { background: var(--accent); transform: translate(-50%, -50%) scale(.95); }
+#lite button:disabled { opacity: .3; transform: none; }
+/* the grip: tap it, or drag the sheet by it (viewer.js); the peek strip while collapsed. Not a
+   control of its own (the toolbar's Remote button is), so not focusable: pointers only. */
+#lite .lite-handle { position: relative; flex: none; display: flex; align-items: center;
+  justify-content: center; width: 100%; height: 20px; touch-action: none; cursor: grab; }
+#lite .lite-handle .grip { width: 36px; height: 4px; border-radius: 2px; background: #555; }
+body.viewer #viewer-more button[hidden] { display: none; }
+/* Portrait phones: the pad is a bottom sheet on the toolbar, in thumb reach, the picture centred in
+   the height left above it. Collapsed, a negative margin takes all but its grip strip (--peek: the
+   top border and the 20 px grip) out of the flow: the rest waits behind the toolbar. viewer.js
+   keeps --lite-h (the sheet's height) and slides the sheet and the picture between the two. The
+   toolbar's Back, Home and Settings move into the sheet while it is open. */
+@media (max-width: 640px) and (orientation: portrait) {
+  /* black outside the sheet's rounded corners, as the letterbox above */
+  body.viewer { background: #000; }
+  body.viewer header.bar { position: relative; z-index: 3; }
+  body.viewer #lite { --peek: 21px; position: relative; z-index: 2; display: flex; flex: none;
+    flex-direction: column; gap: 12px; padding: 0 max(16px, calc((100vw - 420px) / 2)) 16px;
+    border-radius: 18px 18px 0 0; }
+  body.viewer:not(.lite-open) #lite { margin-bottom: calc(var(--peek) - var(--lite-h, 100dvh)); }
+  body.viewer .lite-handle { margin-bottom: -4px; }
+  /* the grip catches a finger a little beyond the bar: collapsed, 28 px above it too (48 px in
+     all), in the letterbox under the picture, which takes no touches there; open, the 8 px gap
+     down to the keys (above it the picture may reach the sheet) */
+  body.viewer .lite-handle::before { content: ""; position: absolute; left: 0; right: 0;
+    top: 100%; height: 8px; }
+  body.viewer:not(.lite-open) .lite-handle::before { top: auto; bottom: 100%; height: 28px; }
+  body.viewer.lite-open header.bar .linked { display: none; }
+}
+/* Landscape phones (desktop header kept): a strip on the right, beside the 16:9 picture, clear of
+   a notch; no channel rocker, no media row (Full remote is in More). */
+@media (orientation: landscape) and (max-height: 500px) {
+  body.viewer.lite-open { display: grid; height: 100dvh; grid-template-rows: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) calc(224px + env(safe-area-inset-right)); }
+  body.viewer.lite-open header.bar { grid-row: 1; grid-column: 1 / -1; position: relative; z-index: 3; }
+  body.viewer.lite-open #screen { grid-row: 2; grid-column: 1; }
+  body.viewer.lite-open header.bar .linked { display: none; }
+  body.viewer.lite-open #lite { grid-row: 2; grid-column: 2; display: flex; flex-direction: column;
+    position: relative; z-index: 2;
+    justify-content: center; gap: 10px; min-height: 0; overflow: auto; border-top: 0; border-left: 1px solid #1b1b1d;
+    padding: max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom)) 10px; }
+  #lite .lite-handle, #lite .portrait-only { display: none; }
+  #lite .landscape-only { display: grid; }
+  .lite-row.sys button { height: 48px; }
+  .lite-row.sys button span { display: none; }
+  .lite-mid { grid-template-columns: min(172px, calc(100dvh - 200px)); justify-content: center; }
+  .lite-mid .rocker { display: none; }
+  .lite-row.media { display: none; }
+  .lite-row.vol { grid-template-columns: 1fr auto 1fr 1fr; align-items: center; }
+  .lite-row.vol button { height: 48px; }
+}

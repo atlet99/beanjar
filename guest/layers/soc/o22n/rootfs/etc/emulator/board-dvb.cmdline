@@ -1,0 +1,16 @@
+# W23O 13.40.76: native generators verify 2.5G OLED, UD, 1080p, 120Hz and EU.
+# OLED55C36LA belongs to this OTA; ToolOpt uses this firmware's C3/55 enum.
+# Official C3 BASE source retains O22 family 0x26. A0 is a virtual choice.
+# Identity placeholders are replaced per VM.
+ethaddr=02:00:00:12:34:56
+devtmpfs.mount=1
+countryGrp=4
+modelopt=000000000
+hwopt=200200010105102000
+ToolOpt=2187534:1310739:1706066:18497:8054323:1915935499
+modelName=OLED55C36LA
+debugMode=3
+serialNum=000RAXX00001
+chip=O22A0
+emmc_size=0x1d2000000
+cmdEnd

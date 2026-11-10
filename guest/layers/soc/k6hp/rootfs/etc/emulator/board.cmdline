@@ -1,0 +1,20 @@
+# W20H 04.74.00: K6HP board for 55NANO906NA (the local model DB's W20H DVB row).
+# Encodings are decoded by this firmware's hw-option-gen / nyx-option-gen and
+# libdile_boardinfo. ToolOpt starts with this firmware's LLS default record,
+# changing only panelInch=55 and toolType=NANO90 through its factorymanager tables.
+# The UHD 100/120 Hz panel is documented by LG; RAM is the emulator's 2 GiB.
+# https://www.lg.com/de/tvs-und-soundbars/nanocell/55nano906na/
+ethaddr=a8:23:fe:12:34:56
+devtmpfs.mount=1
+countryGrp=4
+modelopt=000000000
+hwopt=202210000004002000
+ToolOpt=67240174:6678:35961:65:395810915:1616370953
+modelName=55NANO906NA
+debugMode=3
+# Placeholder identity, overridden per VM.
+serialNum=000RAXX00001
+chip=K6HPA0
+# Virtual eMMC, large enough for this firmware's assembled partition map.
+emmc_size=0x1d2000000
+cmdEnd

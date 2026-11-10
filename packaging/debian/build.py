@@ -1,0 +1,701 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Assemble Debian 13 binary packages from explicit, published build inputs (README.md).
+
+The versions are the ones the build lanes published (packaging/identity.py): the host packages take
+the host publish directory's source-version.toml, beanjar-guest the guest publish directory's
+guest-installation.toml. Git is never run here. --host-only reads no guest input at all."""
+
+import argparse
+import hashlib
+import importlib.metadata
+import re
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import tomllib
+
+TOP = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(TOP / "host/core"))
+from beanjar import targets as beanjar_targets  # noqa: E402
+
+PREFIX = Path("usr/lib/beanjar")
+IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc")
+# Debian architecture -> ELF e_machine and GNU triplet (the cross binutils' prefix)
+ELF_MACHINE = {"arm64": 183, "amd64": 62}
+TRIPLET = {"arm64": "aarch64-linux-gnu", "amd64": "x86_64-linux-gnu"}
+BUILD_ARCH = None  # this machine's Debian architecture (main)
+
+
+# The launcher runs the vendored QEMU (beanjar-qemu) when it is installed, else Debian's with its
+# OpenGL module (paths.Tree.qemu). A Depends alternative is one package, so each of Debian's two
+# packages gets its own beanjar-qemu alternative.
+QEMU_DEPENDS = "beanjar-qemu | qemu-system-arm, beanjar-qemu | qemu-system-modules-opengl"
+# libepoxy dlopens these at run time (libEGL.so.1; libGL.so.1, else libOpenGL.so.0), so
+# dpkg-shlibdeps cannot see them. libgbm1 is linked and found by shlibdeps.
+QEMU_DLOPEN_DEPENDS = "libegl1, libopengl0"
+
+
+# The camera (beanjar io usb plug --camera) runs GStreamer as a child: gst-launch-1.0 with
+# videotestsrc and videoconvert (plugins-base), timeoverlay (pango, in gstreamer1.0-x) and jpegenc
+# (plugins-good).
+CAMERA_DEPENDS = (
+    "gstreamer1.0-tools, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-x"
+)
+# Third-party code the beanjar package carries, with its licence.
+HOST_COPYRIGHT = """\
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: beanjar
+
+Files: usr/lib/beanjar/virtcam/libusbipdcpp.so usr/lib/beanjar/virtcam/libusbipdcpp_virtual_device.so
+Copyright: yunsmall and the usbipdcpp contributors
+License: LGPL-3.0
+Comment: This product uses usbipdcpp (https://github.com/yunsmall/usbipdcpp), licensed under
+ LGPLv3. Built unmodified from that source (subprojects/usbipdcpp.wrap names the revision) and
+ linked dynamically. On Debian systems the licence is in /usr/share/common-licenses/LGPL-3.
+"""
+
+
+def guest_range(version, identity):
+    """The beanjar-guest versions of version's host-guest contract (identity.contract): 0.2.x for a
+    0.2 host, any patch version and build of it. An apt hint: the launcher checks what the guest
+    payload has, not its version (host/core/beanjar/compat.py)."""
+    return (
+        f"beanjar-guest (>= {identity.contract(version)}), "
+        f"beanjar-guest (<< {identity.next_contract(version)})"
+    )
+
+
+def host_dependencies(version, libs, identity):
+    """The beanjar package's Depends; libs: its shared libraries' packages (dpkg-shlibdeps). Any
+    beanjar-guest of the host's contract will do, whatever its patch version. python3-gi is Gio,
+    for the VMs' bus (beanjar/dbus.py); GTK is beanjar-ui's."""
+    return (
+        f"{guest_range(version, identity)}, python3 (>= 3.13), python3 (<< 3.14), python3-venv, python3-gi, "
+        "python3-tomlkit, python3-pyelftools, python3-capstone, python3-dnspython, "
+        f"dbus-daemon, slirp4netns, iproute2, openssh-client, openssl, {QEMU_DEPENDS}, qemu-user, bubblewrap, "
+        f"ca-certificates, squashfs-tools, busybox, libcap2-bin, {CAMERA_DEPENDS}, {libs}"
+    )
+
+
+def copy(src, dst):
+    if not src.exists():
+        raise SystemExit(f"missing input: {src}")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if src.is_dir():
+        for link in src.rglob("*"):
+            if link.is_symlink() and (
+                os.path.isabs(os.readlink(link)) or not link.resolve().is_relative_to(src.resolve())
+            ):
+                raise SystemExit(f"external symlink in input: {link}")
+        shutil.copytree(src, dst, ignore=IGNORE, symlinks=True)
+    else:
+        shutil.copy2(src, dst)
+
+
+# The Python launchers' first lines: bytecode goes to a per-user cache, $XDG_CACHE_HOME/beanjar/
+# pycache (default ~/.cache), never next to the sources under /usr/lib, and no bytecode is
+# shipped. Without such a directory of this user's own (it cannot be made, or the nearest
+# existing one belongs to someone else: root under sudo with the caller's HOME) nothing is
+# written, as before.
+PYCACHE = """import os,sys
+def _pycache():
+    base=os.environ.get("XDG_CACHE_HOME","")
+    if not os.path.isabs(base):
+        base=os.path.join(os.path.expanduser("~"),".cache")
+    path=probe=os.path.join(base,"beanjar","pycache")
+    try:
+        while not os.path.isdir(probe):
+            probe=os.path.dirname(probe)
+        if os.stat(probe).st_uid!=os.geteuid():
+            return None
+        os.makedirs(path,mode=0o700,exist_ok=True)
+        return path if os.stat(path).st_uid==os.geteuid() else None
+    except OSError:
+        return None
+sys.pycache_prefix=_pycache()
+sys.dont_write_bytecode=sys.pycache_prefix is None
+del _pycache
+"""
+
+
+def python_launcher(body):
+    """A Python launcher's text: PYCACHE, then body."""
+    return f"#!/usr/bin/python3\n{PYCACHE}{body}"
+
+
+def write(path, text, mode=0o644):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    path.chmod(mode)
+
+
+def control(root, name, version, arch, depends, description, recommends=None):
+    size = sum(p.stat().st_size for p in root.rglob("*") if p.is_file()) // 1024
+    write(
+        root / "DEBIAN/control",
+        f"Package: {name}\nVersion: {version}\nArchitecture: {arch}\n"
+        f"Maintainer: Mariotaku <git@mariotaku.me>\nSection: misc\nPriority: optional\n"
+        f"Installed-Size: {size}\n"
+        + (f"Depends: {depends}\n" if depends else "")
+        + (f"Recommends: {recommends}\n" if recommends else "")
+        + f"Homepage: https://github.com/mariotaku/beanjar\n"
+        f"Description: {description}\n",
+    )
+    lines = []
+    for path in sorted(root.rglob("*")):
+        if (
+            path.is_file()
+            and not path.is_symlink()
+            and "DEBIAN" not in path.relative_to(root).parts
+        ):
+            lines.append(
+                f"{hashlib.md5(path.read_bytes()).hexdigest()}  {path.relative_to(root)}\n"
+            )
+    write(root / "DEBIAN/md5sums", "".join(lines))
+
+
+def package(root, out, commit_epoch):
+    """dpkg-deb of root; file dates SOURCE_DATE_EPOCH, else the recorded commit's time (never today)."""
+    epoch = os.environ.get("SOURCE_DATE_EPOCH") or str(commit_epoch)
+    subprocess.run(
+        ["dpkg-deb", "--root-owner-group", "-Zxz", "-z3", "--build", str(root), str(out)],
+        check=True,
+        env=dict(os.environ, TMPDIR=str(root.parent), SOURCE_DATE_EPOCH=epoch),
+    )
+
+
+def shlibs_depends(text, where="dpkg-shlibdeps"):
+    """The Depends list in dpkg-shlibdeps' output (-O: the line shlibs:Depends=..., also a
+    substvars file's), or a bare list as given."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    found = [line.split("=", 1)[1] for line in lines if line.startswith("shlibs:Depends=")]
+    if len(found) == 1 and found[0].strip():
+        return found[0].strip()
+    if not found and len(lines) == 1 and not re.match(r"[\w.-]+:[\w.-]+=", lines[0]):
+        return lines[0]
+    raise SystemExit(
+        f"{where}: expected one shlibs:Depends=... line (dpkg-shlibdeps -O) or a bare dependency list"
+    )
+
+
+def ui_dependencies(version):
+    """beanjar-ui's Depends: the core of the same beanjar, and GTK 4 and libadwaita for Python."""
+    return (
+        f"beanjar (= {version}), python3 (>= 3.13), python3-gi, gir1.2-gtk-4.0 (>= 4.12), "
+        "gir1.2-adw-1 (>= 1.7)"
+    )
+
+
+def vnc_dependencies(version, libs):
+    """beanjar-vnc's Depends: the viewer core of the same beanjar, and its own libraries."""
+    return f"beanjar (= {version}), {libs}"
+
+
+def web_dependencies(version):
+    """beanjar-web's Depends: the CLI of the same beanjar (its pipes and the remote's layouts),
+    beanjar-vnc, aiohttp, and Debian's noVNC and Bootstrap Icons, which it serves as they are."""
+    return (
+        f"beanjar (= {version}), beanjar-vnc, python3 (>= 3.13), python3-aiohttp, novnc, "
+        "bootstrap-icons"
+    )
+
+
+# The Python packages (host/<dir>/pyproject.toml): each ships as source in /usr/lib/beanjar/<dir>,
+# with a launcher for each of its scripts in /usr/bin (and [tool.beanjar.libexec]'s in
+# /usr/libexec/beanjar) that puts that directory, and the core's, on sys.path.
+PYTHON_PACKAGES = {"core": "beanjar", "ui": "beanjar_ui", "web": "beanjar_web"}
+
+
+def pyproject(directory):
+    with open(TOP / "host" / directory / "pyproject.toml", "rb") as f:
+        return tomllib.load(f)
+
+
+def entry_points(directory):
+    """{(bin directory, name): "module:function"} of host/<directory>'s pyproject.toml."""
+    meta = pyproject(directory)
+    project = meta["project"]
+    found = {}
+    for table in ("scripts", "gui-scripts"):
+        for name, target in project.get(table, {}).items():
+            found[("usr/bin", name)] = target
+    for name, target in meta.get("tool", {}).get("beanjar", {}).get("libexec", {}).items():
+        found[("usr/libexec/beanjar", name)] = target
+    return found
+
+
+def sys_path(*directories):
+    """A launcher's lines putting /usr/lib/beanjar/<directory> on sys.path, in order."""
+    return "".join(f'sys.path.insert({i},"/{PREFIX / d}")\n' for i, d in enumerate(directories))
+
+
+def stage_python(root, directory, skip=()):
+    """host/<directory>'s package into root's /usr/lib/beanjar/<directory>, with launchers for its
+    entry points (but skip's names); the UI's also see the core's package."""
+    package = PYTHON_PACKAGES[directory]
+    copy(TOP / "host" / directory / package, root / PREFIX / directory / package)
+    path = (directory, "core") if directory == "ui" else (directory,)
+    for (bindir, name), target in entry_points(directory).items():
+        if name in skip:
+            continue
+        module, function = target.split(":")
+        write(
+            root / bindir / name,
+            python_launcher(
+                f"{sys_path(*path)}from {module} import {function}\nsys.exit({function}())\n"
+            ),
+            0o755,
+        )
+
+
+def stage_web(work):
+    """The beanjar-web tree (architecture all): the beanjar_web package and its launcher."""
+    web = work / "beanjar-web"
+    stage_python(web, "web")
+    copy(TOP / "packaging/debian/README.md", web / "usr/share/doc/beanjar-web/README.md")
+    return web
+
+
+def binutil(arch, tool):
+    """tool (strip, objdump) for arch: this machine's own, or the cross binutils' for another."""
+    return tool if arch == BUILD_ARCH else f"{TRIPLET[arch]}-{tool}"
+
+
+def elf_arch(path):
+    """The Debian architecture of the ELF at path, from its e_machine."""
+    with path.open("rb") as stream:
+        header = stream.read(20)
+    machine = int.from_bytes(header[18:20], "little")
+    if header[:4] == b"\x7fELF":
+        for arch, value in ELF_MACHINE.items():
+            if value == machine:
+                return arch
+    raise SystemExit(f"not an ELF of a packaged architecture: {path}")
+
+
+def native_dependencies(root, arch, libdirs=()):
+    """libdirs: where libraries of another package that root's ELFs need are (dpkg-shlibdeps
+    finds them there, and they add no dependency of their own). For an arch other than this
+    machine's (a cross build), dpkg-shlibdeps runs with DEB_HOST_ARCH: it reads that architecture's
+    multiarch libraries and packages (dpkg --add-architecture) with its triplet's objdump."""
+    elfs = []
+    for path in root.rglob("*"):
+        if path.is_file() and "usr/share" not in str(path.relative_to(root)):
+            with path.open("rb") as stream:
+                if stream.read(4) == b"\x7fELF":
+                    elfs.append(path)
+    with tempfile.TemporaryDirectory(dir=root.parent) as work:
+        write(
+            Path(work) / "debian/control",
+            "Source: beanjar\nSection: misc\nPriority: optional\nMaintainer: Mariotaku <git@mariotaku.me>\n\nPackage: beanjar\nArchitecture: any\nDescription: Beanjar runtime\n",
+        )
+        output = subprocess.check_output(
+            [
+                "dpkg-shlibdeps",
+                "-O",
+                "--ignore-missing-info",
+                *["-l" + str(p) for p in sorted({p.parent for p in elfs} | set(libdirs))],
+                *["-e" + str(p) for p in elfs],
+            ],
+            cwd=work,
+            text=True,
+            env=dict(os.environ, DEB_HOST_ARCH=arch),
+        )
+    return shlibs_depends(output)
+
+
+def components(source, destination):
+    from importlib.util import spec_from_file_location, module_from_spec
+
+    spec = spec_from_file_location("guest_component_builder", TOP / "meson/components.py")
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    # the selections, their selected variants and each layer's layer.toml, which the installed
+    # manager reads (beanjar/layermeta.py); packaging/shippable.py scans the same
+    try:
+        paths = module.shipped(source)
+    except ValueError as e:
+        raise SystemExit(str(e))
+    if not any(p.parent.name == "variants" for p in paths):
+        raise SystemExit("no independent guest components published")
+    for relative in paths:
+        copy(source / relative, destination / relative)
+    return module
+
+
+def layer_images(g):
+    """The read-only image of every shipped layer (each selected variant, and normal) in
+    g/layer-images, under the name the installed launcher looks for (host/core/beanjar/layerimage.py),
+    so an installed host builds none."""
+    sys.path.insert(0, str(TOP / "host/core"))
+    from beanjar import layerimage, layermeta
+
+    sources = [(p, ()) for p in sorted((g / "layers").rglob("variants/*")) if p.is_dir()]
+    sources.append((g / "layers/normal", (layermeta.FILE,)))
+    for src, skip in sources:
+        name = layerimage.key(layerimage.layer_digest(str(src), skip)) + ".sqfs"
+        try:
+            layerimage.build(str(src), str(g / "layer-images" / name), skip)
+        except layerimage.Error as e:
+            raise SystemExit(f"cannot package: {e}") from None
+
+
+def rebuild_targets(gp):
+    """Compile every target the published components select, in its own build directory
+    (build/guest-<target>), so the package never carries a target last built before a change to a
+    shared source (a Mesa patch, a wrap). Meson and Ninja rebuild what changed, and meson/fetch.py
+    unpacks a source tree again when its wrap or patches did. A target that cannot be built stops."""
+    import json
+
+    targets = set()
+    for selection in (gp / "components").rglob("selections.json"):
+        targets |= set(json.loads(selection.read_text()))
+    for target in sorted(targets):
+        directory = TOP / "build" / f"guest-{target}"
+        if not (directory / "build.ninja").is_file():
+            raise SystemExit(f"cannot package: {target} is selected but {directory} is not set up")
+        print(f"building {target}", flush=True)
+        if subprocess.run(["meson", "compile", "-C", str(directory)]).returncode:
+            raise SystemExit(f"cannot package: the build of {target} failed")
+
+
+def load_identity():
+    """packaging/identity.py, which reads the published source versions (it never runs git here)."""
+    from importlib.util import spec_from_file_location, module_from_spec
+
+    spec = spec_from_file_location("beanjar_identity", TOP / "packaging/identity.py")
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def published_identity(identity, path, guest=False):
+    """The releasable identity a build lane published at path (identity.read); SystemExit naming it."""
+    try:
+        return identity.releasable(identity.read(path, guest=guest), path)
+    except identity.Error as e:
+        raise SystemExit(f"cannot package: {e}") from None
+
+
+def stage_host(work, hp, arch, ident):
+    """The beanjar and beanjar-vnc trees from the host publish directory and the host's sources."""
+    host, vnc = work / "beanjar", work / "beanjar-vnc"
+    h = host / PREFIX
+    # the beanjar launcher is below: without arguments it opens beanjar-ui's window
+    stage_python(host, "core", skip=("beanjar",))
+    for directory in ("mstar", "rtk", "ssh", "network"):
+        source = TOP / "host/helpers" / directory
+        for file in source.glob("*.py"):
+            copy(file, h / "helpers" / directory / file.name)
+    for relative, destination in (
+        ("viewer/libbeanjar-viewer-core.so", h / "viewer/libbeanjar-viewer-core.so"),
+        ("viewer/viewer-headless", host / "usr/libexec/beanjar/viewer-headless"),
+        ("media-helper/media-helper", host / "usr/libexec/beanjar/media-helper"),
+        ("network/beanjar-lan-helper", host / "usr/libexec/beanjar/beanjar-lan-helper"),
+        ("network/beanjar-relay", host / "usr/libexec/beanjar/beanjar-relay"),
+        # the virtual USB camera and its usbipdcpp libraries, found beside it ($ORIGIN)
+        ("virtcam/beanjar-virtcam", h / "virtcam/beanjar-virtcam"),
+        ("virtcam/libusbipdcpp.so", h / "virtcam/libusbipdcpp.so"),
+        ("virtcam/libusbipdcpp_virtual_device.so", h / "virtcam/libusbipdcpp_virtual_device.so"),
+        ("vnc/beanjar-vnc", vnc / "usr/bin/beanjar-vnc"),
+    ):
+        copy(hp / relative, destination)
+        if elf_arch(destination) != arch:
+            raise SystemExit(f"wrong native artifact architecture: {relative}")
+    # the firmware target table targets.py loads at import (paths.Tree.src's guest/targets)
+    copy(TOP / "guest/targets", host / "usr/share/beanjar/targets")
+    copy(
+        TOP / "host/helpers/network/requirements.txt",
+        host / "usr/share/beanjar/mitmproxy/requirements.txt",
+    )
+    write(
+        h / "installation.toml",
+        installation_toml(version=ident["version"], commit=ident["commit"], architecture=arch),
+    )
+    # beanjar: the CLI; without arguments, beanjar-ui's window where that is installed
+    write(
+        host / "usr/bin/beanjar",
+        python_launcher(
+            f"{sys_path('core', 'ui')}"
+            'if len(sys.argv)==1 and os.path.isdir("/usr/lib/beanjar/ui"):\n'
+            "    from beanjar_ui.manager.gui import main\n"
+            "else:\n"
+            "    from beanjar.cli import main\n"
+            "sys.exit(main())\n"
+        ),
+        0o755,
+    )
+    # beanjar-viewer: the headless viewer (screenshots without a window) runs without beanjar-ui;
+    # the window needs it
+    write(
+        host / "usr/bin/beanjar-viewer",
+        python_launcher(
+            'if any(a in sys.argv for a in ("--headless","--replay","--screenshot","--screenshot-every","--osd-alpha","--no-osd")):\n'
+            '    os.execv("/usr/libexec/beanjar/viewer-headless", ["viewer-headless"]+sys.argv[1:])\n'
+            f"{sys_path('ui', 'core')}"
+            "try:\n"
+            "    from beanjar_ui.viewer.main import main\n"
+            "except ImportError as e:\n"
+            '    sys.exit(f"beanjar-viewer: the window needs beanjar-ui ({e}); --headless runs without")\n'
+            "sys.exit(main(sys.argv[1:]))\n"
+        ),
+        0o755,
+    )
+    for root in (host, vnc):
+        copy(TOP / "packaging/debian/README.md", root / "usr/share/doc" / root.name / "README.md")
+    write(host / "usr/share/doc/beanjar/copyright", HOST_COPYRIGHT)
+    # link = "lan"'s helper (host/helpers/network/lan-helper.c): CAP_NET_ADMIN only, as a file
+    # capability, which dpkg cannot carry; without it link=lan fails at start and says so
+    write(
+        host / "DEBIAN/postinst",
+        '#!/bin/sh\nset -e\nif [ "$1" = configure ]; then\n'
+        "  setcap cap_net_admin=ep /usr/libexec/beanjar/beanjar-lan-helper || "
+        'echo "beanjar: setcap failed: link=lan is unavailable" >&2\nfi\n',
+        0o755,
+    )
+    return host, vnc
+
+
+def stage_ui(work, hp):
+    """The beanjar-ui tree (architecture all): the beanjar_ui package, its launcher, both GResource
+    bundles from the host publish directory, the desktop entry and the icon."""
+    ui = work / "beanjar-ui"
+    stage_python(ui, "ui")
+    for relative in ("manager/beanjar.gresource", "viewer/beanjar-viewer.gresource"):
+        copy(hp / relative, ui / "usr/share/beanjar/ui" / Path(relative).name)
+    write(
+        ui / "usr/share/applications/org.webosbrew.beanjar.desktop",
+        "[Desktop Entry]\nType=Application\nName=Beanjar\nComment=TV firmware virtual machines\nExec=beanjar-ui\nIcon=org.webosbrew.beanjar\nTerminal=false\nCategories=System;Emulator;\n",
+    )
+    copy(
+        TOP / "host/ui/data/icon.svg",
+        ui / "usr/share/icons/hicolor/scalable/apps/org.webosbrew.beanjar.svg",
+    )
+    copy(TOP / "packaging/debian/README.md", ui / "usr/share/doc/beanjar-ui/README.md")
+    return ui
+
+
+def stage_guest(work, gp, stamp):
+    """The beanjar-guest tree from the guest publish directory (and the guest's source-only files),
+    with its installation.toml: the version its build lane stamped, never the host's."""
+    guest = work / "beanjar-guest"
+    g = guest / "usr/share/beanjar/guest"
+    for file in ("Image", "initramfs.cpio.gz"):
+        copy(gp / file, g / file)
+    for module in beanjar_targets.payload_modules():
+        copy(gp / (module + ".ko"), g / "modules" / (module + ".ko"))
+    copy(gp / "lls/lls-probe", g / "bin/lls-probe")
+    copy(gp / "lls/lls-probe.so", g / "bin/lls-probe.so")
+    copy(gp / "ssh/bin", g / "ssh/bin")
+    builder = components(gp / "components", g / "layers")
+    copy(TOP / "guest/layers/normal", g / "layers/normal")
+    layer_images(g)
+    copy(TOP / "guest/layers/binds.conf", g / "layers/binds.conf")
+    for file in (TOP / "guest/scripts").glob("*.sh"):
+        copy(file, g / "scripts" / file.name)
+    # each chip's board.cmdline and its boards for a broadcast standard (targets.Soc.broadcast_boards)
+    for board in (TOP / "guest/layers/soc").glob("*/rootfs/etc/emulator/board*.cmdline"):
+        copy(board, g / "boards" / board.parts[-5] / board.name)
+    write(
+        g / "installation.toml",
+        installation_toml(
+            version=stamp["version"], commit=stamp["commit"], payload_sha256=builder.digest(g)
+        ),
+    )
+    copy(TOP / "packaging/debian/README.md", guest / "usr/share/doc" / guest.name / "README.md")
+    return guest
+
+
+def installation_toml(**fields):
+    """An installation.toml: a flat TOML table (the manager reads the host's, the launcher the guest's)."""
+    return "".join(
+        f"{k} = {v}\n" if isinstance(v, int) else f'{k} = "{v}"\n' for k, v in fields.items()
+    )
+
+
+def audit_private(*roots):
+    from importlib.util import spec_from_file_location, module_from_spec
+
+    spec = spec_from_file_location("audit", TOP / "packaging/shippable.py")
+    audit = module_from_spec(spec)
+    spec.loader.exec_module(audit)
+    for root in roots:
+        for path in root.rglob("*"):
+            if path.is_file() and not path.is_symlink() and audit.PRIVATE.search(path.read_bytes()):
+                raise SystemExit(f"private key in payload: {path.relative_to(root)}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--publish", type=Path, default=TOP / "build")
+    parser.add_argument(
+        "--host-publish", type=Path, help="native host artifacts (default --publish)"
+    )
+    parser.add_argument(
+        "--guest-publish", type=Path, help="shared guest artifacts (default --publish)"
+    )
+    parser.add_argument(
+        "--no-rebuild",
+        action="store_true",
+        help="do not compile the guest targets first (build/ as it is; the default publish only)",
+    )
+    parser.add_argument(
+        "--architecture",
+        choices=tuple(ELF_MACHINE),
+        help="the host artifacts' architecture (default: that of the published viewer-headless)",
+    )
+    parser.add_argument(
+        "--host-only",
+        action="store_true",
+        help="only beanjar, beanjar-ui, beanjar-vnc and beanjar-web; no guest input is read",
+    )
+    parser.add_argument(
+        "--shlibs-file",
+        type=Path,
+        help="dpkg-shlibdeps -O's output (shlibs:Depends=...) in the native build lane",
+    )
+    parser.add_argument("--vnc-shlibs-file", type=Path, help="as --shlibs-file, for beanjar-vnc")
+    parser.add_argument(
+        "--qemu-publish", type=Path, help="separately package this patched QEMU build"
+    )
+    parser.add_argument("--output", type=Path, default=TOP / "build/packages")
+    a = parser.parse_args()
+    global BUILD_ARCH
+    BUILD_ARCH = subprocess.check_output(["dpkg", "--print-architecture"], text=True).strip()
+    if BUILD_ARCH not in ELF_MACHINE or sys.version_info[:2] != (3, 13):
+        raise SystemExit("Debian 13 and Python 3.13 required")
+    if 'VERSION_ID="13"' not in Path("/etc/os-release").read_text():
+        raise SystemExit("Debian 13 required")
+    identity = load_identity()
+    hp = (a.host_publish or a.publish).resolve()
+    # the architecture the host lane built for (build/publish-arm64: the arm64 cross build's)
+    arch = a.architecture or elf_arch(hp / "viewer/viewer-headless")
+    host_ident = published_identity(identity, hp / "source-version.toml")
+    version = host_ident["version"]
+    subprocess.run(["dpkg", "--validate-version", version], check=True)
+    a.output = a.output.resolve()
+    a.output.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="beanjar-deb-", dir=a.output) as work:
+        work = Path(work)
+        host, vnc = stage_host(work, hp, arch, host_ident)
+        audit_private(host, vnc)
+        libs = (
+            shlibs_depends(a.shlibs_file.read_text(), a.shlibs_file)
+            if a.shlibs_file
+            else native_dependencies(host, arch)
+        )
+        control(
+            host,
+            "beanjar",
+            version,
+            arch,
+            host_dependencies(version, libs, identity),
+            "Beanjar TV firmware VMs: the core, its command line and the host runtime",
+            recommends=f"beanjar-ui (= {version})",
+        )
+        vnc_libs = (
+            shlibs_depends(a.vnc_shlibs_file.read_text(), a.vnc_shlibs_file)
+            if a.vnc_shlibs_file
+            else native_dependencies(vnc, arch, [host / PREFIX / "viewer"])
+        )
+        control(
+            vnc,
+            "beanjar-vnc",
+            version,
+            arch,
+            vnc_dependencies(version, vnc_libs),
+            "Beanjar VMs' TV picture as a VNC server (neatvnc), without a desktop",
+        )
+        if not a.host_only:
+            gp = (a.guest_publish or a.publish).resolve()
+            if gp == (TOP / "build").resolve() and not a.no_rebuild:
+                rebuild_targets(gp)
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(TOP / "packaging/shippable.py"),
+                    str(gp),
+                ],
+                check=True,
+            )
+            stamp = published_identity(identity, gp / "guest-installation.toml", guest=True)
+            subprocess.run(["dpkg", "--validate-version", stamp["version"]], check=True)
+            guest = stage_guest(work, gp, stamp)
+            audit_private(guest)
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(TOP / "packaging/shippable.py"),
+                    str(guest / "usr/share/beanjar/guest"),
+                ],
+                check=True,
+            )
+            control(
+                guest,
+                "beanjar-guest",
+                stamp["version"],
+                "all",
+                "",
+                "Beanjar virtual TV kernel and guest components",
+            )
+            package(
+                guest, a.output / f"beanjar-guest_{stamp['version']}_all.deb", stamp["commit_epoch"]
+            )
+        package(host, a.output / f"beanjar_{version}_{arch}.deb", host_ident["commit_epoch"])
+        package(vnc, a.output / f"beanjar-vnc_{version}_{arch}.deb", host_ident["commit_epoch"])
+        ui = stage_ui(work, hp)
+        audit_private(ui)
+        control(
+            ui,
+            "beanjar-ui",
+            version,
+            "all",
+            ui_dependencies(version),
+            "Beanjar's desktop windows: the VM manager and the viewer",
+        )
+        package(ui, a.output / f"beanjar-ui_{version}_all.deb", host_ident["commit_epoch"])
+        web = stage_web(work)
+        audit_private(web)
+        control(
+            web,
+            "beanjar-web",
+            version,
+            "all",
+            web_dependencies(version),
+            "Beanjar VMs in a browser: noVNC and a popup TV remote",
+        )
+        package(web, a.output / f"beanjar-web_{version}_all.deb", host_ident["commit_epoch"])
+        if a.qemu_publish:
+            q = work / "beanjar-qemu"
+            binary = q / "usr/libexec/beanjar/qemu-system-aarch64"
+            copy(a.qemu_publish / "bin/qemu-system-aarch64", binary)
+            # QEMU's build keeps its debug info (112 MB on x86-64); the package ships without it.
+            if elf_arch(binary) != arch:
+                raise SystemExit("wrong QEMU architecture: " + str(a.qemu_publish))
+            subprocess.run([binutil(arch, "strip"), "--strip-unneeded", binary], check=True)
+            # QEMU's own vhost-user-gpu backend, the VM's GPU in its own process on an ARM host
+            # (qemu.gpu_process); its libraries are a subset of qemu-system-aarch64's
+            backend = q / "usr/libexec/beanjar/vhost-user-gpu"
+            copy(a.qemu_publish / "libexec/vhost-user-gpu", backend)
+            if elf_arch(backend) != arch:
+                raise SystemExit("wrong vhost-user-gpu architecture: " + str(a.qemu_publish))
+            subprocess.run([binutil(arch, "strip"), "--strip-unneeded", backend], check=True)
+            copy(a.qemu_publish / "share/qemu", q / "usr/share/beanjar/qemu")
+            control(
+                q,
+                "beanjar-qemu",
+                version,
+                arch,
+                f"{native_dependencies(q, arch)}, {QEMU_DLOPEN_DEPENDS}",
+                "Beanjar patched QEMU",
+            )
+            package(q, a.output / f"beanjar-qemu_{version}_{arch}.deb", host_ident["commit_epoch"])
+
+
+if __name__ == "__main__":
+    main()

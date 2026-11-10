@@ -1,0 +1,73 @@
+# netcast45: LG's NetCast 4.5 (LM14's 04.11.18, "HE_LCD_NC5U_AAADAIAA"; docs/dev/architecture/netcast45.md),
+# not webOS, stated whole. sysvinit and glibc 2.16 on LG's 3.x kernel; rc.local runs lginit, whose
+# lginit_app mounts the paks from /dev/mmcblk0pN, but the vendor pak: init mounts it (/mnt/vendor),
+# so that the netcast45 layer's libgal.so lies over the vendor's (lginit exports
+# LD_PRELOAD=/mnt/vendor/libgal.so to every process), and its partition has no node, so
+# lginit_app's own mount of it fails as for the partitions the firmware leaves absent (tplist,
+# idfile, cert...); it goes on (measured). The same for the lglib pak (/mnt/lg/res/lglib), where the
+# layer's Mesa-backed libEGL, GLES and libMali lie over the vendor's Mali libraries: processes
+# that find them there by path (chrome) get the emulator's. The partition map is lginit_app's partinfo (63
+# entries). The read-write partitions RELEASE mounts (system_app p61, data p62; apps p63) at the
+# map's sizes; the eMMC NVM and the I2C EEPROM start blank, as SimpleSmart's. The board's 1 GiB of
+# each of two MIUs is not all the VM's: 1 GiB of RAM, as the bring-up probe. Its UHD panel
+# (RELEASE.cfg eDispResolution 3840x2160) is behind the URSA9 FRC; the VM's display is the
+# emulator's 1920x1080 (the GOP's planes are placed in it).
+
+platform = "NetCast"
+version = "4.5"
+always_layers = ["netcast45"]
+init_system = "sysvinit"
+# the bring-up probe's: CAP_WAKE_ALARM
+cap_last_cap = 35
+ddr_sizes = []
+dram = 1024
+board_in_kernel = true
+screen = [1920, 1080]
+# no USB class driver: its kernel pak is encrypted, and none ships as a module in its paks (LG's
+# published config builds them as modules). That config builds FAT in (VFAT_FS, iso8859-1) and
+# lgli.pak ships LG's tfat.ko and tntfs.ko: vfat and lgfs, for what loads them
+peripherals = ["vfat", "nls_iso8859-1", "lgfs"]
+paks = [
+    { file = "root", serial = "rootfs", mount = "/" },
+    { file = "lgin", serial = "lginit", mount = "/mnt/lg/lginit" },
+    { file = "vend", serial = "vendor", mount = "/mnt/vendor" },
+    { file = "lgli", serial = "lglib", mount = "/mnt/lg/res/lglib" },
+    { file = "lgap", serial = "lgapp" },
+    { file = "lgre", serial = "lgres" },
+    { file = "lgfo", serial = "lgfont" },
+    { file = "open", serial = "opensrc", mount = "/usr/local" },
+    { file = "eman", serial = "emanual" },
+    { file = "base", serial = "base" },
+    { file = "patc", serial = "patch" },
+    { file = "pqld", serial = "pqldb" },
+    { file = "extr", serial = "extra" },
+    { file = "estr", serial = "estreamer" },
+    { file = "mode", serial = "model" },
+]
+state_disks = { system_app = "130M", data = "290M", apps = "1472M" }
+nvm_disks = { nvram = "6M", eeprom = "32K" }
+emmc_disks = ["partinfo"]
+partmap = { pak = "lgin", path = "/lginit_app" }
+
+[nvm]
+eeprom = "eeprom"
+
+[partitions]
+partinfo = "partinfo"
+mapbak = "partinfo"
+nvram = "nvram"
+model = "model"
+rootfs = "rootfs"
+lginit = "lginit"
+lgapp = "lgapp"
+lgres = "lgres"
+lgfont = "lgfont"
+emanual = "emanual"
+base = "base"
+patch = "patch"
+pqldb = "pqldb"
+extra = "extra"
+estreamer = "estreamer"
+system_app = "system_app"
+data = "data"
+apps = "apps"

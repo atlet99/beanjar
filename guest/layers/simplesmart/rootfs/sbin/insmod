@@ -1,0 +1,11 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# insmod, rmmod and modprobe of SimpleSmart's root (one script, by its name): a no-op that logs
+# the module and succeeds. Every kernel module the firmware loads (MStar's kdrv_msd93f2g, Mali,
+# UMP, Broadcom Wi-Fi, TFAT/TNTFS, the USB and block drivers of the rc scripts) is an ARMv7 build
+# for LG's 3.10.23 kernel, which can never load into the emulator's; what the userland needs of
+# them is the emulator's own modules (mstar-utopia.ko, lgemu.ko), which the initramfs loads
+# before the firmware starts (docs/dev/architecture/simplesmart.md, "Kernel modules").
+echo "${0##*/}: $* (SimpleSmart's own module: not loaded)" >&2
+exit 0

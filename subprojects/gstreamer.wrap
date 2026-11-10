@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# GStreamer 1.2.4, the firmware's version: headers only, for the video layer's plugins (guest/layers/soc/src/video).
+[wrap-file]
+directory = gstreamer-1.2.4
+source_url = https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.2.4.tar.xz
+source_filename = gstreamer-1.2.4.tar.xz
+source_hash = 1e7ca67a7870a82c9ed51d51d0008cdbc550c41d64cc3ff3f9a1c2fc311b4929
+patch_directory = source-only

@@ -1,0 +1,43 @@
+# LG's NetCast 4.5: "..._LCD_NC5U_..." (HE_LCD_NC5U_AAADAIAA), RELEASE.cfg's ATSC-LM14, its
+# vendor pak's liblm14: LG's LM14 platform, MStar Napoli (docs/dev/architecture/netcast45.md)
+models = ["NC5U"]
+# NetCast 4.5 lacks the webOS checks regress makes; its stock GUI is measured instead
+bring_up = ["NC5U"]
+
+# NetCast 4.5 on LG's LM14 (MStar Napoli):
+# mstar-utopia's LM14 dialect (lm14=1: its ioctls, the 72-byte SYS_INFO, MPOOL_SET's MIU1
+# address), the board's two 1 GiB MIUs, the 77 mmapger records of the firmware's own
+# MAdp_SYS_GetMMAP (derived "mstar-mmap": host/helpers/mstar/mmap-table.py reads them out of its vendor
+# pak's libmadp at each start; LX_MEM id 0, LX_MEM2 id 76 with the 0x40000000 bias), the virtual
+# CVBS trim, blank OTP and inactive HDCP status, the PQ coefficient RAMs, TSP's download and
+# mailbox, Napoli's 1100 MHz CPU PLL. Its user-mode HWI2C master (lm14_hwi2c) with the micom of
+# RELEASE.cfg's "[i2c]MICOM:1:0x52" on HWI2C port 1 (MAdp_IIC channel 0), port index 0; the NVM
+# EEPROM (channel 1) is software I2C, not modelled. GOP_FRAMEBUFFER is record 60 (libmadp's
+# gfx_Init makes its GOP pool there), the pool of the GOP node our libgal (guest/layers/netcast45)
+# allocates from.
+[soc]
+board_cmdline = "/etc/emulator/board.cmdline"
+board_src = "guest/layers/netcast45/rootfs"
+
+[[soc.modules]]
+name = "mstar-utopia"
+params = [
+    "lm14=1",
+    "adc_idac=1",
+    "lm14_unprovisioned=1",
+    "lm14_pq_y_sram=1",
+    "miu_interval=0x80000000",
+    "miu_len=0x40000000",
+    "miu0_bus=0x20000000",
+    "miu1_bus=0xa0000000",
+    "mmap_ids=77",
+    "lx_mem_id=0",
+    "lx_mem2_id=76",
+    "lx_mem2_bias=0x40000000",
+    "tsp_riu=0x1f200000:0x1500",
+    "reg_init=0x1f200000:0x10cc0:0xb070,0x1f200000:0x10cc2:0x25",
+    "lm14_hwi2c=1",
+    "i2c=micom:0x0052",
+    "gop_fb=60",
+]
+derived = "mstar-mmap"

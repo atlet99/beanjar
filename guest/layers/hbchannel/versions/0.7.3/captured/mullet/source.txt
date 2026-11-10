@@ -1,0 +1,3 @@
+hbchannel v0.7.3
+firmware 04.40.93.01-HE_DTV_W22O_AFABATPU
+ipk d10bf3c753551d7c72fb7a92b20fcd2317e502a220ac668ba8e76f6ea78b363c

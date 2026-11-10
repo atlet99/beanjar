@@ -1,0 +1,39 @@
+# LM21U (N21D, the StanbyME, webOS 6 kisscurl-kluane): LM21A's MStar dialect, which its
+# libkadaptor's MAdp_SYS_GetMMAP shares (20-byte records of ids 0..119), and its own board: the
+# StanbyME 27ART10AKPL, a model with a touch screen that turns to portrait.
+# accel: the StanbyME's accelerometer, a BMA422 (lgemu accel.c), where N21D's libdile_i2c puts it
+# (ACCELERATION_SENSOR_BMA422: channel 3, slave 0x32, 7-bit 0x19); msc reads the set's orientation
+# from it and `beanjar sensor rotate` sets its gravity vector (rotation.py).
+# battery=1: its battery, which tvbatteryd reads from the micom (lgemu i2c.c battery_read): full,
+# on the adapter and charging.
+
+base = "lm21a"
+lgemu = [
+    "i2c_buses=0,1,2,3,4,5", "i2c_dev=nvm:4:0x50,amp:3:0x2a,amp:3:0x2b,accel:3:0x19", "cec=1",
+    "v4l2_hdmi=1", "snd_ctls=1", "battery=1",
+]
+touch = true
+portrait = true
+
+# gpio_usb_vbus and gpio_level: the USB ports' power switches and overcurrent inputs
+# (soc/k6lp.toml says how they were read)
+[[modules]]
+name = "mstar-utopia"
+params = [
+    "miu_interval=0x80000000",
+    "miu_len=0x20000000",
+    "miu0_bus=0x20000000",
+    "miu1_bus=0xa0000000",
+    "mmap_ids=123",
+    "mmap_slot=0x400000",
+    "lx_mem_id=3",
+    "lx_mem2_id=107",
+    "lx_mem2_bias=0",
+    "msos_pmlog=1",
+    "semutex_shm_capacity=0xa00000",
+    "direct_ir=1",
+    "pm_micom=1",
+    "gpio_lines=308",
+    "gpio_level=91:1,307:1,63:1",
+    "gpio_usb_vbus=90,96,76",
+]

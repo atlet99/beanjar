@@ -1,0 +1,20 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# A bounded execution environment for the stock ARM32 EEPROM/tvconfig generators.
+# The host supplies extracted dependencies and a quoted command; no TV state or network.
+mkdir -p /root /request /prepare-tmp
+if mount -t 9p -o ro,trans=virtio,version=9p2000.L prepare-root /root &&
+   mount -t 9p -o trans=virtio,version=9p2000.L prepare-request /request &&
+   mount -t 9p -o trans=virtio,version=9p2000.L prepare-tmp /prepare-tmp &&
+   mount --bind /prepare-tmp /root/tmp &&
+   mount --bind /prepare-tmp/var/run /root/var/run &&
+   mount --bind /prepare-tmp/var/log /root/var/log &&
+   mount --bind /dev /root/dev &&
+   mount -t proc proc /root/proc &&
+   mount --bind /request/cmdline /root/proc/cmdline; then
+    sh /request/command > /request/stdout 2> /request/stderr
+    echo "$?" > /request/status
+fi
+sync
+poweroff -f

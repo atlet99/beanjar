@@ -1,0 +1,80 @@
+# goldilocks2: webOS 4.5 and later (W19P's 4.10.2, "goldilocks2-grampians"): goldilocks' paks and
+# mount points (W19P's squashfs fstab: p29 tvservice, p32 otncabi, p33 otycabi, p34 fonts, p36
+# license; bsppart-dvb's bsp/ by the same mount-bsp), and its state partitions with uhdcp now
+# in the stock fstab (p56-p58, p50). bspfw (the audio and video CPUs' firmware), intmicom,
+# boot, kernel and tzfw are not attached. The EEPROM as goldilocks' (W19P's
+# tvservice: DIL_NVM_InitToolOptionDB 0x4E4, 76 bytes, mark 0x20150625, ToolOption1..9 from +8,
+# the input-port bytes at +48; DIL_NVM_InitModelInfoDB 0x924, MODEL_INFO_DB 56 bytes, mark
+# 0x20160630; DIL_NVM_InitContinentOptionDB 0x1C54; DIL_NVM_PWRON_InitLastInfo 0x1BC8;
+# DIL_NVM_Read sends offsets up to 0x1CEF to the EEPROM), except that Realtek's U-Boot copies
+# only ToolOption1..6 onto the command line (bootm.c: "ToolOpt=%u:%u:%u:%u:%u:%u"). PmLog as
+# goldilocks' (the same PmLogDaemon, job and libPmLogLib).
+
+base = "goldilocks"
+version = "4.5"
+# webOS 4.5 on (W21A, N21D and W22A decoded configs; modules.builtin of the others): exFAT as well
+# webOS 4.5 to 26 (W21A, N21D, W22A decoded configs; modules.builtin and module files of W19P,
+# W20L and webOS 23 to 26): all of them, with hid-microsoft and input-leds (N21D's hid-multitouch,
+# for the StanbyME's own touch panel, is left out: the VM's touch screen is virtio)
+# USB serial: the converter and modem drivers the stock kernel builds in (decoded configs,
+# modules.builtin), usbserial and usb_wwan coming with them (modules.dep). Besides the TV's own
+# needs, PDM: webOS 22's lists /sys/bus/usb-serial/drivers/pl2303 for every device event and drops
+# the event when that is missing. All of webOS 2 on, SS1A: pl2303, option, sierra; MStar's
+# (W16R, W18R and the lm21 chips) add ipw, LG's own SoCs (h13, m14, m16p, o22) ftdi_sio, and the 6.12
+# kernels of queue ch341, cp210x and ftdi_sio. WT1H has no sierra; W15M's zte_ev is option's in
+# Linux 6.18. NC5U's published config has none.
+# lgfs.ko (guest/kernel/modules/lgfs): LG's tfat, tntfs and ntfs on the kernel's vfat and ntfs3,
+# after them, where the stock PDM mounts USB storage with those names or the firmware ships LG's
+# tfat.ko and tntfs.ko: webOS 1 to 23, SS1A and NC5U (tfat, tntfs), and webOS 24 on, whose PDM
+# mounts NTFS as "ntfs" with LG's nls option, which ntfs3 rejects
+peripherals = [
+    "usbhid", "uhid", "joydev", "input-leds", "hid-axff", "hid-dr", "hid-logitech",
+    "hid-microsoft", "hid-pl", "hid-sony", "hid-playstation", "hid-zpff", "xpad", "uvcvideo",
+    "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii", "nls_utf8",
+    "nls_iso8859-1", "nls_cp949", "exfat", "snd-usb-audio", "cdc-acm", "pl2303", "option",
+    "sierra", "lgfs",
+]
+# W19P's table (58 partitions, partinfo p2) has uhdcp again (p50, its stock fstab's)
+state_disks = { db8 = "512M", cmn_data = "1G", appstore = "2G", uhdcp = "16M" }
+
+[nvm]
+eeprom = "eeprom"
+records = { pak = "tvservice-dvb", path = "/mnt/lg/tvservice/lgapp/tvservice" }
+modelinfo_offset = 0x924
+modelinfo_mark = 0x20160630
+model_field = [4, 24]
+serial_field = [28, 17]
+tooloption_offset = 0x4E4
+tool_option_words = 9
+tool_option_word_bytes = 4
+tool_option_first = 8
+tool_option_mark = 0x20150625
+continent_offset = 0x1C54
+continent_table = { symbol = "_aDefineContinent", size = 36 }
+lastinput_offset = 0x1BC8
+inputs_field = [48, 26]
+tool_option_given = 6
+factory_offset = 0x294
+# the local key type moved to ToolOption4 (W19P's TOOL_OPTION4_T eLocalKeyType:2 at bit 0,
+# TVCO_CFG_ID_TOOLOPT4_LOCAL_KEY_TYPE)
+local_key = { word = 4, offset = 0, width = 2, names = ["joystick", "onekey", "ninekey"] }
+
+[partitions]
+partinfo = "partinfo"
+mapbak = "partinfo"
+authcxt = "authcxt"
+nvram = "nvram"
+sestore = "sestore"
+sedata = "sedata"
+rootfs = "rootfs"
+tvservice = "tvservice"
+otncabi = "otncabi"
+otycabi = "otycabi"
+fonts = "fonts"
+db8 = "db8"
+data = "cmn_data"
+apps = "appstore"
+bsppart = "bsppart"
+license = "license"
+wossestore = "wossestore"
+uhdcp = "uhdcp"

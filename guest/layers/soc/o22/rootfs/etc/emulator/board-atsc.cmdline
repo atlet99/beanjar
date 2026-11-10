@@ -1,0 +1,18 @@
+# OLED55C2PUA, the US 55-inch C2, using W22O queue's shared global firmware.
+# Native hw/nyx generators decode country digit 5 as US/ATSC; USA's RMM grpCode is 2.
+# ToolOpt words are the stock lowlevelstorage defaults generated for this US board.
+# The default board (board_cmdline in guest/targets/soc/); board-dvb.cmdline is the global C2 (docs/user/board-profiles.md).
+# Identity is synthetic; A0 is a virtual revision.
+ethaddr=02:00:00:12:34:56
+devtmpfs.mount=1
+countryGrp=2
+modelopt=000000000
+hwopt=500210000105102000
+ToolOpt=1048718:19:1314890:65:14738995:825285385
+modelName=OLED55C2PUA
+debugMode=3
+serialNum=000RAXX00001
+chip=O22A0
+tvregion=ATSC
+emmc_size=0x1d2000000
+cmdEnd

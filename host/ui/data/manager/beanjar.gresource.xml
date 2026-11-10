@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The VM manager's layouts, compiled from ui/*.blp (meson.build), and the application
+     icon (host/ui/data/icon.svg; beanjar_ui/manager/ui.py adds icons/ to the theme): beanjar.gresource. -->
+<gresources>
+  <gresource prefix="/org/webosbrew/beanjar">
+    <file>window.ui</file>
+    <file>confirm.ui</file>
+    <file>vm-form.ui</file>
+    <file>layer-row.ui</file>
+    <file>vm-row.ui</file>
+    <file>progress.ui</file>
+    <file alias="icons/scalable/apps/org.webosbrew.beanjar.svg">icon.svg</file>
+  </gresource>
+</gresources>

@@ -1,0 +1,14 @@
+models = ["W20H"]
+bring_up = ["W20H"]
+
+[release]
+base = "jhericurl"
+paks = [
+    { file = "rootfs", serial = "rootfs", mount = "/" },
+    { file = "bsppart-dvb", serial = "bsppart" },
+    { file = "otncabi-dvb", serial = "otncabi", mount = "/mnt/otncabi" },
+    { file = "otycabi-dvb", serial = "otycabi", mount = "/mnt/otycabi" },
+    { file = "fonts", serial = "fonts", mount = "/mnt/fonts" },
+    { file = "license", serial = "license", mount = "/mnt/license" },
+]
+partmap = "k6hp-jhericurl"

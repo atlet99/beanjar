@@ -1,0 +1,24 @@
+# Developer mode (guest/layers/devmode): systemd replacement for the stock
+# devmode.service (Upstart's devmode.override in this layer is its sysvinit
+# twin; only one of them runs on a release).
+#
+# The stock unit only runs the Developer Mode store app's start-devmode.sh
+# (/media/cryptofs/apps/usr/palm/services/com.palmdts.devmode.service),
+# signature-checked against LG's key, and when the app is absent - which it
+# always is here - it DELETES /var/luna/preferences/devmode_enabled and
+# destroys the openssh jail instead of starting any server. This file masks
+# it by path while the layer is on and runs our stand-in
+# (/usr/libexec/emulator-devmode/start-devmode.sh) with our own dropbear
+# and the VM's own keys exactly when the flag exists; the script execs the
+# jailed server, so this job runs while sshd does, as the stock script
+# blocking on sshd -D does. Without the layer this file is absent and the
+# stock unit behaves as LG wrote it.
+[Unit]
+Description=Emulator developer mode SSH
+DefaultDependencies=no
+Requires=emulator-devmode-flag.service jail.service
+After=emulator-devmode-flag.service jail.service
+Before=sam.service appinstalld.service
+
+[Service]
+ExecStart=/bin/sh -c 'if [ -e /var/luna/preferences/devmode_enabled ]; then exec /usr/libexec/emulator-devmode/start-devmode.sh; fi'

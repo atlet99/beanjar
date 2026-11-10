@@ -1,0 +1,9 @@
+models = ["W22O"]
+bring_up = ["W22O"]
+lg_scaler = [3840, 2160]
+de_histogram = true
+
+[release]
+base = "queue"
+nvm_disks = { nvram = "8M", eeprom = "32K" }
+partmap = "o22-ponytail"

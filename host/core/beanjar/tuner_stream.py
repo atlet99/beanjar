@@ -1,0 +1,600 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""The broadcast the host's tuner sends: one ATSC transport stream per physical channel of
+the lineup, with the PSIP tables a US set scans and builds its guide from (PAT, PMT, MGT, TVCT,
+RRT, STT, EIT-0 to EIT-3 with their ETTs) and a test pattern with a tone per service.
+
+Made with TSDuck (tsp, tstabcomp; upstream's Debian 13 package) and ffmpeg: ffmpeg encodes the
+A/V loop (MPEG-2 video, AC-3 audio) once per lineup, tsp injects the tables at their usual
+repetition rates (PAT and PMT every 100 ms, MGT 120 ms, TVCT 340 ms, STT 850 ms, EIT-0 500 ms,
+ETT-0 1 s, the later blocks 3 s). A stream holds the guide of the four 3-hour blocks from the one
+it is made in, so it is made again when a new block starts (stream_path's key). The tuner
+(tuner.py) loops the file and rewrites the STT's time as it sends it (stt_rewrite), so the set's
+clock follows the host's.
+
+TSDuck writes an ATSC EIT's start_time string straight into the GPS-seconds field, so the times
+given to it are UTC plus the GPS-UTC offset (gps_naive). validate() checks a made stream
+independently of TSDuck: every long section's CRC32, each table's repetition and that the MGT
+lists the versions the EIT and ETT sections carry."""
+
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import zlib
+from datetime import datetime, timedelta, timezone
+from xml.sax.saxutils import quoteattr
+from zoneinfo import ZoneInfo
+
+
+class Error(Exception):
+    pass
+
+
+GPS_EPOCH = 315964800  # 1980-01-06 in Unix seconds
+GPS_UTC_OFFSET = 18  # leap seconds since then
+BASE_PID = 0x1FFB  # ATSC's PSIP base PID: MGT, TVCT, RRT, STT
+NULL_PID = 0x1FFF
+TABLE_STT = 0xCD
+PACKET = 188
+MUX_RATE = 5_000_000  # bits a second
+SECONDS = 20  # of a made stream, looped
+VERSION = 2  # of the generator: part of a stream's key
+FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"  # fonts-dejavu-core
+
+
+def eit_pid(k):
+    return 0x1D00 + k
+
+
+def ett_pid(k):
+    return 0x1E00 + k
+
+
+def pmt_pid(i):
+    return 0x20 + i
+
+
+def video_pid(i):
+    return 0x31 + 4 * i
+
+
+def audio_pid(i):
+    return 0x34 + 4 * i
+
+
+FF_PID0 = 0x100  # ffmpeg's elementary PIDs, which tsp remaps
+
+
+# The lineup: physical channels, their transport stream IDs and virtual channels, and each
+# service's programme cycle (repeated from local midnight).
+LINEUP = {
+    "timezone": "America/New_York",
+    "video": {"size": "704x480", "fps": "30000/1001", "bitrate": 1500000},
+    "audio": {"bitrate": 192000},
+    "loop_seconds": 10,
+    "rf": [
+        {
+            "channel": 7,
+            "tsid": 1007,
+            "services": [
+                {
+                    "major": 7,
+                    "minor": 1,
+                    "name": "BJ7",
+                    "long_name": "Beanjar Seven",
+                    "source_id": 7001,
+                    "program": 1,
+                    "tone_hz": 440,
+                    "events": [
+                        (
+                            "Test Pattern Hour",
+                            60,
+                            "A synthetic colour test pattern with a 440 Hz tone.",
+                        ),
+                        ("Morning Signal", 30, "Short programme with generated content."),
+                        ("Beanjar News", 30, "Nothing happened, in high definition."),
+                        ("Midday Movie", 120, "A long feature film that is only colour bars."),
+                    ],
+                },
+                {
+                    "major": 7,
+                    "minor": 2,
+                    "name": "BJ7-2",
+                    "long_name": "Beanjar Seven Two",
+                    "source_id": 7002,
+                    "program": 2,
+                    "tone_hz": 660,
+                    "events": [
+                        ("Subchannel Loop", 45, "Looping content on the second subchannel."),
+                        ("Weather", 15, "Clear skies in the emulated region."),
+                    ],
+                },
+            ],
+        },
+        {
+            "channel": 14,
+            "tsid": 1014,
+            "services": [
+                {
+                    "major": 14,
+                    "minor": 1,
+                    "name": "BJ14",
+                    "long_name": "Beanjar Fourteen",
+                    "source_id": 14001,
+                    "program": 1,
+                    "tone_hz": 880,
+                    "events": [
+                        ("Fourteen Live", 90, "Programme on the second physical channel."),
+                        ("Quiz Night", 30, "Questions, answers and a test tone."),
+                        ("Late Show", 60, "Late programme."),
+                    ],
+                },
+            ],
+        },
+        {
+            "channel": 33,
+            "tsid": 1033,
+            "services": [
+                {
+                    "major": 33,
+                    "minor": 1,
+                    "name": "BJ33",
+                    "long_name": "Beanjar Thirty-Three",
+                    "source_id": 33001,
+                    "program": 1,
+                    "tone_hz": 1000,
+                    "events": [
+                        ("Documentary", 60, "Colour bars in their natural habitat."),
+                        ("Sports Desk", 30, "Scores from the emulated league."),
+                    ],
+                },
+            ],
+        },
+    ],
+}
+
+
+def rf_center_hz(ch):
+    """The US (ATSC) physical channel's centre frequency in Hz."""
+    if 2 <= ch <= 4:
+        return (57 + 6 * (ch - 2)) * 1000000
+    if 5 <= ch <= 6:
+        return (79 + 6 * (ch - 5)) * 1000000
+    if 7 <= ch <= 13:
+        return (177 + 6 * (ch - 7)) * 1000000
+    if 14 <= ch <= 36:
+        return (473 + 6 * (ch - 14)) * 1000000
+    raise Error(f"no US physical channel {ch} (2 to 36)")
+
+
+def channel(ch):
+    """The lineup's physical channel ch; Error if it has none."""
+    for rf in LINEUP["rf"]:
+        if rf["channel"] == ch:
+            return rf
+    raise Error(
+        f"the lineup has no physical channel {ch} ({', '.join(str(r['channel']) for r in LINEUP['rf'])})"
+    )
+
+
+def gps_seconds(unix):
+    return int(unix) + GPS_UTC_OFFSET - GPS_EPOCH
+
+
+def gps_naive(unix):
+    """The time string TSDuck turns into a GPS-seconds field."""
+    return datetime.fromtimestamp(unix + GPS_UTC_OFFSET, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def block0(now):
+    """The Unix start of the 3-hour EIT-0 block that now is in."""
+    return (gps_seconds(now) // 10800) * 10800 + GPS_EPOCH - GPS_UTC_OFFSET
+
+
+def events(svc, t_from, t_to):
+    """(start, minutes, title, text) of the service's events overlapping [t_from, t_to)."""
+    tz = ZoneInfo(LINEUP["timezone"])
+    out = []
+    day = datetime.fromtimestamp(t_from, tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    day -= timedelta(days=1)
+    for _ in range(4):
+        t, end = day.timestamp(), (day + timedelta(days=1)).timestamp()
+        while t < end:
+            for title, minutes, text in svc["events"]:
+                if t < t_to and t + minutes * 60 > t_from:
+                    out.append((int(t), minutes, title, text))
+                t += minutes * 60
+                if t >= end:
+                    break
+        day += timedelta(days=1)
+    return out
+
+
+def event_id(start):
+    return (gps_seconds(start) // 60) & 0x3FFF
+
+
+def _q(s):
+    return quoteattr(str(s))
+
+
+def _tables(rf, now):
+    """{name: TSDuck XML body} of the physical channel's tables at now (without the MGT)."""
+    t = {}
+    t["pat"] = (
+        f'<PAT version="0" transport_stream_id="{rf["tsid"]}">\n'
+        + "".join(
+            f'  <service service_id="{s["program"]}" program_map_PID="0x{pmt_pid(i):X}"/>\n'
+            for i, s in enumerate(rf["services"])
+        )
+        + "</PAT>\n"
+    )
+    for i, s in enumerate(rf["services"]):
+        t[f"pmt{i}"] = (
+            f'<PMT service_id="{s["program"]}" PCR_PID="0x{video_pid(i):X}">\n'
+            f'  <component stream_type="0x02" elementary_PID="0x{video_pid(i):X}"/>\n'
+            f'  <component stream_type="0x81" elementary_PID="0x{audio_pid(i):X}">\n'
+            '    <registration_descriptor format_identifier="0x41432D33"/>\n'
+            '    <ATSC_AC3_audio_stream_descriptor sample_rate_code="0" bsid="8" bit_rate_code="10" '
+            'surround_mode="0" bsmod="0" num_channels="2" full_svc="true" mainid="0" priority="1" '
+            'asvcflags="0"/>\n'
+            '    <ISO_639_language_descriptor><language code="eng" audio_type="0"/></ISO_639_language_descriptor>\n'
+            "  </component>\n</PMT>\n"
+        )
+    tvct = f'<TVCT version="0" transport_stream_id="{rf["tsid"]}">\n'
+    for i, s in enumerate(rf["services"]):
+        tvct += (
+            f'  <channel short_name={_q(s["name"])} major_channel_number="{s["major"]}" '
+            f'minor_channel_number="{s["minor"]}" modulation_mode="8-VSB" carrier_frequency="0" '
+            f'channel_TSID="{rf["tsid"]}" program_number="{s["program"]}" ETM_location="0" '
+            f'service_type="dtv" source_id="{s["source_id"]}">\n'
+            f'    <service_location_descriptor PCR_PID="0x{video_pid(i):X}">\n'
+            f'      <component stream_type="0x02" elementary_PID="0x{video_pid(i):X}"/>\n'
+            f'      <component stream_type="0x81" elementary_PID="0x{audio_pid(i):X}" ISO_639_language_code="eng"/>\n'
+            "    </service_location_descriptor>\n"
+            "    <extended_channel_name_descriptor><long_channel_name_text>"
+            f'<string language="eng" text={_q(s["long_name"])}/></long_channel_name_text>'
+            "</extended_channel_name_descriptor>\n"
+            "  </channel>\n"
+        )
+    t["tvct"] = tvct + "</TVCT>\n"
+    t["rrt"] = (
+        '<RRT rating_region="1">\n  <rating_region_name><string language="eng" '
+        'text="US (50 states + possessions)"/></rating_region_name>\n'
+        '  <dimension graduated_scale="true">\n    <dimension_name><string language="eng" '
+        'text="Entire Audience"/></dimension_name>\n'
+        '    <value><abbrev_rating_value><string language="eng" text="None"/></abbrev_rating_value>'
+        '<rating_value><string language="eng" text="None"/></rating_value></value>\n'
+        "  </dimension>\n</RRT>\n"
+    )
+    t["stt"] = (
+        f'<STT system_time="{gps_seconds(now)}" GPS_UTC_offset="{GPS_UTC_OFFSET}" DS_status="false"/>\n'
+    )
+    b0 = block0(now)
+    for k in range(4):
+        t0, t1 = b0 + 10800 * k, b0 + 10800 * (k + 1)
+        eit, ett = "", ""
+        for s in rf["services"]:
+            eit += f'<ATSC_EIT source_id="{s["source_id"]}" version="@V@">\n'
+            for start, minutes, title, text in events(s, t0, t1):
+                eid = event_id(start)
+                eit += (
+                    f'  <event event_id="{eid}" start_time="{gps_naive(start)}" ETM_location="1" '
+                    f'length_in_seconds="{minutes * 60}"><title_text><string language="eng" '
+                    f"text={_q(title)}/></title_text></event>\n"
+                )
+                etm = (s["source_id"] << 16) | (eid << 2) | 2
+                ett += (
+                    f'<ETT version="@V@" ETT_table_id_extension="0" ETM_id="0x{etm:08X}">'
+                    f'<extended_text_message><string language="eng" text={_q(text)}/>'
+                    "</extended_text_message></ETT>\n"
+                )
+            eit += "</ATSC_EIT>\n"
+        # a block's version follows its content, so a set takes a new guide as new
+        for name, body in ((f"eit{k}", eit), (f"ett{k}", ett)):
+            t[name] = body.replace("@V@", str(zlib.crc32(body.encode()) % 32))
+    return t
+
+
+def _run(cmd):
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode:
+        raise Error(f"{' '.join(cmd[:2])} failed: {(r.stderr or r.stdout).strip()[-400:]}")
+
+
+def _write_tables(rf, d, now):
+    os.makedirs(d, exist_ok=True)
+    tables = _tables(rf, now)
+
+    def put(name, body):
+        with open(os.path.join(d, name + ".xml"), "w") as f:
+            f.write('<?xml version="1.0" encoding="UTF-8"?>\n<tsduck>\n' + body + "</tsduck>\n")
+
+    for name, body in tables.items():
+        put(name, body)
+    sizes, versions = {}, {}
+    for n in ["tvct", "rrt"] + [f"eit{k}" for k in range(4)] + [f"ett{k}" for k in range(4)]:
+        _run(["tstabcomp", "-o", os.path.join(d, n + ".bin"), os.path.join(d, n + ".xml")])
+        sizes[n] = os.path.getsize(os.path.join(d, n + ".bin"))
+        # the MGT lists each table at the version the table itself carries (_tables)
+        v = re.search(r'version="(\d+)"', tables[n]) if n[:3] in ("eit", "ett") else None
+        versions[n] = int(v.group(1)) if v else 0
+    mgt = '<MGT version="0">\n'
+    mgt += f'  <table type="TVCT-current" PID="0x{BASE_PID:X}" version_number="0" number_bytes="{sizes["tvct"]}"/>\n'
+    mgt += f'  <table type="RRT-1" PID="0x{BASE_PID:X}" version_number="0" number_bytes="{sizes["rrt"]}"/>\n'
+    for k in range(4):
+        mgt += f'  <table type="EIT-{k}" PID="0x{eit_pid(k):X}" version_number="{versions[f"eit{k}"]}" number_bytes="{sizes[f"eit{k}"]}"/>\n'
+    for k in range(4):
+        mgt += f'  <table type="ETT-{k}" PID="0x{ett_pid(k):X}" version_number="{versions[f"ett{k}"]}" number_bytes="{sizes[f"ett{k}"]}"/>\n'
+    put("mgt", mgt + "</MGT>\n")
+
+
+def _make_loop(rf, path):
+    """The A/V loop of the physical channel: a test pattern labelled with the virtual channel and a
+    tone, per service, MPEG-2 and AC-3 at the mux rate."""
+    v, a, dur = LINEUP["video"], LINEUP["audio"], LINEUP["loop_seconds"]
+    cmd = ["ffmpeg", "-v", "error", "-y"]
+    maps, progs = [], []
+    for i, s in enumerate(rf["services"]):
+        label = f"{s['major']}.{s['minor']} {s['name']}"
+        cmd += [
+            "-f",
+            "lavfi",
+            "-i",
+            f"testsrc2=s={v['size']}:r={v['fps']}:d={dur},drawtext=fontfile={FONT}:text='{label}':"
+            "fontsize=44:fontcolor=white:box=1:boxcolor=black@0.6:x=(w-tw)/2:y=h/2-th",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency={s['tone_hz']}:sample_rate=48000:duration={dur}",
+        ]
+        maps += ["-map", f"{2 * i}:v", "-map", f"{2 * i + 1}:a"]
+        progs += ["-program", f"title={s['name']}:st={2 * i}:st={2 * i + 1}"]
+    vb = str(v["bitrate"])
+    cmd += (
+        maps
+        + progs
+        + [
+            "-c:v",
+            "mpeg2video",
+            "-b:v",
+            vb,
+            "-minrate",
+            vb,
+            "-maxrate",
+            vb,
+            "-bufsize",
+            "1835008",
+            "-g",
+            "15",
+            "-bf",
+            "2",
+            "-pix_fmt",
+            "yuv420p",
+            "-flags",
+            "+cgop",
+            "-sc_threshold",
+            "1000000000",
+            "-c:a",
+            "ac3",
+            "-b:a",
+            str(a["bitrate"]),
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            "-f",
+            "mpegts",
+            "-mpegts_start_pid",
+            str(FF_PID0),
+            "-pcr_period",
+            "40",
+            "-muxrate",
+            str(MUX_RATE),
+            path,
+        ]
+    )
+    _run(cmd)
+
+
+def _tsp(rf, d, loop, out):
+    repeat = max(1, -(-SECONDS // LINEUP["loop_seconds"]))
+    a = ["tsp", "--bitrate", str(MUX_RATE), "-I", "file", loop, "--repeat", str(repeat)]
+    keep, remap = [NULL_PID], []
+    for i in range(len(rf["services"])):
+        keep += [FF_PID0 + 2 * i, FF_PID0 + 2 * i + 1]
+        remap += [f"{FF_PID0 + 2 * i}={video_pid(i)}", f"{FF_PID0 + 2 * i + 1}={audio_pid(i)}"]
+    a += ["-P", "filter", "--stuffing"] + sum([["--pid", str(p)] for p in sorted(keep)], [])
+    a += ["-P", "continuity", "--fix", "-P", "remap", "--no-psi"] + remap
+
+    def inject(pid, files):
+        return ["-P", "inject", "--stuffing", "--pid", f"0x{pid:X}"] + [
+            f"{os.path.join(d, n)}.xml={ms}" for n, ms in files
+        ]
+
+    a += inject(0, [("pat", 100)])
+    for i in range(len(rf["services"])):
+        a += inject(pmt_pid(i), [(f"pmt{i}", 100)])
+    a += inject(BASE_PID, [("mgt", 120), ("tvct", 340), ("rrt", 60000), ("stt", 850)])
+    for k in range(4):
+        a += inject(eit_pid(k), [(f"eit{k}", 500 if k == 0 else 3000)])
+        a += inject(ett_pid(k), [(f"ett{k}", 1000 if k == 0 else 3000)])
+    _run(a + ["-O", "file", out])
+
+
+def tools():
+    """The programs a stream needs that this host lacks."""
+    return [t for t in ("tsp", "tstabcomp", "ffmpeg") if not shutil.which(t)]
+
+
+def stream_key(ch, now):
+    """What a physical channel's stream depends on: the generator, the lineup and the EIT block."""
+    text = json.dumps([VERSION, LINEUP, channel(ch), block0(now)], sort_keys=True)
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def stream_path(cache, ch, now):
+    return os.path.join(cache, f"rf{ch:02d}-{stream_key(ch, now)}.ts")
+
+
+def make(cache, ch, now):
+    """The path of the physical channel's stream for the EIT block of now, made into the directory
+    cache if it is not there yet (validated before it is kept)."""
+    path = stream_path(cache, ch, now)
+    if os.path.exists(path):
+        return path
+    missing = tools()
+    if missing:
+        raise Error(f"no {', '.join(missing)} on this host: install TSDuck and ffmpeg")
+    rf = channel(ch)
+    os.makedirs(cache, exist_ok=True)
+    work = path + ".work"
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    try:
+        loop_key = hashlib.sha256(
+            json.dumps(
+                [VERSION, LINEUP["video"], LINEUP["audio"], LINEUP["loop_seconds"], rf["services"]],
+                sort_keys=True,
+                default=str,
+            ).encode()
+        ).hexdigest()[:16]
+        loop = os.path.join(cache, f"loop{ch:02d}-{loop_key}.ts")
+        if not os.path.exists(loop):
+            _make_loop(rf, loop + ".tmp")
+            os.replace(loop + ".tmp", loop)
+        _write_tables(rf, work, now)
+        _tsp(rf, work, loop, work + "/out.ts")
+        report = validate(work + "/out.ts")
+        if report["bad_crc"] or not report["ok_crc"] or report["mgt_mismatch"]:
+            raise Error(f"rf{ch}: the made stream does not validate: {report}")
+        for table in ("PAT", "TVCT", "MGT", "STT", "EIT"):
+            if table not in report["tables"]:
+                raise Error(f"rf{ch}: the made stream has no {table}")
+        os.replace(work + "/out.ts", path)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    # older blocks of this channel go
+    for name in os.listdir(cache):
+        if (
+            name.startswith(f"rf{ch:02d}-")
+            and name.endswith(".ts")
+            and os.path.join(cache, name) != path
+        ):
+            os.unlink(os.path.join(cache, name))
+    return path
+
+
+def crc32_mpeg(data):
+    crc = 0xFFFFFFFF
+    for b in data:
+        crc ^= b << 24
+        for _ in range(8):
+            crc = (
+                ((crc << 1) ^ 0x04C11DB7) & 0xFFFFFFFF
+                if crc & 0x80000000
+                else (crc << 1) & 0xFFFFFFFF
+            )
+    return crc
+
+
+NAMES = {
+    0x00: "PAT",
+    0x02: "PMT",
+    0xC7: "MGT",
+    0xC8: "TVCT",
+    0xCA: "RRT",
+    0xCB: "EIT",
+    0xCC: "ETT",
+    0xCD: "STT",
+}
+
+
+def validate(path):
+    """{"ok_crc", "bad_crc", "tables": {name: count}, "mgt_mismatch", "packets"} of the stream's
+    PSI/PSIP sections, reassembled here, with the CRC32 of each long section checked independently
+    of TSDuck; mgt_mismatch lists "PID 0x....: MGT vN, sections v..." for each EIT/ETT PID whose
+    sections carry another version than the MGT lists (a set may filter on the MGT's)."""
+    data = open(path, "rb").read()
+    buf, ok, bad, tables = {}, 0, 0, {}
+    listed, carried = {}, {}  # PID: the MGT's version; PID: {the sections' versions}
+
+    def flush(pid):
+        nonlocal ok, bad
+        b = buf[pid]
+        while len(b) >= 3 and b[0] != 0xFF:
+            n = 3 + (((b[1] & 0xF) << 8) | b[2])
+            if len(b) < n:
+                break
+            sec, b = b[:n], b[n:]
+            if sec[1] & 0x80:
+                if crc32_mpeg(sec) == 0:
+                    ok += 1
+                else:
+                    bad += 1
+            name = NAMES.get(sec[0], f"0x{sec[0]:02X}")
+            tables[name] = tables.get(name, 0) + 1
+            if sec[0] == 0xC7 and len(sec) >= 15:  # MGT: tables_defined, then an entry each
+                at = 11
+                for _ in range(int.from_bytes(sec[9:11], "big")):
+                    if at + 11 > len(sec) - 4:
+                        break
+                    listed[((sec[at + 2] & 0x1F) << 8) | sec[at + 3]] = sec[at + 4] & 0x1F
+                    at += 11 + (((sec[at + 9] & 0xF) << 8) | sec[at + 10])
+            elif sec[0] in (0xCB, 0xCC):  # EIT, ETT
+                carried.setdefault(pid, set()).add((sec[5] >> 1) & 0x1F)
+        buf[pid] = b if b and b[0] != 0xFF else b""
+
+    for off in range(0, len(data) - PACKET + 1, PACKET):
+        p = data[off : off + PACKET]
+        pid = ((p[1] & 0x1F) << 8) | p[2]
+        if p[0] != 0x47 or not (pid < 0x30 or pid >= 0x1D00) or pid == NULL_PID or not p[3] & 0x10:
+            continue
+        pl = p[4 + (1 + p[4] if p[3] & 0x20 else 0) :]
+        if p[1] & 0x40:
+            if not pl:
+                continue
+            ptr = pl[0]
+            if pid in buf:
+                buf[pid] += pl[1 : 1 + ptr]
+                flush(pid)
+            buf[pid] = pl[1 + ptr :]
+        elif pid in buf:
+            buf[pid] += pl
+        else:
+            continue
+        flush(pid)
+    mismatch = [
+        f"PID 0x{p:04X}: MGT v{listed[p]}, sections v{','.join(map(str, sorted(v)))}"
+        for p, v in sorted(carried.items())
+        if p in listed and v != {listed[p]}
+    ]
+    return {
+        "ok_crc": ok,
+        "bad_crc": bad,
+        "tables": tables,
+        "mgt_mismatch": mismatch,
+        "packets": len(data) // PACKET,
+    }
+
+
+def stt_rewrite(packet, now):
+    """The packet with its STT's system_time set to now and the CRC made again; the packet itself
+    when it carries no whole STT section (the STT is short: one packet)."""
+    pid = ((packet[1] & 0x1F) << 8) | packet[2]
+    if pid != BASE_PID or not packet[1] & 0x40 or not packet[3] & 0x10:
+        return packet
+    at = 4 + (1 + packet[4] if packet[3] & 0x20 else 0)
+    at += 1 + packet[at]  # the pointer field
+    if at + 3 > PACKET or packet[at] != TABLE_STT:
+        return packet
+    n = 3 + (((packet[at + 1] & 0xF) << 8) | packet[at + 2])
+    if at + n > PACKET or n < 17:
+        return packet
+    sec = bytearray(packet[at : at + n])
+    sec[9:13] = gps_seconds(now).to_bytes(4, "big")  # after table_id ... protocol_version
+    sec[-4:] = crc32_mpeg(bytes(sec[:-4])).to_bytes(4, "big")
+    return packet[:at] + bytes(sec) + packet[at + n :]

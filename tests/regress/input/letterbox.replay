@@ -1,0 +1,33 @@
+# 960x720 window, TV image at (0,90), size 960x540.
+# A click in the upper black bar must not reach the guest.
+0 resize 960 720
+200 motion 200 20
+250 down 1
+300 up 1
+500 motion 200 240
+800 motion 300 310
+1100 down 1
+1200 up 1
+# Wheel: one notch up, one down, then two up in one event; the net delta is +2 notches.
+1600 wheel 1
+1750 wheel -1
+1900 wheel 2
+2200 motion 700 490
+2500 down 1
+2600 up 1
+2900 down 1
+3000 blur
+3300 keydown A
+3400 keyup A
+# The remote's buttons, as the remote window sends them (LG IR codes to the micom): RED, GREEN,
+# YELLOW, BLUE, then BACK (last: it may take the app away).
+3600 irdown 0x72
+3750 irup 0x72
+3900 irdown 0x71
+4050 irup 0x71
+4200 irdown 0x63
+4350 irup 0x63
+4500 irdown 0x61
+4650 irup 0x61
+4800 irdown 0x28
+4950 irup 0x28

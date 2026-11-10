@@ -1,0 +1,35 @@
+# O22 BASE encoding and board options from LG's O22 platform source; A0 is
+# the chosen virtual revision. Only the measured NVM Linux-I2C route is mapped.
+
+board_cmdline = "/etc/emulator/board-atsc.cmdline"
+# W22O's Japanese firmware (otncabi-arib, otycabi-arib, fonts-arib: queue's AFABJAPU) boots
+# OLED55C2PJA, the Japanese 55" C2 (the models DB's model of that OTA id), from its own
+# generators: the global C2's line with the hwopt country digit JP (ARIB), libdile_boardinfo's
+# group 18 and the firmware's own default ToolOpt (board-arib.cmdline says how). Its global
+# firmware (AFABATPU) is also the US C2's, which it boots by default: OLED55C2PUA,
+# US/ATSC by the same generators and the USA RMM group 2 (board-atsc.cmdline); a VM whose
+# vm.toml says firmware.broadcast "dvb" boots the global C2, OLED55C21LA (board-dvb.cmdline).
+broadcast_boards = { atsc = "/etc/emulator/board-atsc.cmdline", dvb = "/etc/emulator/board-dvb.cmdline", arib = "/etc/emulator/board-arib.cmdline" }
+# The HDMI CEC adapter (lgemu cec.c): webOS 6's libcecp opens /dev/cec0, the kernel's CEC
+# framework, and without it eim's receive thread spins on the failed descriptor.
+lgemu = ["i2c_buses=0,1,2,3,4,5,6,7,8,9", "i2c_dev=nvm:7:0x50", "cec=1"]
+# LIGHT_SENSOR_1/2: channel 1 in every O22 firmware's libdile_i2c (W22O, W23O, W24G)
+light_bus = 1
+# TMF882X_SENSOR_N: channel 1 in the same tables
+tof_bus = 1
+thermal = true
+# The board's model, OLED55C21LA (the C2, W22O: mullet, number1, ponytail and queue all boot
+# it), has the far-field microphone: the C2 service manual's IR & EYE board carries the
+# wake-on-voice PDM target (WOV_PDMO_DATAIN, WOV_PDM_CLKOUT).
+mic = true
+
+[[modules]]
+name = "lg115x"
+params = [
+    "chip_rev=0x26a0",
+    "ace_rev=0x26a0",
+    "platform=0x2000",
+    "graphic_res=0x07800438",
+    "board_opt=0x02904044",
+    "ucom=1",
+]

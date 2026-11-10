@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Sourced by the surface-manager job (gl layer) before the compositor starts.
+# See guest/layers/gl/src/egl-kms.c for the meaning of each variable.
+#SM_LOG=/tmp/surface-manager.log   # keep the compositor's stdout/stderr (grows; for debugging)
+#export EGL_KMS_MODE=1920x1080     # pick this connector mode instead of the preferred one
+#export EGL_KMS_DEBUG=1            # log every swap/page flip
+#export EGL_KMS_DUMP=/tmp/osd-     # write /tmp/osd-<n>.ppm (+ -alpha.pgm) for the frames
+#export EGL_KMS_DUMP_FRAMES=1,50   # listed here
+#export GBM_ALWAYS_SOFTWARE=1      # kms_swrast (softpipe) even if virgl is available

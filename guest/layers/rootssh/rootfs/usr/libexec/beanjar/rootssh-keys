@@ -1,0 +1,11 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Restore the VM's own authorized keys after /home is mounted from state.
+set -eu
+mkdir -p /home/root/.ssh
+cp /etc/emulator/rootssh/authorized_keys /home/root/.ssh/authorized_keys
+chown root:root /home/root /home/root/.ssh /home/root/.ssh/authorized_keys
+chmod go-w /home/root
+chmod 700 /home/root/.ssh
+chmod 600 /home/root/.ssh/authorized_keys

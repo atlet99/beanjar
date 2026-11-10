@@ -1,0 +1,113 @@
+# The Realtek "K7LP" (RTD2875, U-Boot's chip=K7LPA0, "LGE K7 Board"), W21P's SoC: K6LP's
+# drivers and address scheme (W21P's kernel 4.4.84-723.kcl4tv.20; LG's GPL linux-4.4.3 for KLP
+# 1.0), with the nodes of W21P's bsppart libkadaptor: K6LP's and two new ones. The micom is the
+# SoC's internal one behind /dev/sys-intmicom: libkadaptor's KADP_UCOM_WriteCommand,
+# _ReadCommand and _WholeChipReset open it (sys-misc keeps KADP_SYS_*), with the numbers of
+# Realtek's intmicom.h, INTMICOM_UCOM_WRITE/READ (_IOW/_IOR('s', 18/19)), MISC_UCOM's; and
+# /dev/irtx-0 (KADP_IRB_GenerateUEIWaveform, the IR blaster). The RPC answers are the firmware's
+# (rpc-table; W21P's table is W20L's). The GPIO lines are W21P's libdile_gpio's (gGPIMapTable,
+# gGPOMapTable: the highest 451, HDMI1_DEV_DET), the board with nothing connected: the USB
+# switches' overcurrent outputs, USB2_OCD 40 and USB3_OCD 152, 1 (active low), the rest 0.
+# avmutemanager's /dev/video30 and /dev/video31 and product.env's fb1 (512x2160) are W20L's.
+# The I2C devices: W21P's DILE_I2C opens /dev/i2c-0 to -5 and takes the channel from its
+# gsI2cAllConf (43 entries), the same in its three region columns: NVM 4/0xA0, the amplifiers
+# 0/0x54 and 0x56; no MICOM row (the micom is internal).
+# W21P's global firmware also ships on US models (models DB: 55UP7670PUC, 65UP8000PUR, 75UP8070PUR):
+# its US board is the default (board-atsc.cmdline), and so are those of the K8 chips based on it,
+# each its own firmware's US model.
+
+board_cmdline = "/etc/emulator/board-atsc.cmdline"
+broadcast_boards = { atsc = "/etc/emulator/board-atsc.cmdline", dvb = "/etc/emulator/board-dvb.cmdline" }
+lgemu = [
+    "i2c_buses=0,1,2,3,4,5", "i2c_dev=nvm:4:0x50,amp:0:0x2a,amp:0:0x2b", "snd_ctls=1",
+]
+# LIGHT_SENSOR_1/2: channel 5 in W21P's gsI2cAllConf, and in every K8 firmware's
+# (W22P, W22L, W22H, W23H, W23P, W24P)
+light_bus = 5
+thermal = true
+
+# gpio_usb_vbus and gpio_level: the USB ports' power switches and overcurrent inputs
+# (soc/k6lp.toml says how they were read)
+[[modules]]
+name = "rtk"
+params = [
+    "rbus_phys=0x18000000",
+    "rbus_size=0x80000",
+    "pli_base=0x20000000",
+    "pli_max=0x60000000",
+    "pli_step=0x8000000",
+    "pli_rbus=0x10000000",
+    "pli_window=0x8000000",
+    "pli_uncached=0x8000000",
+    "pli_pad=0x10000",
+    "dcu1_base=0x20000000",
+    "dcu1_size=0x20000000",
+    "dcu2_base=0x40000000",
+    "dcu2_size=0x20000000",
+    "clock90k=0xb801b6b8,0xb801b6bc",
+    """nodes=rtkaudio,audio_hw,rtkvdec,rtkdemux,rtkdemod,rtkademod,vscdev,vfedev,vbedev,vpqdev,\
+        vpqmemc,vpqleddev,vodev,vivtdev,sys-misc,sys-intmicom,se0,gdma_hal_gal0,hdcp2dev,otp,\
+        mcp/core,mcp/cipher,mcp/dgst,mcp_core,mcp_cipher,mcp_dgst,rcp_core,venus_gpio,pwm0,\
+        rtd-logger,cec0,dolbyvisionEDR0,rtk_spi,rtk_rng,rtkdelivery,irtx-0,video28,video30,video31""",
+    "ucom_node=sys-intmicom",
+    "waits=cec0:0xc0386106",
+    "v4l2_vsc=video30,video31",
+    "pwms=pwm-I-0,pwm-I-1,pwm-I-2,pwm-I-3,pwm-M-0,pwm-M-1,pwm-M-2,pwm-M-3",
+    "gpio_lines=460",
+    "vt=vivtdev:1920:1080:60",
+    "rpc_word=100:12070:2:0x11000",
+    "tee=1",
+    "fb=1:512x2160",
+    "vsc_screen=3840,2160",
+    "gpio_level=40:1,152:1",
+    "gpio_usb_vbus=41,151",
+]
+derived = "rpc-table"
+
+# W21P's tuners: W20L's wfm stack (libdvbv5's libudev backend, LG's dvb-core),
+# legacy-broadcast-dvb (legacy-broadcast.sh's pick for tv.nyx's DVB) opening
+# adapter 0's frontend0 and frontend1 (tv.hw's supportDualTuner, area option 2).
+# Each is a DVB demodulator of LG's dvbfrontend (KLP 1.0: the SoC's
+# dvb_internaldemod_drv.c, as si2169d_drv.c), whose systems are DVB-T, DVB-T2,
+# DVB-C annex A and B, DVB-S, DVB-S2 and DVB-C annex C, in that order. The LIB
+# version is 2.1.0 (compare_dvbfrontend_version wants major 2, minor 1;
+# dvbfrontend_version.h's 2.1.00), GET 0x68; the lock check (GET 0x81) and the
+# post job (GET 0x80, then 0x5d) are W20L's. The tuners (frontend_type
+# PAL_SI2178B and PAL_SI2151, demodulator DVB_SI2169D, satellite DVB_RDA5816, LNB
+# DVB_LNBR) also receive analog TV, LG's wfm's V4L2 device at video minor 2
+# (v4l2_atv_core.c), which tuner 0's FE_ATV_Initialize opens (atv). The lock is
+# dvbfrontend's DTV_EXT_* (include/dvbfrontend_ext.h): GET 0x81 the fe_status, 0x5d
+# the tuned frequency, 0x56/0x55 the special data stored and checked, 0x71 the
+# monitor, 0x60 and 0x61 strength and quality. The US board's tuner is
+# broadcast_params' below
+[[modules]]
+name = "webos_tv"
+params = [
+    "platform=wfm",
+    "frontends=2",
+    "delsys=3+16+1+2+5+6+18,3+16+1+2+5+6+18",
+    "version=2.1.0",
+    "version_cmd=0x68",
+    "answers=0x80:6401",
+    "freq_cmd=0x5d",
+    "status_cmd=0x81",
+    "monitor_cmd=0x71",
+    "specstore_cmd=0x56",
+    "speccheck_cmd=0x55",
+    "strength_cmd=0x60",
+    "quality_cmd=0x61",
+    "atv=2",
+]
+
+# the frontends' signal and the demuxes, fed from the host's tuner (beanjar io tuner,
+# host/core/beanjar/tuner.py)
+[[modules]]
+name = "dtv_soc"
+
+# W21P's US board (legacy-broadcast-atsc): one digital frontend (tv.hw has no
+# supportDualTuner for the US area option; FE_CheckTunerCount), LG's ATSC internal
+# demodulator ATSC_DTV_SOC, whose systems are SYS_ATSC, LG's SYS_ATSC3 (19,
+# SYS_DVBC_ANNEX_C + 1) and SYS_DVBC_ANNEX_B: KLP 1.0's GPL dvbfrontend,
+# atsc_internaldemod_drv.c, and W21P's own atsc_dtv_soc.ko (.data+0xac: 0b 13 02)
+[broadcast_params.atsc]
+webos_tv = ["frontends=1", "delsys=11+19+2"]

@@ -1,0 +1,15 @@
+# Logical window pixels at --size 960x540. Guest should receive approximately double.
+500 motion 200 150
+800 motion 300 220
+1100 down 1
+1200 up 1
+# Wheel: one notch up, one down, then two up in one event; the net delta is +2 notches.
+1600 wheel 1
+1750 wheel -1
+1900 wheel 2
+2200 motion 700 400
+2500 down 1
+2600 up 1
+# Release a held button on focus loss.
+2900 down 1
+3000 blur

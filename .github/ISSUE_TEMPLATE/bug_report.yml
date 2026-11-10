@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not attach firmware, firmware pieces, keys or model secrets, or a VM's identity or secure-store files.** VM logs can contain the model secret: remove it before posting a log.
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware and target
+      description: The firmware build and its target, for example `W19P 05.40.97.01`, `k5lp-goldilocks2`.
+    validations:
+      required: true
+  - type: textarea
+    id: host
+    attributes:
+      label: Host
+      description: Distribution and version, CPU (arm64 or x86_64), KVM or TCG, Beanjar version or commit, and whether you run the Debian packages or a checkout.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The commands or clicks, starting from creating the VM.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The relevant lines of the VM's logs, with secrets removed.
+      render: text

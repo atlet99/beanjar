@@ -1,0 +1,33 @@
+# beehive: webOS 2.x (W15M's 2.2.3, "beehive-biscayne"): afro's six paks at the same mount points
+# (W15M's mount-readonly-volatile.d/00-partinfo.squashfs.fstab, p27-p31), the same three state
+# partitions (mount-readwrite.d/00-partinfo.ext4.fstab, p45-p47), the job PmLogDaemon.conf and
+# both trust bundles and the hashed directory in its rootfs. webOS 1's EEPROM offsets and records
+# (W15M's gToolOptionDB is WT1H's, 52 bytes), eight tool option words: W15M's tvservice's
+# ToolOption1..7 and ToolOption9 (API_SUMDSVC_GetToolOption9 reads +18; there is no ToolOption8).
+# W15M's DDR_SIZE_TYPE_T adds 2_5G and 1G after 3G.
+
+base = "afro"
+version = "2"
+ddr_sizes = [768, 1280, 1536, 2048, 3072, 2560, 1024]
+peripherals = [
+    "usbhid", "hid-axff", "hid-dr", "hid-logitech", "hid-pl", "hid-sony", "hid-zpff", "xpad",
+    "uvcvideo", "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii",
+    "nls_utf8", "nls_iso8859-1", "snd-usb-audio", "cdc-acm", "uhid", "hid-playstation",
+    "ftdi_sio", "pl2303", "option", "sierra", "lgfs",
+]
+
+[nvm]
+eeprom = "eeprom"
+records = { pak = "tvservice-dvb", path = "/mnt/lg/tvservice/lgapp/tvservice" }
+modelinfo_offset = 0x924
+modelinfo_mark = 0x20130002
+model_field = [4, 13]
+serial_field = [17, 17]
+tooloption_offset = 0x4E4
+tool_option_words = 8
+tool_option_word_bytes = 2
+tool_option_first = 4
+tool_option_mark = 0x20130002
+factory_offset = 0x294
+local_key = "joystick"
+debug_status_offset = 0x1A1

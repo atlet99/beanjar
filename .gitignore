@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+/build/
+scratch/
+.claude/
+local/
+__pycache__/
+*.py[cod]
+/subprojects/*/
+!/subprojects/packagefiles/
+/subprojects/packagecache
+
+# Untracked top-level clutter from tools and other sessions
+/tmp/
+/.agents/
+/.aws/
+/.codex/
+/beanjar-config-*/

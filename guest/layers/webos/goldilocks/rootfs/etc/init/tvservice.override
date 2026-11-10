@@ -1,0 +1,16 @@
+# webos layer: webOS 4's stock job's script, with /usr/lib/libtvservice-private.so (tvservice's
+# private /proc/partinfo, nvram and /dev/mem: guest/layers/common/tvservice/libc-private.c) LD_PRELOADed
+# after the stock preloads, dbgfrwk's liblibm and libsystrim. The library drops itself from
+# LD_PRELOAD once loaded, so what tvservice starts keeps the stock LD_PRELOAD. The job's other
+# stanzas are unchanged.
+script
+	export DBUS_SESSION_BUS_ADDRESS=`cat /var/run/dbus.addr`
+	export DBUS_SESSION_BUS_PID=`cat /var/run/dbus.pid`
+
+	# Enable dbgfrwk
+	export HOOK_SEGV=YES
+	export HOOK_THR=YES
+	export LD_PRELOAD=/usr/lib/liblibm.so.1:/usr/lib/libsystrim.so.3:/usr/lib/libtvservice-private.so
+
+	exec $WEBOS_NICE $LGAPP_DIR/RELEASE --service lg.service.special.broadcast
+end script

@@ -1,0 +1,70 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The measured virtio plane supports XR24; Spacebuns also needs explicit geometry.
+# An optional root prefix allows isolated configuration tests without mounts.
+set -eu
+root=${1-}
+source_ini=$root/usr/share/weston/weston.ini
+user_ini=$root/var/luna/preferences/weston.ini
+runtime=$root/run/beanjar/native-weston
+profile=$root/usr/share/beanjar/native-weston-target
+spacebuns=0
+if [ -f "$profile" ] && [ "$(cat "$profile")" = o22n2-spacebuns ]; then
+	spacebuns=1
+fi
+
+# The stock launcher gives this file precedence over its default configuration.
+# A user's configuration is their own, including their choice of GBM format.
+if [ -f "$user_ini" ]; then
+	exit 0
+fi
+
+# Never capture an already overlaid default as the firmware original. A service
+# restart in the same boot reuses the binding created by this helper.
+if mountpoint -q "$source_ini"; then
+	if [ -f "$runtime/stock.ini" ] && [ -f "$runtime/virtio.ini" ] &&
+	   cmp -s "$source_ini" "$runtime/virtio.ini"; then
+		exit 0
+	fi
+	echo "native-weston-format: default ini already mounted by another owner" >&2
+	exit 1
+fi
+
+mkdir -p "$runtime"
+cp "$source_ini" "$runtime/stock.ini"
+# Match the measured firmware key only, and reject an unexpected configuration
+# instead of silently booting with a format this plane cannot scan out.
+trap 'rm -f "$runtime/virtio.ini.tmp"' 0
+trap 'exit 1' HUP INT TERM
+awk -v spacebuns="$spacebuns" '
+    /^\[/ { core = ($0 == "[core]"); output = ($0 == "[output]") }
+    core && /^gbm-format=(abgr8888|xrgb8888)$/ {
+        count++
+        sub(/=abgr8888$/, "=xrgb8888")
+    }
+    core && /^override-output-from-env=/ {
+        overrides++
+        if ($0 != "override-output-from-env=true") invalid_override = 1
+    }
+    output && /^name=Virtual-[12]$/ { virtual_outputs++ }
+    { print }
+    END {
+        if (count != 1) exit 1
+        if (spacebuns) {
+            if (overrides != 1 || invalid_override || virtual_outputs) exit 1
+            print ""
+            print "[output]"
+            print "name=Virtual-1"
+            print "mode=1920x1080"
+            print "buffer_size=1920x1080"
+            print ""
+            print "[output]"
+            print "name=Virtual-2"
+            print "mode=768x2160"
+            print "buffer_size=768x2160"
+        }
+    }
+' "$runtime/stock.ini" > "$runtime/virtio.ini.tmp"
+mv "$runtime/virtio.ini.tmp" "$runtime/virtio.ini"
+mount --bind "$runtime/virtio.ini" "$source_ini"

@@ -1,0 +1,67 @@
+# Board parameters the LG bootloader (lxboot) puts on the kernel command line, parsed by
+# libdile_boardinfo, tvservice, tvconfig-gen and the Upstart jobs. The initramfs appends these to
+# the real cmdline and bind-mounts the result over /proc/cmdline inside webOS.
+# Formats and order follow W17H's lxboot (V4.03.21) format strings; the values describe a
+# 55UJ750V, a model that runs W17H, in W17H's own
+# encodings; they are not read from a real set. lxboot's kernel-only parameters (root=, mem=,
+# console=, rootwait, the snapshot/art parameters, portProtection, factory) are left out.
+#
+# rev=1 is a constant in this lxboot, bver= its own version (sver=, the first-stage loader's, is
+# left out). chip= is a name of lxboot's table (H13 H14 M14 H15 M16 M16P) and a revision (A0 A1
+# B0 B1 B2 C0); the M16P kernel looks M16P up as id 0x19, so M16PB0 is CHIP_REV 0x19b0 (targets.py's
+# lg115x chip_rev). KADP and the HAL only test >= 0x19a0, so A0 and B0 behave the same there.
+# mknod.conf creates the /etc/device_table nodes only with devtmpfs.mount=1.
+ethaddr=a8:23:fe:12:34:56 rev=1 chip=M16PB0 bver=4.03.21 devtmpfs.mount=1
+# 0x + 9 hex digits; parsers drop the last 2 digits and read KB. 7.5 GB eMMC, as the others (the
+# state disks' sizes are the launcher's, not this)
+emmc_size=0x1d2000000
+# 19 model-option straps, '0'/'1' each, as W17H's lxboot reads its GPIOs (reproduced from the firmware's tables).
+# Straps 12-14 are the DDR size: "001" is DDR_SIZE_1_5G, which lxboot prints as hwopt digit 11 '3'
+# below. The M16P kernel's BASE_PLT_Probe reads only the panel here, from straps 6-9 ("1101" STB,
+# "100" OLED, else LCD: BOARD_OPT 0x20); its DDR comes from hwopt digit 11.
+modelopt=0000000000000010000
+# 18 digits, as W17H's tvconfig-gen (SystemHdrInit) decodes them: EU (d0 2, {TW_CO, CN_HK, EU,
+# AJ_JA}), V-by-One (d2 2), UD panel (d3 2), panel V17 (d5 7, MODELOPT_PANEL_V17: a 2017 set; 0
+# is MODELOPT_PANEL_TYPE_NONE), single T2+S tuner (d8 2: column 2 of gmodelopt_H15_tuner_comb's
+# EU row; column 0 adds a dual tuner the 55UJ750V has not), DDR (d11 '3': the kernel's 1.5 GB
+# STD, BOARD_OPT 0x24000; what a real 55UJ750V straps is not in the firmware), graphic resolution
+# 1920x1080 (d14 2: the OSD plane stays FHD on a UHD set). libdile_boardinfo reads the panel as
+# 3840x2160.
+hwopt=202207002003002000
+# lxboot prints 9 tool option words, the ToolOptionDB's 32-bit words (webOS 3's layout:
+# host/core/beanjar/targets.py's Nvm), which the launcher programs into a new EEPROM
+# (host/core/beanjar/nvm.py). W17H's encodings (tvservice's TOOL_OPTIONn_T, the inch and tool
+# type enums), as derived from the firmware's tables. W17H's RELEASE.cfg is series TOOL_SJ85, so
+# beyond the model's own choices these are the firmware's factory default for the board (what its
+# OSA_MD_InitToolOption programs), not the UJ750V's record:
+#   ToolOpt1 33262: eModelInchType 14 (bits 0-4, INCH_55), eModelToolType 15 (bits 5-10,
+#     TOOL_UJ75), module maker 0 (bits 11-14, LGD), LVDS bit 1.
+#   ToolOpt2 18465: nExtVideoInputIndex 1 (bits 0-4, the row of video_external_input_adjust with
+#     HDMI x4, component and AV; row 0 is no row), audio index 1 (bits 5-9), backlight 2 (bits
+#     10-12, edge LED), USB field 2 (bits 13-14, three ports), HDMI switch 0.
+#   ToolOpt3 58706: AMP_NTP7515_2AMP 2 (bits 0-2; RELEASE.cfg "[i2c]NTP7515_2AMP_F:1:0x54" and
+#     "_W:1:0x56", iic0: targets.py's amp:0:0x54 and amp:0:0x56), headphone, DVR ready, ISF, dual
+#     view, local dimming and its menu, luminance up. Local dimming and dual view are the SJ85's;
+#     whether the edge-LED UJ750V has them is a retail question.
+#   ToolOpt4 64797: demodulators TCS_COMBO 1, DVB_SI2169D 7, SI2178B 4, NO_DEMOD 14 and
+#     NO_DEMOD_ANA 7 (RELEASE.cfg's "NO_DEMOD" is not in _AnalogDemodType_Sub: the parser's -1,
+#     masked to the 3-bit field). No tuner or demodulator chip is modelled.
+#   ToolOpt5 115173: WiFi 5 (bits 0-2, 11ac combo), camera 0, mouseRC 7 (bits 5-7, MR16/MR15R),
+#     TVLink 1 (bit 8), 2D only, scanning backlight (bit 14), WOL (bit 15), ClearPlus (bit 16).
+#   ToolOpt6 133468: standard backlight 85 as the factory scales it, 12; motion eye care 5, audio
+#     power 1, speaker 1, PWM2 duty 41 (2).
+#   ToolOpt7 922255: the MAC, ESN, CI and Widevine keys in the AP, EDID_DTS, the eye sensor, LED
+#     bar 12, PWM 100/120 Hz, Magic Space Sound, instant boot default on.
+#   ToolOpt8 0; ToolOpt9 131072: HDR (bit 17).
+ToolOpt=33262:18465:58706:64797:115173:133468:922255:0:131072
+# 4 = EU
+countryGrp=4
+# 3 = DEBUG, 4 = EVENT, 5 = RELEASE (the lginit_app and tvservice jobs start the reboot job when
+# they end in RELEASE)
+debugMode=3
+# modelName: the ModelInfoDB has 24 bytes for it on webOS 3.5; serialNum <= 16 chars. The EEPROM's
+# area (ContinentOptionDB) is the factory's, not lxboot's: targets.py's Soc.continent.
+modelName=55UJ750V-ZA serialNum=705RAXX00001
+# lxboot always ends with cmdEnd. It also guarantees a space after every value: tvservice and
+# libdile_crypto copy emmc_size= and ethaddr= up to the next space.
+cmdEnd

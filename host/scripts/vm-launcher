@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""The host runtime's command line (host/core/beanjar/launch.py): `host/scripts/vm-launcher --help`."""
+
+import os
+import sys
+
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))),
+        "host",
+        "core",
+    ),
+)
+from beanjar.launch import main  # noqa: E402
+
+sys.exit(main())

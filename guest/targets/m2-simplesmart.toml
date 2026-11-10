@@ -1,0 +1,44 @@
+# LG's SimpleSmart (NetCast line, not webOS): "..._LCD_SS1A_...", MStar M2 (docs/dev/architecture/simplesmart.md)
+models = ["SS1A"]
+# SimpleSmart has none of the webOS checks regress makes (tvservice's core-boot-done, Luna)
+bring_up = ["SS1A"]
+
+# SimpleSmart SS1A on MStar's M2 (docs/dev/architecture/simplesmart.md): MStar's drivers under KADP as W16R's
+# (the same Utopia module numbers, ioctls, SYS_INFO and MIU geometry; MAdp_MPool_Init's LX_MEM check
+# of ids 1 and 67 with the 0x40000000 bias), but SS1A's own mmapger layout: 90 records (its
+# MAdp_SYS_GetMMAP takes ids 0-89; its kernel's names end JPD_OUTPUT_BUF, POOL0, HWI2C_DMA), 4 MiB
+# each so that all lie in MIU0, and the records SS1A's MAdp_MPool_Init does not map nested in
+# POOL0 (88, 8 MiB) at the offsets and lengths of the board's MBoot table, as on the set: VD_3DCOMB
+# 12 (4 MiB) and TSP_BUF 19 (5 MiB) at 0, VBI_1 30 at 4 MiB, VQ_BUF 20 (3 MiB) and VBI_2 31 at
+# 5 MiB, TTX_BUF 16 at 6 MiB (scratch/ss-mmap-layout.md; KADP's PA2KSEG1 finds only addresses
+# inside a mapped record). GOP_FRAMEBUFFER (27) is the graphics pool, the board's 48 MiB (MBoot's
+# table: 0x03000000; procmgr's and DirectFB's surfaces take more than 40 MiB at start), which the
+# GOP node (gop_fb) maps and allocates from for our libhalgal (guest/layers/simplesmart). reg_init and reg_autoclear: M2's (the chip's
+# CPU clock, the empty CI slot, the efuse and XC strobes). The I2C devices of SS1A's RELEASE.cfg:
+# "[i2c]MICOM:1:0x52", "[i2c]NVM:2:0xA0", "[i2c]NTP7515:4:0x54", the same SlaveCfgs as W16R's.
+# W16R's XC window and audio command numbers are not taken (SS1A's Utopia build is not W16R's).
+[soc]
+board_cmdline = "/etc/emulator/board.cmdline"
+board_src = "guest/layers/simplesmart/rootfs"
+
+[[soc.modules]]
+name = "mstar-utopia"
+params = [
+    "miu_interval=0x80000000",
+    "miu_len=0x20000000",
+    "miu0_bus=0x20000000",
+    "miu1_bus=0xa0000000",
+    "mmap_ids=90",
+    "mmap_slot=0x400000",
+    """mmap_len=27:0x3000000,88:0x800000,12:0x400000,19:0x500000,30:0x100000,20:0x300000,\
+        31:0x100000,16:0x100000""",
+    "mmap_in=12:88:0,19:88:0,30:88:0x400000,20:88:0x500000,31:88:0x500000,16:88:0x600000",
+    "lx_mem_id=1",
+    "lx_mem2_id=67",
+    "lx_mem2_bias=0x40000000",
+    "reg_init=0x1f200000:0x10cc0:0x78d5,0x1f200000:0x10cc2:0x29,0x1f200000:0x3448:0xc00",
+    """reg_autoclear=0x1f000000:0x2000:0x1,0x1f000000:0x204c:0x1,0x1f000000:0x132382:0x100,\
+        0x1f000000:0x131f04:0x8000""",
+    "i2c=micom:0x0452,nvm:0x00a0,amp:0x0054",
+    "gop_fb=27",
+]

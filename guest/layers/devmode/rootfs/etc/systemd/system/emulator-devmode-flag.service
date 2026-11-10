@@ -1,0 +1,14 @@
+# The state filesystem hides the flag shipped in this layer. Recreate it after
+# stock state mounting, before SAM and appinstalld inspect developer mode.
+[Unit]
+Description=Emulator developer mode flag
+DefaultDependencies=no
+Requires=mount-readwrite.service
+After=mount-readwrite.service
+Before=sam.service appinstalld.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/mkdir -p /var/luna/preferences
+ExecStart=/bin/touch /var/luna/preferences/devmode_enabled
+RemainAfterExit=yes

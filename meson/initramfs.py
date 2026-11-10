@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Pack the initramfs with the kernel's own usr/gen_init_cpio from a declarative file list.
+
+    initramfs.py --list LIST --src DIR --out-list OUT --cpio OUT --depfile FILE
+                 --gen-init-cpio PROG --gzip PROG [--mtime SECONDS]
+                 [--var NAME PATH]...
+
+LIST (guest/initramfs/initramfs.list) is in gen_init_cpio's format: `dir`, `file`, `slink`, `nod`, ...
+lines with explicit modes and owners. `${NAME}` in it is replaced by the PATH of a --var (a build
+output, or the source directory as ${SRC}); an unknown name is an error. One line of its own,
+`tree <name> <location> <dirmode> <filemode> <uid> <gid>`, puts everything under the directory
+<location> below <name> (which the list makes with a `dir` line): a `dir` line for each directory
+and a `file` line for each file, in sorted order (the kernel's modules_install tree); a symlink or
+other special file in it is an error.
+
+Every file in --src (guest/initramfs/rootfs/) must be named in LIST: a new script
+is not left out of the image silently.
+
+OUT-list is the expanded list, kept in the build directory. The cpio is
+`gen_init_cpio -t MTIME OUT-list | gzip -9n`: owners, modes and device nodes come from the list,
+every timestamp is MTIME (default 0) and inode numbers are assigned in list order, so the same
+inputs give the same bytes; nothing needs root. The cpio file is only replaced when it changes.
+"""
+
+import os
+import re
+import subprocess
+import sys
+
+
+def parse(argv):
+    opts, vars_ = {"mtime": "0"}, {}
+    single = (
+        "--list",
+        "--src",
+        "--out-list",
+        "--cpio",
+        "--depfile",
+        "--gen-init-cpio",
+        "--gzip",
+        "--mtime",
+    )
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in single:
+            opts[a[2:].replace("-", "_")] = argv[i + 1]
+            i += 2
+        elif a == "--var":
+            vars_[argv[i + 1]] = os.path.abspath(argv[i + 2])
+            i += 3
+        else:
+            sys.exit(f"initramfs.py: unknown argument {a}")
+    for k in single[:-1]:
+        if k[2:].replace("-", "_") not in opts:
+            sys.exit(f"initramfs.py: {k} is required")
+    return opts, vars_
+
+
+def tree(words, deps):
+    """The dir and file lines of a `tree NAME LOCATION DIRMODE FILEMODE UID GID` line; every
+    directory and file under LOCATION goes into deps."""
+    if len(words) != 7:
+        sys.exit(
+            f"initramfs.py: tree needs NAME LOCATION DIRMODE FILEMODE UID GID: {' '.join(words)}"
+        )
+    _, name, top, dmode, fmode, uid, gid = words
+    out = []
+    for dirpath, dirnames, filenames in os.walk(top):
+        dirnames.sort()
+        deps.append(dirpath)
+        rel = os.path.relpath(dirpath, top)
+        dest = name if rel == "." else os.path.join(name, rel)
+        if rel != ".":
+            out.append(f"dir {dest} {dmode} {uid} {gid}")
+        for n in sorted(
+            filenames + [d for d in dirnames if os.path.islink(os.path.join(dirpath, d))]
+        ):
+            p = os.path.join(dirpath, n)
+            if os.path.islink(p) or not os.path.isfile(p):
+                sys.exit(f"initramfs.py: {p}: not a regular file")
+            deps.append(p)
+            out.append(f"file {os.path.join(dest, n)} {p} {fmode} {uid} {gid}")
+    if not out:
+        sys.exit(f"initramfs.py: tree {top} is empty")
+    return out
+
+
+def main():
+    opts, vars_ = parse(sys.argv[1:])
+    src = os.path.abspath(opts["src"])
+    vars_["SRC"] = src
+    deps = [os.path.abspath(opts["list"]), src]
+    lines = []
+    named = set()
+
+    def expand(m):
+        if m.group(1) not in vars_:
+            sys.exit(f"initramfs.py: {opts['list']}: no --var {m.group(1)}")
+        return vars_[m.group(1)]
+
+    with open(opts["list"]) as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            line = re.sub(r"\$\{([A-Za-z0-9_]+)\}", expand, line)
+            words = line.split()
+            if words[0] == "tree":
+                lines.extend(tree(words, deps))
+                continue
+            if words[0] == "file":
+                named.add(os.path.normpath(words[2]))
+            lines.append(line)
+
+    # Every file of the source directory is in the list (and in the depfile).
+    for dirpath, dirnames, filenames in os.walk(src):
+        dirnames.sort()
+        deps.append(dirpath)
+        for n in sorted(filenames):
+            p = os.path.join(dirpath, n)
+            deps.append(p)
+            if p not in named:
+                sys.exit(f"initramfs.py: {os.path.relpath(p)} is not in {opts['list']}")
+
+    seen = set()
+    for line in lines:
+        name = line.split()[1]
+        if name in seen:
+            sys.exit(f"initramfs.py: {name} is in the list twice")
+        seen.add(name)
+
+    text = "# generated by meson/initramfs.py from " + opts["list"] + "\n" + "\n".join(lines) + "\n"
+    with open(opts["out_list"] + ".tmp", "w") as f:
+        f.write(text)
+    os.replace(opts["out_list"] + ".tmp", opts["out_list"])
+
+    cpio = subprocess.run(
+        [opts["gen_init_cpio"], "-t", opts["mtime"], opts["out_list"]],
+        stdout=subprocess.PIPE,
+        check=True,
+    ).stdout
+    gz = subprocess.run(
+        [opts["gzip"], "-9n"], input=cpio, stdout=subprocess.PIPE, check=True
+    ).stdout
+    try:
+        with open(opts["cpio"], "rb") as f:
+            same = f.read() == gz
+    except FileNotFoundError:
+        same = False
+    if not same:
+        with open(opts["cpio"] + ".tmp", "wb") as f:
+            f.write(gz)
+        os.replace(opts["cpio"] + ".tmp", opts["cpio"])
+
+    esc = lambda p: os.path.abspath(p).replace(" ", "\\ ")
+    with open(opts["depfile"], "w") as f:
+        f.write(opts["out_list"] + ": " + " ".join(esc(d) for d in deps) + "\n")
+
+
+if __name__ == "__main__":
+    main()

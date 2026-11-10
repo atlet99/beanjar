@@ -1,0 +1,36 @@
+<!doctype html>
+<!-- SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beanjar</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="list">
+<!-- beanjar-web --auth password's login (docs/dev/architecture/web-viewer.md, "Access"): the header
+     bar of the list, a status page with the password field. A wrong password comes back here
+     with ?failed=1, a second later. -->
+<header class="bar">
+<div class="start"></div>
+<div class="titles"><div id="title">Beanjar</div><div id="sub">Log in</div></div>
+<div class="end"></div>
+</header>
+<main>
+<form class="status-page login" method="post" action="/login">
+<span class="big"><i class="bi" style="--i: url(/icons/shield-lock.svg)"></i></span>
+<h2>Log In</h2>
+<p>beanjar-web's password: the first line of its password file (web.password).</p>
+<p id="failed" class="error" hidden>Wrong password.</p>
+<div class="field">
+<input type="password" name="password" autocomplete="current-password" placeholder="Password" required autofocus>
+<button type="submit" class="suggested"><i class="bi" style="--i: url(/icons/box-arrow-in-right.svg)"></i>Log In</button>
+</div>
+</form>
+</main>
+<script>
+if (new URLSearchParams(location.search).has("failed")) document.getElementById("failed").hidden = false;
+</script>
+</body>
+</html>

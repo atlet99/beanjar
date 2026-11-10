@@ -1,0 +1,117 @@
+# afro: webOS 1.x (WT1H's 1.4.0, "afro-ashley")
+
+# the platform (PLATFORMS) and its version as LG markets it; the releases after it say theirs
+platform = "webOS"
+version = "1"
+# the firmware's init, which webos-start runs as PID 1 of the webOS namespace: "upstart" (webOS 1
+# to 4) or "systemd" (webOS 5 on)
+init_system = "upstart"
+# how init turns PmLogDaemon's whitelist off for webos.pmlog=full: "preload", the webos
+# layer's libpmlog-keep-all.so in the daemon (webOS 1, 2), or "devlog", LG's devlog switch
+# over the bus (webOS 3, the webos layer's emulator-pmlog-devlog job); "preload-systemd" on a
+# systemd release (a drop-in for the unit); and the daemon's Upstart job, which init
+# overrides, or its systemd unit (without .service)
+pmlog_mode = "preload"
+pmlog_job = "PmLogDaemon"
+# the highest capability of the kernel the firmware was built for, which webos-start shows as
+# /proc/sys/kernel/cap_last_cap in the webOS namespace (this kernel's is higher): LG's 3.10
+# kernels' include/uapi/linux/capability.h, CAP_LAST_CAP CAP_BLOCK_SUSPEND (36; WT1H's
+# linux-3.10-lg115x and W16R's kernel-DM2, line 346); 4.4's CAP_AUDIT_READ (37)
+cap_last_cap = 36
+# the DDR size of each value of hwopt digit 11 (ram()), MiB: the release's DDR_SIZE_TYPE_T in
+# order, the type of gModelOpt.ddr_size, where the hwopt parser stores the digit as it is
+# (tvservice's DWARF and SystemHdrInit): WT1H's 768M, 1_25G,
+# 1_5G, 2G, 3G
+ddr_sizes = [768, 1280, 1536, 2048, 3072]
+# the trust stores init appends the mode=mitm proxy's CA to: the system bundle (libcurl, most
+# clients), the bundle some clients (sdx) load instead, and the hashed directory (Qt 5.0 /
+# QtWebKit), all in the webOS root
+trust_bundles = [
+    "etc/ssl/certs/ca-certificates.crt", "usr/share/ca-certificates/sdp/sdp-ca.pem",
+]
+trust_hash_dir = "etc/ssl/certs"
+# The peripheral modules, by what each stock kernel has. hid-generic stays
+# built into the guest kernel (no transport without usbhid or uhid). hid-playstation drives the
+# DualShock 4, which LG's hid-sony did from Linux 3.15 (W15M's 3.16 on; not WT1H's or W16R's 3.10). FAT mounts take the guest
+# kernel's default iocharset, iso8859-1: nls_iso8859-1 goes wherever vfat does.
+# WT1H, W15M and W17H (decoded configs): FAT, NTFS (ntfs3; "ntfs" is lgfs's) and fuse, codepage
+# 437, ASCII and UTF-8; no exFAT
+# WT1H, W15M, W17H (decoded configs): USB HID with the gamepad drivers ACRUX, DragonRise,
+# Logitech, PantherLord, Sony, Zeroplus; xpad; UVC; storage; USB audio; CDC ACM. No joydev or
+# hid-microsoft; WT1H has no uhid
+peripherals = [
+    "usbhid", "hid-axff", "hid-dr", "hid-logitech", "hid-pl", "hid-sony", "hid-zpff", "xpad",
+    "uvcvideo", "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii",
+    "nls_utf8", "nls_iso8859-1", "snd-usb-audio", "cdc-acm", "ftdi_sio", "pl2303", "option",
+    "lgfs",
+]
+# the mount points of etc/init/mount-readonly-volatile.d/00-partinfo.squashfs.fstab
+paks = [
+    { file = "rootfs", serial = "rootfs", mount = "/" },
+    { file = "tvservice-dvb", serial = "tvservice", mount = "/mnt/tvservice" },
+    { file = "otncabi-dvb", serial = "otncabi", mount = "/mnt/otncabi" },
+    { file = "otycabi-dvb", serial = "otycabi", mount = "/mnt/otycabi" },
+    { file = "fonts", serial = "fonts", mount = "/mnt/fonts" },
+    { file = "smartkey", serial = "smartkey", mount = "/mnt/smartkey" },
+]
+# the TV's read-write eMMC partitions the webos layer's fstab mounts through
+# /dev/disk/by-id/virtio-<name>, one sparse raw image each (sizes are estimates)
+state_disks = { db8 = "512M", cmn_data = "1G", appstore = "2G" }
+# tvservice's two raw NVM disks: the eMMC "nvram" partition (guest/layers/common/tvservice) and the
+# I2C EEPROM (lgemu.ko); the TV's settings
+# (nvram: at least its partition's size, LG's table's 0x800000 from WT1H to W19P)
+nvm_disks = { nvram = "8M", eeprom = "32K" }
+emmc_disks = ["partinfo", "authcxt", "sestore", "sedata"]
+# the partition map: lginit_app2's default table (WT1H's: 48 partitions, partinfo p3)
+partmap = { pak = "tvservice-dvb", path = "/mnt/lg/tvservice/lgapp/lginit_app2" }
+
+# the EEPROM's records: tvservice's defaults; the ToolOptionDB (52 bytes) has ToolOption1..7
+# as 16-bit words after its valid mark (API_SUMDSVC_GetToolOption1..7). The ContinentOptionDB
+# (0x1BD4, DIL_NVM_InitContinentOptionDB; 0x1B48 is the Last_Input_info DB) and the
+# Last_Input_info DB are left blank: tvservice writes its own over them. The FactoryDB (0x294,
+# DIL_NVM_InitFactoryDB in every release here; mark 0xDC158B78, 224 to 300 bytes) is the
+# factory's: tvservice does not write all of it to a blank chip (W18R: only a few fields, no
+# mark), and its substrate mode (0x330, SUMDSVC_GetSubstrateMode), 0xFF there, keeps the set
+# in factory state (systemproperty checkFactoryState), where tvpowerd's Quick Start+ refuses
+# to suspend ("Factory State, so response nack").
+[nvm]
+eeprom = "eeprom"
+records = { pak = "tvservice-dvb", path = "/mnt/lg/tvservice/lgapp/tvservice" }
+# webOS 1 to 3.4's ModelInfoDB (44 bytes): mark 0x20130002, model name[13] at +4, serial[17] at +17
+modelinfo_offset = 0x924
+modelinfo_mark = 0x20130002
+model_field = [4, 13]
+serial_field = [17, 17]
+tooloption_offset = 0x4E4
+tool_option_words = 7
+tool_option_word_bytes = 2
+tool_option_first = 4
+tool_option_mark = 0x20130002
+factory_offset = 0x294
+# WT1H's tvservice has no local key type and its MICOM_Task's _MICOM_GetKeyValue maps
+# the local codes as a joystick's only (0..3 to CH/VOL 920..923, 0xEA/0xEB to 1000/1001);
+# webOS 2's has a type, but not from ToolOpt= (OSA_MD_GetLocalKeyType, the model config),
+# and its _MICOM_GetLocalKeyValue has no onekey branch either
+local_key = "joystick"
+debug_status_offset = 0x1A1
+
+# the partitions the VM has a /dev/mmcblk0pN for: name -> the disk's serial (the first partition of the name, as every consumer takes): the
+# map itself (securitymanager's sb_init_partinfomap, update, devicereset; mapbak, its copy, on
+# the same disk), tvservice's NVM and its authcxt (OSA_MountRWFS, mkfs.ext4 when it does not
+# mount), KADP SE's sestore and sedata (libkadaptor), the paks and the state partitions
+[partitions]
+partinfo = "partinfo"
+mapbak = "partinfo"
+authcxt = "authcxt"
+nvram = "nvram"
+sestore = "sestore"
+sedata = "sedata"
+rootfs = "rootfs"
+tvservice = "tvservice"
+otncabi = "otncabi"
+otycabi = "otycabi"
+fonts = "fonts"
+smartkey = "smartkey"
+db8 = "db8"
+data = "cmn_data"
+apps = "appstore"

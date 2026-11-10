@@ -1,0 +1,6 @@
+# Emulator: no video decoder to load firmware into (fwloader writes /lib/firmware/vdec.bin to
+# /dev/fwload, major 1212, which has no driver here). Kept as a task: it starts on
+# "stopped kdrivers".
+script
+	echo "[Upstart Job: $UPSTART_JOB] emulator: no video decoder"
+end script

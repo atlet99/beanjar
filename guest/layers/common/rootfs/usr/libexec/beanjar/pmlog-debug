@@ -1,0 +1,31 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Raise the PmLog contexts listed in webos.pmlog_debug=ctx1,ctx2 on the kernel cmdline
+# (PMLOG_DEBUG="ctx1 ctx2" for the launchers) to debug level; run before PmLogDaemon starts by
+# etc/init/emulator-pmlog-debug.conf (Upstart) or etc/systemd/system/emulator-pmlog-debug.service
+# (systemd). Does nothing without the list.
+#
+# Levels live in libPmLogLib's SysV shared memory and are read on every message, so they apply
+# to processes that are already running too. `PmLogCtl set` only matches contexts that exist
+# (wildcards allowed, e.g. "WAM*"); `def` creates one, and the process that later asks for it
+# gets the level set here. Debug messages go out as "<ctx> DBGMSG", which the stock daemon's
+# whitelist drops, so the initramfs turns the whitelist off whenever this list is given.
+# Unknown contexts fall to the <default> rules, i.e. /var/log/messages.
+# At run time: PmLogCtl show [ctx] / set ctx level / def ctx level.
+#
+# --devmode (systemd releases): also turn off libPmLogLib's client whitelist with
+# PmLogSetDevMode(1) (pmlog-devmode), as every Upstart release's debug boot has it off: webOS 1, 2
+# and 4's library has none, and webOS 3's devlog switch turns it off.
+for w in $(cat /proc/cmdline); do
+	case $w in webos.pmlog_debug=*) list=${w#*=} ;; esac
+done
+[ -n "$list" ] || exit 0
+set -f   # "WAM*" is a PmLogCtl pattern, not a file glob
+for c in $(echo "$list" | tr , ' '); do
+	# def fails for an existing context and set for a missing one; run both
+	case $c in *'*'*) ;; *) PmLogCtl def "$c" debug >/dev/null 2>&1 ;; esac
+	PmLogCtl set "$c" debug >/dev/null 2>&1 || true
+done
+[ "$1" = --devmode ] && /usr/libexec/beanjar/pmlog-devmode
+exit 0

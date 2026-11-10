@@ -1,0 +1,5 @@
+# Emulator: the paks are virtio disks and the initramfs has already mounted them at
+# /mnt/tvservice, /mnt/otncabi, /mnt/otycabi, /mnt/fonts and /mnt/smartkey.
+# /mnt/lg/ciplus/cert (mmcblk0p14) has no pak in the firmware and is left empty. (W15M's stock
+# fstab: p14 and p27-p31.) The bind fstabs of this directory (fonts, smartkey, tvservice) are the
+# stock ones.

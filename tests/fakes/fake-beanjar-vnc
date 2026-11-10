@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Stand-in for beanjar-vnc in the manager tests: records its arguments, refuses as beanjar-vnc does (an
+address other than loopback, or --unix, without --password-file; --websocket with one), prints its
+"listening" and "ready" lines, runs until SIGTERM."""
+
+import ipaddress
+import signal
+import sys
+import time
+
+if sys.argv[1:] == ["--help"]:  # what the manager looks for: --video-local is served
+    print(
+        "usage: beanjar-vnc BUS_ADDRESS --listen ADDRESS [--audio-local PATH] [--video-local PATH]"
+    )
+    sys.exit(0)
+print("fake vnc", *sys.argv[1:], flush=True)
+args = sys.argv[1:]
+value = lambda option, default=None: args[args.index(option) + 1] if option in args else default
+listen, port, websocket = (
+    value("--listen"),
+    int(value("--port", 5900)),
+    int(value("--websocket", 0)),
+)
+unix, password_file = value("--unix"), value("--password-file")
+password = ""
+if password_file:
+    with open(password_file) as f:
+        password = f.readline().strip()
+    if not password:
+        sys.exit("beanjar-vnc: the password file is empty")
+try:
+    loopback = ipaddress.ip_address(listen).is_loopback
+except ValueError:
+    loopback = False
+if password and websocket:
+    sys.exit(
+        "beanjar-vnc: --websocket cannot be used with a password: neatvnc cannot authenticate WebSocket clients"
+    )
+if not password and unix:
+    sys.exit("beanjar-vnc: --unix needs a --password-file: a relay serves it elsewhere")
+if not password and not loopback:
+    sys.exit(f"beanjar-vnc: {listen} is not a loopback address: give a --password-file")
+print(f"beanjar-vnc: listening vnc://{listen}:{port}", flush=True)
+if websocket:
+    print(f"beanjar-vnc: listening ws://{listen}:{websocket}", flush=True)
+if unix:
+    print(f"beanjar-vnc: listening unix:{unix}", flush=True)
+print(
+    "beanjar-vnc: ready, 1280x720, up to 30 fps, "
+    + ("password required (RSA-AES)" if password else "no password"),
+    flush=True,
+)
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+while True:
+    time.sleep(3600)

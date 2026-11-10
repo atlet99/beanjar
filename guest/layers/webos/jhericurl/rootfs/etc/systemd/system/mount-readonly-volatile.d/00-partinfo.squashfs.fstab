@@ -1,0 +1,4 @@
+# Emulator: the paks are virtio disks and the initramfs has already mounted them at
+# /mnt/otncabi, /mnt/otycabi, /mnt/fonts and /mnt/license (boot.conf's PAKS). /mnt/lg/ciplus/cert
+# (mmcblk0p14) has no pak in the firmware and is left empty. (W20L's stock fstab: p14, p30-p32,
+# p34.) The bind fstabs of this directory are the stock ones.

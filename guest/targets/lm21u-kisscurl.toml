@@ -1,0 +1,40 @@
+# N21D is LG's StanbyME (27ART10) on the LM21U platform (machine LM21U, chip=LM21UA0, its
+# devicename lm21ut): webOS 6 kisscurl-kluane (04.44.16) and webOS 24 ombre-okapi (23.22.86).
+# W21U, the same chip's 2021 OLED, NANO and QNED TV line, is not
+# the StanbyME's firmware and has no target.
+models = ["N21D"]
+lg_scaler = [1920, 1080]
+
+[release]
+base = "kisscurl"
+peripherals = [
+    "usbhid", "uhid", "joydev", "input-leds", "hid-axff", "hid-dr", "hid-logitech",
+    "hid-microsoft", "hid-pl", "hid-sony", "hid-playstation", "hid-zpff", "xpad", "uvcvideo",
+    "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii", "nls_utf8",
+    "nls_iso8859-1", "nls_cp949", "exfat", "snd-usb-audio", "cdc-acm", "ipw", "pl2303", "option",
+    "sierra", "lgfs",
+]
+state_disks = { db8 = "112M", cmn_data = "750M", appstore = "2138M", uhdcp = "5M" }
+nvm_disks = { nvram = "8M", eeprom = "32K" }
+partmap = "lm21u-kisscurl"
+
+[release.partitions]
+partinfo = "partinfo"
+mapbak = "partinfo"
+authcxt = "authcxt"
+nvram = "nvram"
+sestore = "sestore"
+sedata = "sedata"
+rootfs = "rootfs"
+otncabi = "otncabi"
+otycabi = "otycabi"
+fonts = "fonts"
+db8 = "db8"
+apps = "appstore"
+bsppart = "bsppart"
+license = "license"
+wossestore = "wossestore"
+uhdcp = "uhdcp"
+dbboot = "dbboot"
+efs = "efs"
+data = "cmn_data"

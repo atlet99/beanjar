@@ -1,0 +1,13 @@
+# Emulator: bsppart is already in the root. The stock job, which SetInitEnv starts (its
+# start-mount-bsp event) before any other job, mounts the bsppart pak at /mnt/bsppart, makes an
+# overlay of its bsp/ over / at /mnt/bsppart/merged, mounts /dev, devpts, proc and sysfs in it,
+# pivot_roots into it (the old root at /old_root) and reloads Upstart's jobs, which adds bsppart's
+# gpu-libs, kdrivers and prebuiltko. The initramfs stacks the pak's bsp/ above the stock rootfs
+# (boot.conf's PAK_LOWERS) before Upstart starts, so the root is that overlay from the start, with
+# bsppart's jobs in it; /dev, /proc, /sys and devpts (etc/fstab) are there as in every boot.
+# What differs from the TV is only what it leaves outside the root: /mnt/bsppart is the rootfs's
+# empty directory on the TV too (an overlay does not show the old root's mounts), and /old_root,
+# bsppart's own empty directory, does not hold the old root (only snapshot boot names it).
+script
+	echo "[Upstart Job: $UPSTART_JOB] emulator: bsppart is a lower layer of the root already"
+end script

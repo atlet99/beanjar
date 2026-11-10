@@ -1,0 +1,9 @@
+Section: misc
+Priority: optional
+Package: beanjar-build-deps-readers
+Maintainer: Mariotaku <git@mariotaku.me>
+Architecture: all
+Depends: python3-capstone,
+ python3-pyelftools,
+ gdb-multiarch
+Description: Beanjar firmware readers that run on the workstation only

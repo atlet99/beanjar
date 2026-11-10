@@ -1,0 +1,3 @@
+models = ["W24G"]
+bring_up = ["W24G"]
+de_histogram = true

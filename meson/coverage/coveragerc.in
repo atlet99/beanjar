@@ -1,0 +1,15 @@
+# coverage.py's configuration for a coverage build's tests (meson/coverage/meson.build).
+[run]
+source =
+    @TOP@/host/core/beanjar
+    @TOP@/host/ui/beanjar_ui
+branch = true
+parallel = true
+# write the data on SIGTERM too (a test's terminate, the launcher's stop)
+sigterm = true
+data_file = @DATA@/.coverage
+# processes that never import beanjar (stand-ins, the tests' own helpers) are not an error
+disable_warnings = no-data-collected, module-not-imported, module-not-measured
+
+[report]
+show_missing = false

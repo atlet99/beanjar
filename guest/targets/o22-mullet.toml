@@ -1,0 +1,23 @@
+models = ["W22O"]
+bring_up = ["W22O"]
+lg_scaler = [3840, 2160]
+
+[release]
+base = "mullet"
+peripherals = [
+    "usbhid", "uhid", "joydev", "input-leds", "hid-axff", "hid-dr", "hid-logitech",
+    "hid-microsoft", "hid-pl", "hid-sony", "hid-playstation", "hid-zpff", "xpad", "uvcvideo",
+    "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii", "nls_utf8",
+    "nls_iso8859-1", "nls_cp949", "exfat", "snd-usb-audio", "cdc-acm", "ftdi_sio", "pl2303",
+    "option", "sierra", "lgfs",
+]
+paks = [
+    { file = "rootfs", serial = "rootfs", mount = "/" },
+    { file = "bsppart", serial = "bsppart" },
+    { file = "otncabi-global", serial = "otncabi", mount = "/mnt/otncabi" },
+    { file = "otycabi-global", serial = "otycabi", mount = "/mnt/otycabi" },
+    { file = "fonts", serial = "fonts", mount = "/mnt/fonts" },
+    { file = "license", serial = "license", mount = "/mnt/license" },
+]
+nvm_disks = { nvram = "8M", eeprom = "32K" }
+partmap = "o22-mullet"

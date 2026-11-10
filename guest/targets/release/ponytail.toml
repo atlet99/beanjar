@@ -1,0 +1,14 @@
+# W22H ponytail keeps ombre's Qt/LLS ABI and state pins, but qualifies the fonts pak again
+# (fonts-global; the Japanese firmware's fonts-arib).
+
+base = "ombre"
+version = "25"
+paks = [
+    { file = "rootfs", serial = "rootfs", mount = "/" },
+    { file = "bsppart", serial = "bsppart" },
+    { file = "otncabi-global", serial = "otncabi", mount = "/mnt/otncabi" },
+    { file = "otycabi-global", serial = "otycabi", mount = "/mnt/otycabi" },
+    { file = "fonts-global", serial = "fonts", mount = "/mnt/fonts" },
+    { file = "license", serial = "license", mount = "/mnt/license" },
+]
+partmap = "k8hp-mullet"

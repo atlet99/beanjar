@@ -1,0 +1,50 @@
+virgl: no alpha-only render targets on hosts that keep GL_ALPHA natively.
+
+The firmware's Qt Quick 5.0 distance-field glyph cache grows its GL_ALPHA atlas by drawing the old
+one into an RGBA texture and glCopyTexSubImage2D-ing that into the new GL_ALPHA texture
+(tests/virgl/glyph-cache.c). st turns the copy into pipe->blit(RGBA8 -> A8) whenever A8 is a
+render target, and virgl sends that blit to the host as it is.
+
+virglrenderer 1.1.0 keeps A8 as GL_ALPHA8 when the host context accepts it (la_formats_compat,
+vrend_formats.c:197, tried before the GL_R8 + swizzle fallback at :167), which a desktop context
+with the compatibility profile does: QEMU asks for a core profile, but V3D's highest desktop
+version is 3.1, where the profile is ignored and Mesa hands out 3.1 with GL_ARB_compatibility.
+GL_ALPHA8 is framebuffer-complete there, so A8 is advertised as a render target, and with no
+swizzle on either format (vrend_blit_needs_swizzle, vrend_renderer.c:1055) the blit takes
+vrend_renderer_blit_fbo, a glBlitFramebuffer from the RGBA8 texture into the GL_ALPHA8 one. On V3D
+(Mesa 26.2) that converting glBlitFramebuffer writes alpha 0; drawing into the same texture, a
+glCopyTexSubImage2D into it and an ALPHA8 -> ALPHA8 blit are right. The text of the no-signal
+screensaver disappears when its atlas grows. A core-profile host (d3d12, llvmpipe) rejects
+GL_ALPHA8, stores A8 as GL_R8 with a 000R swizzle, and blits with a shader that writes the
+source's alpha into red: correct.
+
+So on a host whose alpha formats are native, alpha-only formats are no render targets, and st
+copies into them on the CPU (fallback_copy_texsubimage; mipmaps and conversions likewise). The
+host's caps carry no "A8 is emulated" bit; A16_FLOAT and A32_FLOAT are in vrend only as
+GL_ALPHA16F/32F of la_formats_compat with no fallback, so a sampleable one of them means the
+compatibility formats were accepted. Core-profile and GLES hosts keep the blit.
+--- a/src/gallium/drivers/virgl/virgl_screen.c
++++ b/src/gallium/drivers/virgl/virgl_screen.c
+@@ -700,6 +700,22 @@
+                                       caps->v1.render.bitmask,
+                                       may_emulate_bgra))
+          return false;
++
++      /* Alpha-only render targets on a host that keeps GL_ALPHA* natively
++       * (a desktop context with the compatibility profile, e.g. V3D's GL 3.1):
++       * vrend then turns a blit into them into glBlitFramebuffer, and V3D's
++       * converting glBlitFramebuffer into GL_ALPHA8 writes 0. Without the
++       * render target st copies into alpha textures on the CPU. A host that
++       * emulates alpha as R8 with a swizzle (a core context) blits with a
++       * shader and keeps it. GL_ALPHA16F/32F have no such emulation in vrend,
++       * so a sampleable A16_FLOAT or A32_FLOAT says the host is the former.
++       */
++      if (util_format_is_alpha(format) &&
++          (virgl_format_check_bitmask(PIPE_FORMAT_A16_FLOAT,
++                                      caps->v1.sampler.bitmask, false) ||
++           virgl_format_check_bitmask(PIPE_FORMAT_A32_FLOAT,
++                                      caps->v1.sampler.bitmask, false)))
++         return false;
+    }
+ 
+    if (bind & PIPE_BIND_DEPTH_STENCIL) {

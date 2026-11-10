@@ -1,0 +1,111 @@
+# The Realtek "K6LP" (U-Boot's chip=K6LPA0, "LGE K6L Board"), W20L's SoC: Realtek's drivers under
+# its KADP in rtk.ko, as on K5LP. The same address scheme (W20L's GPL kernel: auth.h's
+# DEF_MAP_ADDR, MAX_MAP_ADDR, DEF_MEM_SIZE, DEF_MAP_SIZE, tlbmap.c's PAD_SIZE and RBUS remap, the
+# rtd288o iomap.h's RBUS at 0x18000000; bsppart libkadaptor's pli_getPTS reads 0xb801b6b8 and
+# 0xb801b6bc) and the same nodes and ioctls of libkadaptor and bsppart's libhal_*, but for these:
+# CEC is /dev/cec0 (RHAL_CEC_ADP_Open), whose receive RHAL_CEC_ADP_ReadMessage issues as
+# 0xc0386106 and which blocks until a message comes (waits); /dev/rtk_rng (read 4 bytes; zeros
+# here) and /dev/rtkdelivery (KADP_DELIVERY_Open) are new; and no rtkaudio ALLOC/FREE any more
+# (W20L's audio rings come from /dev/auth's allocator), so no allocs. /dev/video30 and
+# /dev/video31 are Realtek's V4L2 scalers, the main and sub window of libval-starfish (under
+# videooutputd, which places every media window) and of avmutemanager: rtk.ko decodes their
+# controls (v4l2_vsc: the window region, the connection, the blank) for the viewer, and its
+# event queues (applying done, active window, mute off) block a DQEVENT until one comes, which
+# avmutemanager's thread issues in a loop with no pause; the regions are in the panel's pixels
+# (vsc_screen: 1920x1080 here, measured 3840x2160 on K7LP's UHD panel). /dev/video28 takes
+# libval's VDO connect, accepted.
+# libhal_pwm probes pwm-I-0..3 and pwm-M-0..7 and takes those that exist (the eight K5LP's set
+# has). The GPIO lines are W20L's libdile_gpio's (gGPIMapTable/gGPOMapTable, the highest 451,
+# HDMI1_DEV_DET), the board with nothing connected: the USB switches' overcurrent outputs,
+# USB3_OCD 80 and USB2_OCD 152, 1 (active low), the rest 0. The micom is the SoC's internal one
+# behind /dev/sys-misc (micomservice's poll, libmicom_cmnio -> libhal_ucom -> KADP_UCOM_*), with
+# the same MISC_UCOM_WRITE/READ numbers. The RPC answers are the firmware's own (rpc-table).
+# The I2C devices: W20L's DILE_I2C (rootfs libdile_i2c) opens /dev/i2c-0 to -5, all six or it
+# fails (DILE_I2C_Initialize's cmp r4, #6), and takes the channel from its gsI2cAllConf by the
+# TV region (KR/JP/EU columns, the same here for these): MICOM 0/0x52, NVM 4/0xA0 (the EEPROM
+# lowlevelstorage owns), and every amplifier (NTP7518, DTA2010AM, NCITRON, WELLANG, SILERGY)
+# 0/0x54 and 0x56 (tuners on 1-2, FRC/OLED/PMIC/retimers on 2-4 have no device here).
+
+board_cmdline = "/etc/emulator/board.cmdline"
+lgemu = [
+    "i2c_buses=0,1,2,3,4,5", "i2c_dev=micom:0:0x29,nvm:4:0x50,amp:0:0x2a,amp:0:0x2b",
+    "snd_ctls=1",
+]
+
+# The USB ports' power switches. From webOS 5, LG's PDM plugin (libpdm-plugin's
+# socExternalUsbInit, called from TvPlugInImpl::init) turns the ports' 5 V on at its start, writing 1
+# to GPIO_WR_USB1_CTRL, _USB2_CTRL and _USB3_CTRL through libdile_gpio, and webos-usb-unbind.sh
+# turns them off at power-off; on a TV a stick present at power-on therefore appears after PDM has
+# started, and reaches it as a udev event. gpio_usb_vbus names those outputs (the family module's
+# GPIO chip, lgemu_gpiochip_usb_vbus): the VM's USB ports have no power until one of them drives 1.
+# The numbers are each firmware's own libdile_gpio gGPOMapTable entries (a name missing from a
+# table, its write fails), the same in every firmware of a chip read so far; gpio_level is the
+# board's overcurrent inputs, GPIO_RD_USB<n>_OCD, 1 (active low: on 0 PDM's OCD task turns that
+# port's VBUS off and on every 2 s), from the same tables' gGPIMapTable. Not here: K5LP's and M3's
+# PDM (webOS 4.x, no plugin) switches VBUS through libdile_extdevctrl and scans the ports itself,
+# mounting a stick present at boot (W19P, measured) with the ports always powered. Queue's (43.x)
+# plugin makes its writes conditional on its profile (UsbPortManager::socExternalUsbInit), and on
+# W22H 43.22.40 it writes all three at start (measured), as the older plugins do. O22's chips have no GPIO chip,
+# where every write fails: their ports stay powered.
+# The chips' gpio_usb_vbus (CTRL1..3) and gpio_level (OCD1..3) are from W20L 04.63.25, W20H 04.74.00, W21P 03.70.25,
+# W22P 04.60.90, W22L 04.60.90, W22H 04.60.85, 13.30.61, 23.21.20, 33.31.61 and 43.22.40,
+# W23H 13.41.12, W23P 13.41.13, W24P 33.20.23, W21A 03.53.25, W22A 04.60.90, W23A 13.40.90,
+# N21D 04.44.16 and 23.22.86
+[[modules]]
+name = "rtk"
+params = [
+    "rbus_phys=0x18000000",
+    "rbus_size=0x80000",
+    "pli_base=0x20000000",
+    "pli_max=0x60000000",
+    "pli_step=0x8000000",
+    "pli_rbus=0x10000000",
+    "pli_window=0x8000000",
+    "pli_uncached=0x8000000",
+    "pli_pad=0x10000",
+    "dcu1_base=0x20000000",
+    "dcu1_size=0x20000000",
+    "dcu2_base=0x40000000",
+    "dcu2_size=0x20000000",
+    "clock90k=0xb801b6b8,0xb801b6bc",
+    """nodes=rtkaudio,audio_hw,rtkvdec,rtkdemux,rtkdemod,rtkademod,vscdev,vfedev,vbedev,vpqdev,\
+        vpqmemc,vpqleddev,vodev,vivtdev,sys-misc,se0,gdma_hal_gal0,hdcp2dev,otp,mcp/core,\
+        mcp/cipher,mcp/dgst,mcp_core,mcp_cipher,mcp_dgst,rcp_core,venus_gpio,pwm0,rtd-logger,cec0,\
+        dolbyvisionEDR0,rtk_spi,rtk_rng,rtkdelivery,video28,video30,video31""",
+    "ucom_node=sys-misc",
+    "waits=cec0:0xc0386106",
+    "v4l2_vsc=video30,video31",
+    "pwms=pwm-I-0,pwm-I-1,pwm-I-2,pwm-I-3,pwm-M-0,pwm-M-1,pwm-M-2,pwm-M-3",
+    "gpio_lines=460",
+    "vt=vivtdev:1920:1080:60",
+    "rpc_word=100:12070:2:0x11000",
+    "tee=1",
+    "fb=1:512x2160",
+    # the secondary screen's fb1, venusfb's second frame buffer: W20L's
+    # product.env has the compositor open /dev/fb0:/dev/fb1, its extra
+    # window on fb1 512x2160; without fb1 the QPA's screen has no native
+    # window and the compositor never draws
+    "vsc_screen=1920,1080",
+    "gpio_level=152:1,80:1",
+    "gpio_usb_vbus=151,81",
+]
+derived = "rpc-table"
+
+# W20L's tuners: the
+# platform device is wfm, legacy-broadcast opens adapter 0's frontend0 (the
+# satellite tuner, ISDB-S and ISDB-T) and frontend1 (ISDB-T; tv.hw's
+# supportDualTuner) through libudev's libdvbv5, and checks LIB version 2.0.0
+# (GET 0x68, its tu_current_version). Its lock check (GET 0x81) reads an
+# fe_status, 0 no lock; its post job (DIL_TU_TunePostJob) reads GET 0x80's
+# bytes as the milliseconds to the next step and finished (100, 1: zeros spin
+# the FE task) and then GET 0x5d's word as the lock state, 1 LOCK_FAIL
+[[modules]]
+name = "webos_tv"
+params = [
+    "platform=wfm",
+    "frontends=2",
+    "delsys=9+8,8",
+    "version=2.0.0",
+    "version_cmd=0x68",
+    "answers=0x80:6401,0x5d:01000000",
+]

@@ -1,0 +1,294 @@
+// SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+// SPDX-License-Identifier: GPL-2.0-or-later
+// The viewer's window (beanjar_ui/viewer/window.py, ViewerWindow): a compact header bar (the set's own
+// key with its front LED colour on the power icon; the remote's Back, Home and Settings keys; the VM's platform, name, board and firmware; Save Screenshot,
+// Fullscreen, the Remote toggle and More: the planes shown, Portrait) over the ViewerPane, which Python puts in the toast overlay.
+// Fullscreen hides the header bar (and the pane its status bar). Its size follows --size, its
+// actions (win.fullscreen, win.screenshot) are added in Python. Nothing in the chrome takes
+// keyboard focus: every key goes to the guest.
+using Gtk 4.0;
+using Adw 1;
+
+template $ViewerWindow: Adw.ApplicationWindow {
+  title: "Beanjar Viewer";
+  notify::is-active => $on_active_changed();
+  notify::fullscreened => $on_fullscreened();
+  close-request => $on_close_request();
+  map => $on_map();
+
+  content: Adw.ToolbarView toolbar {
+    [top]
+    Adw.HeaderBar header {
+      focusable: false;
+
+      // The title and subtitle (ViewerWindow.title).
+      title-widget: Gtk.Box {
+        orientation: vertical;
+        valign: center;
+
+        Gtk.Label title_label {
+          halign: center;
+          label: "Beanjar Viewer";
+          ellipsize: end;
+
+          styles [
+            "heading",
+          ]
+        }
+
+        Gtk.Label subtitle_label {
+          visible: false;
+          ellipsize: end;
+
+          styles [
+            "caption",
+            "dim-label",
+          ]
+        }
+      };
+
+      // The set's own key (ViewerPane.attach_local_key), shown on a model with a local key
+      // (vm-info.toml local_key): a onekey set's one key (a click is a short press, a hold a long
+      // one, as the micom tells them), or a joystick's five ways in a popover.
+      [start]
+      Gtk.Box local_key_group {
+        visible: false;
+
+        Gtk.Button local_key_button {
+          css-classes: ["tv-key"];
+          icon-name: "beanjar-power-symbolic";
+          focusable: false;
+          focus-on-click: false;
+          tooltip-text: "The TV's own key: click for a short press, hold for a long press";
+        }
+
+        Gtk.MenuButton joystick_button {
+          css-classes: ["tv-key"];
+          visible: false;
+          icon-name: "beanjar-power-symbolic";
+          focusable: false;
+          tooltip-text: "The TV's joystick";
+          always-show-arrow: true;
+
+          popover: Gtk.Popover joystick_popover {
+            Gtk.Grid {
+              row-spacing: 4;
+              column-spacing: 4;
+
+              Gtk.Button joystick_up {
+                icon-name: "go-up-symbolic";
+                focusable: false;
+                tooltip-text: "Up";
+
+                layout {
+                  column: 1;
+                  row: 0;
+                }
+              }
+
+              Gtk.Button joystick_left {
+                icon-name: "go-previous-symbolic";
+                focusable: false;
+                tooltip-text: "Left";
+
+                layout {
+                  column: 0;
+                  row: 1;
+                }
+              }
+
+              Gtk.Button joystick_press {
+                icon-name: "beanjar-power-symbolic";
+                focusable: false;
+                tooltip-text: "Press: click for a short press, hold for a long press";
+
+                layout {
+                  column: 1;
+                  row: 1;
+                }
+              }
+
+              Gtk.Button joystick_right {
+                icon-name: "go-next-symbolic";
+                focusable: false;
+                tooltip-text: "Right";
+
+                layout {
+                  column: 2;
+                  row: 1;
+                }
+              }
+
+              Gtk.Button joystick_down {
+                icon-name: "go-down-symbolic";
+                focusable: false;
+                tooltip-text: "Down";
+
+                layout {
+                  column: 1;
+                  row: 2;
+                }
+              }
+            }
+          };
+        }
+      }
+
+      // The remote's system keys, sent as its IR buttons (ViewerPane.attach).
+      [start]
+      Gtk.Box keys {
+        styles [
+          "linked",
+        ]
+
+        Gtk.Button back_button {
+          icon-name: "go-previous-symbolic";
+          focusable: false;
+          focus-on-click: false;
+          tooltip-text: "Back (Escape)";
+        }
+
+        Gtk.Button home_button {
+          icon-name: "go-home-symbolic";
+          focusable: false;
+          focus-on-click: false;
+          tooltip-text: "Home (Super)";
+        }
+
+        Gtk.Button settings_button {
+          icon-name: "applications-system-symbolic";
+          focusable: false;
+          focus-on-click: false;
+          tooltip-text: "Settings";
+        }
+      }
+
+      // More: the planes this window shows (ViewerWindow.set_plane: the video windows, the UI and
+      // LG's cursor, for this window only), and on a rotatable model (vm-info.toml's portrait)
+      // Portrait, a check item (ViewerPane.rotate).
+      [end]
+      Gtk.MenuButton more_button {
+        icon-name: "view-more-symbolic";
+        focusable: false;
+        tooltip-text: "More";
+
+        popover: Gtk.Popover more_popover {
+          Gtk.Box {
+            orientation: vertical;
+            spacing: 2;
+
+            Gtk.Label {
+              label: "Show planes";
+              halign: start;
+              margin-start: 6;
+              margin-bottom: 2;
+
+              styles [
+                "heading",
+              ]
+            }
+
+            Gtk.CheckButton plane_ui_button {
+              label: "UI";
+              action-name: "win.plane-ui";
+              focusable: false;
+              focus-on-click: false;
+              tooltip-text: "The guest's UI (the OSD): hidden, the video windows alone";
+            }
+
+            Gtk.CheckButton plane_video_button {
+              label: "Video";
+              action-name: "win.plane-video";
+              focusable: false;
+              focus-on-click: false;
+              tooltip-text: "The video plane under the UI: hidden, black in the video's hole";
+            }
+
+            Gtk.CheckButton plane_cursor_button {
+              label: "Cursor";
+              action-name: "win.plane-cursor";
+              focusable: false;
+              focus-on-click: false;
+              tooltip-text: "LG's cursor";
+            }
+
+            Gtk.Separator rotate_separator {
+              visible: false;
+            }
+
+            Gtk.ToggleButton rotate_button {
+              label: "Portrait";
+              action-name: "win.rotate";
+              focusable: false;
+              focus-on-click: false;
+              visible: false;
+              tooltip-text: "Landscape";
+
+              styles [
+                "flat",
+              ]
+            }
+          }
+        };
+      }
+
+      // The Remote toggle; on a touch screen's model (vm-info.toml's touch) a linked arrow beside it
+      // opens the mouse's choice, pointer or finger (ViewerWindow.set_mouse_touch): one control.
+      [end]
+      Gtk.Box input_box {
+        styles [
+          "linked",
+        ]
+
+        Gtk.ToggleButton remote_button {
+          icon-name: "remote-control-symbolic";
+          focusable: false;
+          focus-on-click: false;
+          tooltip-text: "Show or hide the TV remote (Menu key)";
+          toggled => $on_remote_toggled();
+        }
+
+        Gtk.MenuButton input_button {
+          icon-name: "pan-down-symbolic";
+          focusable: false;
+          visible: false;
+          tooltip-text: "Input: the mouse as a pointer or a finger";
+
+          popover: Gtk.Popover input_popover {
+            Gtk.ToggleButton mouse_button {
+              label: "Mouse as a finger";
+              action-name: "win.mouse-touch";
+              focusable: false;
+              focus-on-click: false;
+              tooltip-text: "Mouse: pointer (click to make it a finger on the touch screen)";
+
+              styles [
+                "flat",
+              ]
+            }
+          };
+        }
+      }
+
+      [end]
+      Gtk.Button fullscreen_button {
+        icon-name: "view-fullscreen-symbolic";
+        action-name: "win.fullscreen";
+        focusable: false;
+        focus-on-click: false;
+        tooltip-text: "Fullscreen (F11)";
+      }
+
+      [end]
+      Gtk.Button screenshot_button {
+        icon-name: "camera-photo-symbolic";
+        action-name: "win.screenshot";
+        focusable: false;
+        focus-on-click: false;
+        tooltip-text: "Save Screenshot";
+      }
+    }
+
+    content: Adw.ToastOverlay toasts {};
+  };
+}

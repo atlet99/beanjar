@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# OpenSSH portable, for sftp-server only (guest/tools/ssh). Hash matches the signed release.
+[wrap-file]
+directory = openssh-10.5p1
+source_url = https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-10.5p1.tar.gz
+source_filename = openssh-10.5p1.tar.gz
+source_hash = d44d28a839ea9daf969cc69150fde59910b2b39361dad81a3bd6cbd19218db11
+patch_directory = source-only
