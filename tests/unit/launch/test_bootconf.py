@@ -246,6 +246,7 @@ class BootConfTest(unittest.TestCase):
                 "k24-ponytail": "rtk",
                 "k24-queue": "rtk",
                 "k24n-ponytail": "rtk",
+                "k24n-queue": "rtk",
             },
         )
         with tempfile.TemporaryDirectory() as d:
@@ -549,6 +550,7 @@ class BootConfTest(unittest.TestCase):
             "k8lpn2-queue": base | {"ftdi_sio", "ch341", "cp210x"},
             "k25lp-queue": base | {"ftdi_sio", "ch341", "cp210x"},
             "k24-queue": base | {"ftdi_sio", "ch341", "cp210x"},
+            "k24n-queue": base | {"ftdi_sio", "ch341", "cp210x"},
         }
         for target in targets.all_targets():
             name = targets.name(target)
@@ -1204,6 +1206,7 @@ class BootConfTest(unittest.TestCase):
                 "k24-ponytail",
                 "k24-queue",
                 "k24n-ponytail",
+                "k24n-queue",
                 "k25lp-ponytail",
                 "k25lp-queue",
                 "k5lp-goldilocks2",
@@ -1333,6 +1336,7 @@ class BootConfTest(unittest.TestCase):
                 "k24-ponytail": 2048,
                 "k24-queue": 2048,
                 "k24n-ponytail": 2048,
+                "k24n-queue": 2048,
                 "lm21ann-ombre": 1536,
                 "lm21ann-ponytail": 1536,
                 "lm21ann-queue": 1536,

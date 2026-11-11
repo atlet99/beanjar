@@ -86,6 +86,7 @@ class SelectTest(unittest.TestCase):
                 "k24-ponytail",
                 "k24-queue",
                 "k24n-ponytail",
+                "k24n-queue",
                 "k25lp-ponytail",
                 "k25lp-queue",
                 "k6hp-jhericurl",

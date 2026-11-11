@@ -82,12 +82,12 @@ def test_model_id_region(tmp_path, region, broadcast):
 
 
 def test_super_pak_firmware_states_its_standard(tmp_path):
-    """W25G's and W25O's Japanese queue builds: one super.pak, no -arib pak, model_id.json ARIB.
-    The board is the chip's Japanese one without vm.toml's firmware.broadcast."""
+    """W25G's, W25O's and W25H's Japanese queue builds: one super.pak, no -arib pak, model_id.json
+    ARIB. The board is the chip's Japanese one without vm.toml's firmware.broadcast."""
     fw = super_firmware(tmp_path, "43.21.96.01-HE_DTV_W25G_AFABJAAA", ident("ARIB"))
     assert targets.broadcast_of_paks(targets.firmware_paks(fw)) is None
     assert targets.firmware_broadcast(fw) == "arib"
-    for target in (("o22n3", "queue"), ("o24n", "queue")):
+    for target in (("o22n3", "queue"), ("o24n", "queue"), ("k24n", "queue")):
         assert targets.board_broadcast(target, fw) == "arib"
         assert targets.board_cmdline_src(target, "arib") == (
             f"guest/layers/soc/{target[0]}/rootfs/etc/emulator/board-arib.cmdline"

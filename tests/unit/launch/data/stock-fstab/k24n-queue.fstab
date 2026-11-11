@@ -1,0 +1,8 @@
+# W25H 43.22.66.01 (ARIB): stock read-only and writable fstab entries.
+/dev/mmcblk0p14 /mnt/lg/ciplus/cert squashfs ro 0 0
+/dev/mmcblk0p31 /mnt/license squashfs ro 0 0
+/dev/mmcblk0p34 /mnt/platform-plugins squashfs ro 0 0
+/dev/mmcblk0p52 /mnt/lg/uhdcp ext4 rw,relatime,data=ordered,nosuid 0 0
+/dev/mmcblk0p58 /mnt/lg/db8 ext4 rw,relatime,data=ordered,nosuid 0 0
+/dev/mmcblk0p59 /mnt/lg/cmn_data ext4 rw,relatime,data=ordered,nosuid 0 0
+/dev/mmcblk0p60 /mnt/lg/appstore ext4 rw,relatime,data=ordered,nosuid 0 0

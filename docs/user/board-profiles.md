@@ -5,8 +5,8 @@ its `region` is `ARIB`, `ATSC`, `DVB` or `GLOBAL`, the value LG's own nyxDeviceI
 libdile_tvregion read (`targets.firmware_broadcast`). The VM then boots that standard's board (the
 soc file's `broadcast_boards`, `guest/targets/soc/<chip>.toml`), and nothing needs choosing. Its
 region paks, where it has them, are named for the same standard (`otncabi-arib.pak`,
-`tvservice-dvb.pak`), but a `super.pak` firmware's are not (W25G's and W25O's Japanese queue
-builds), and those names only pick the paks. Firmwares before jhericurl have no `model_id.json`;
+`tvservice-dvb.pak`), but a `super.pak` firmware's are not (W25G's, W25O's and W25H's Japanese
+queue builds), and those names only pick the paks. Firmwares before jhericurl have no `model_id.json`;
 their chips have one board.
 
 A global build (`GLOBAL`) names no standard. The same image ships on models of
@@ -64,7 +64,7 @@ board, where the European board gives `O22N2_DVB_EU`.
 | k8lpn | W23P | 75UR8000AUA | 43UR8050PSB (Australia) | |
 | k8lpn2 | W24P | 43UT8000AUA | 43UT80006LA | |
 | k24 | W24H | 55QNED85TUA | 55QNED85T6C | |
-| k24n | W25H | 55QNED85AUA | 55QNED85A6C | |
+| k24n | W25H | 55QNED85AUA | 55QNED85A6C | OLED55B5PJA, by the firmware (queue) |
 | k25lp | W25P | 43UA7500ZUA | 43UA75006LA | |
 | lm21an | W22A | 70UQ8000AUB | 43UQ80006LB | |
 | o22 | W22O | OLED55C2PUA | OLED55C21LA, global C2 | OLED55C2PJA, by the firmware |

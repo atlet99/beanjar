@@ -7,3 +7,6 @@
 # (soc/k24.toml).
 
 base = "k24"
+# Its only queue firmware is the Japanese ARIB build (W25H 43.22.66), whose model_id.json says
+# ARIB: it boots the Japanese OLED55B5PJA (board-arib.cmdline), from that firmware's own generators.
+broadcast_boards = { atsc = "/etc/emulator/board-atsc.cmdline", dvb = "/etc/emulator/board-dvb.cmdline", arib = "/etc/emulator/board-arib.cmdline" }
