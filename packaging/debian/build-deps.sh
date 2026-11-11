@@ -7,6 +7,8 @@
 # Output: build/packages/beanjar-build-deps-<role>_<version>_all.deb
 # Version: 0.YYYYMMDDHHMMSS of the last commit that touched the control file, so a changed list
 # is newer and apt upgrades it. SOURCE_DATE_EPOCH, when set (or without git history), replaces it.
+# A dependency line "pkg [arch ...]," is kept only on those architectures (dpkg's own), as in
+# Build-Depends: equivs takes no architecture restrictions in a binary package's Depends.
 set -eu
 TOP=$(cd "$(dirname "$0")/../.." && pwd)
 SRC=$TOP/packaging/debian/build-deps
@@ -22,6 +24,7 @@ if [ $# -eq 0 ]; then
   done
 fi
 
+ARCH=$(dpkg --print-architecture)
 mkdir -p "$OUT"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -36,7 +39,14 @@ for role in "$@"; do
   fi
   [ -n "$epoch" ] || { echo "build-deps.sh: no commit for $ctl and SOURCE_DATE_EPOCH is unset" >&2; exit 1; }
   version=0.$(date -u -d "@$epoch" +%Y%m%d%H%M%S)
-  { cat "$ctl"; echo "Version: $version"; } > "$WORK/$role.control"
+  { awk -v arch="$ARCH" '
+      match($0, /\[[^]]*\]/) {
+        n = split(substr($0, RSTART + 1, RLENGTH - 2), a, " "); keep = 0
+        for (i = 1; i <= n; i++) if (a[i] == arch) keep = 1
+        if (!keep) next
+        $0 = substr($0, 1, RSTART - 1) substr($0, RSTART + RLENGTH); sub(/ +,/, ",")
+      }
+      { print }' "$ctl"; echo "Version: $version"; } > "$WORK/$role.control"
   (cd "$WORK" && equivs-build "$role.control" >"$WORK/log" 2>&1) || { cat "$WORK/log" >&2; exit 1; }
   mv "$WORK"/beanjar-build-deps-"$role"_*_all.deb "$OUT/"
   echo "$OUT/beanjar-build-deps-${role}_${version}_all.deb"
