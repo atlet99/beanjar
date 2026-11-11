@@ -1,0 +1,19 @@
+# OLED55G4SUB, the US 55-inch G4: the models DB lists it for this OTA ID (W24O).
+# The default board (board_cmdline in guest/targets/soc/): W24O's own hw-option-gen and
+# nyx-option-gen (ombre 23.23.30, ponytail 33.31.68, queue 43.21.71) decode this line as O24,
+# US/ATSC, 2.5G OLED, UHD panel, 1920x1080 graphics and 120 Hz panel and SoC output.
+# countryGrp 2: configd's USA RMM grpCode. ToolOpt: LLS's factory default record of this line,
+# with the G4/55" panelInch and toolType of the firmware's factory tables. 2.5G and O24 A0 are
+# VM choices; identity placeholders are replaced per VM.
+ethaddr=02:00:00:12:34:56
+devtmpfs.mount=1
+countryGrp=2
+modelopt=000000000
+hwopt=500200010105102000
+ToolOpt=2187470:1310739:1706066:2113:12117555:1915804427
+modelName=OLED55G4SUB
+debugMode=3
+serialNum=000RAXX00001
+chip=O24A0
+emmc_size=0x1d2000000
+cmdEnd

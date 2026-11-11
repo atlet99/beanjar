@@ -527,6 +527,9 @@ class BootConfTest(unittest.TestCase):
             "o22n-queue": base | {"ftdi_sio", "ch341", "cp210x"},
             "o22n2-ponytail": base | {"ftdi_sio"},
             "o22n2-queue": base | {"ftdi_sio", "ch341", "cp210x"},
+            "o24-ombre": base | {"ftdi_sio"},
+            "o24-ponytail": base | {"ftdi_sio"},
+            "o24-queue": base | {"ftdi_sio", "ch341", "cp210x"},
             "k8hp-number1": base,
             "k8hp-ombre": base,
             "k8hp-ponytail": base,
@@ -938,11 +941,11 @@ class BootConfTest(unittest.TestCase):
         self.assertEqual(devs, ["i2c_dev=nvm:7:0x50,light2:1:0x10,tof:1:0x41"])
 
     def test_thermalinfo(self):
-        """/proc/thermalinfo where the firmware has fancontroller (lm21*, k7, k8*, o22*),
+        """/proc/thermalinfo where the firmware has fancontroller (lm21*, k7, k8*, the O22 family o2*),
         with the IDDQ files from webOS 23 (number1) on; not on older chips."""
         for target in targets.all_targets():
             words = targets.module_params(target).get("lgemu", ())
-            fan = target[0].startswith(("lm21", "k7", "k8", "o22"))
+            fan = target[0].startswith(("lm21", "k7", "k8", "o2"))
             iddq = fan and targets.WEBOS_ORDER.index(target[1]) >= targets.WEBOS_ORDER.index(
                 "number1"
             )
@@ -1070,6 +1073,7 @@ class BootConfTest(unittest.TestCase):
             "o22": "OLED55C2PUA",
             "o22n": "OLED77C3PUA",
             "o22n2": "OLED55C4PUA",
+            "o24": "OLED55G4SUB",
         }
         seen = set()
         for target in targets.all_targets():
@@ -1214,6 +1218,9 @@ class BootConfTest(unittest.TestCase):
                 "o22n2-ponytail",
                 "o22n2-queue",
                 "o22n2-spacebuns",
+                "o24-ombre",
+                "o24-ponytail",
+                "o24-queue",
             ],
         )
         self.assertEqual(targets.of_firmware("W24G", "spacebuns"), ("o22n2", "spacebuns"))
@@ -1288,6 +1295,9 @@ class BootConfTest(unittest.TestCase):
                 "o22n-queue": 2560,
                 "o22n2-ponytail": 2560,
                 "o22n2-queue": 2560,
+                "o24-ombre": 2560,
+                "o24-ponytail": 2560,
+                "o24-queue": 2560,
             },
         )
 

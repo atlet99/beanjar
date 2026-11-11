@@ -122,6 +122,9 @@ class SelectTest(unittest.TestCase):
                 "o22n2-ponytail",
                 "o22n2-queue",
                 "o22n2-spacebuns",
+                "o24-ombre",
+                "o24-ponytail",
+                "o24-queue",
             ],
         )
         self.assertEqual(dict(sel)["h13-afro"], WT1H)  # the default firmware among several

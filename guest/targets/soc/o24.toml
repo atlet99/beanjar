@@ -1,0 +1,32 @@
+# O24 (W24O): its own BASE id, the O22N2 platform otherwise. The O24 kernels' BASE chip table
+# (BASE_ScanChipName) maps chip=O24.. to 0x28 and its lxboot prints the O24 family; A0 is the
+# chosen virtual revision, not a retail measurement. Its bsppart libhal_ucom is O22N2's (the same
+# build, which accepts chip ids 0x26 and 0x28) and the kernel's board-option probe reads the same
+# hwopt digits and tokens (2.5GB/3.5GB, O24(LG1214)), so the board option follows the O22 source
+# contract for this board's decoded 2.5G OLED UHD 120Hz line. libdile_i2c (ombre, ponytail) and
+# nyxI2c (queue) keep NVM 7/0xa0, LIGHT_SENSOR 1 and TMF882X_SENSOR_N 1, adding only rows the
+# emulator does not map; libdil_tu_plugin is O22N2's of each release (2.1.x, property 0x68).
+# Its board is the G4: nothing here shows the far-field microphone (mic stays false).
+
+base = "o22n2"
+
+[[modules]]
+name = "lg115x"
+params = [
+    "chip_rev=0x28a0",
+    "ace_rev=0x28a0",
+    "platform=0x2000",
+    "graphic_res=0x07800438",
+    "board_opt=0x02904044",
+    "ucom=1",
+]
+
+[[modules]]
+name = "webos_tv"
+params = [
+    "platform=wfm",
+    "frontends=2",
+    "delsys=3+16+1,5+6",
+    "version=2.1.0",
+    "version_cmd=0x68",
+]
