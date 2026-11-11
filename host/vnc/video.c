@@ -92,6 +92,8 @@ struct stream {
     struct SwsContext *sws;
     struct h264v4l2 *v4l2;
     unsigned long long served, refused, frames, keys, bytes, dropped, slow, opens, force_count;
+    /* new pictures encoded and the thread's time on them (us; atomic: video_server_encoded) */
+    unsigned long long fresh_n, fresh_us;
 };
 
 struct video_server {
@@ -608,6 +610,7 @@ static int send_header(struct stream *s, struct client *c)
     h[10] = (unsigned char)ht;
     h[11] = (unsigned char)(ht >> 8);
     h[12] = (unsigned char)s->s->fps;
+    h[13] = (unsigned char)(s->s->fps >> 8); /* a u16: a panel may be above 255 Hz */
     h[14] = CODEC_H264;
     put_u32(h + 16, (uint32_t)s->open);
     strncpy((char *)h + 20, encoder_name(s), 11);
@@ -762,6 +765,11 @@ static void *thread_main(void *data)
             if (!fresh)
                 s->work_time = now; /* the same picture, again */
             encode(s, now);
+            if (fresh) { /* a new picture's time, for the rate's measure (rate.h) */
+                __atomic_add_fetch(&s->fresh_us, (unsigned long long)(g_get_monotonic_time() - now),
+                                   __ATOMIC_RELAXED);
+                __atomic_add_fetch(&s->fresh_n, 1, __ATOMIC_RELAXED);
+            }
             reap(s);
         }
     }
@@ -1066,6 +1074,19 @@ void video_server_nv12_put(struct video_server *s, struct video_nv12 *p, int fil
     uint64_t one = 1;
     if (write(st->efd, &one, sizeof one) < 0)
         perror("beanjar-vnc: video: eventfd");
+}
+
+void video_server_encoded(struct video_server *s, unsigned long long *frames,
+                          unsigned long long *us)
+{
+    *frames = s ? __atomic_load_n(&s->stream.fresh_n, __ATOMIC_RELAXED) : 0;
+    *us = s ? __atomic_load_n(&s->stream.fresh_us, __ATOMIC_RELAXED) : 0;
+}
+
+void video_server_set_fps(struct video_server *s, int fps)
+{
+    if (s)
+        __atomic_store_n(&s->fps, fps, __ATOMIC_RELAXED);
 }
 
 unsigned long long video_server_units(struct video_server *s)

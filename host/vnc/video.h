@@ -66,6 +66,13 @@ void video_server_frame(struct video_server *s, const void *rgbx);
 /* A composed GBM frame (frame.h), complete: referenced, not copied, until the encoder is done with
  * it (or a newer one replaces it). Main loop. */
 void video_server_gbm_frame(struct video_server *s, struct vnc_frame *f);
+/* New pictures encoded so far and the encoder thread's time on them, in us (any thread): the
+ * frame rate's measure (rate.h). */
+void video_server_encoded(struct video_server *s, unsigned long long *frames,
+                          unsigned long long *us);
+/* The most frames a second from now on: the header of the clients that come later, and the
+ * encoders opened later (main loop). */
+void video_server_set_fps(struct video_server *s, int fps);
 /* The units sent so far (any thread). */
 unsigned long long video_server_units(struct video_server *s);
 /* Ends the encoder thread, closes the clients, removes the socket, prints the counters. */

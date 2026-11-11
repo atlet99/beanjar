@@ -23,6 +23,8 @@
  * front ends (beanjar vnc pipe, the web viewer): the file's permissions are the access control. */
 #include <sys/stat.h>
 #include "../viewer/core/core.h"
+#include "../viewer/core/pace.h"
+#include "rate.h"
 #include "audio.h"
 #include "keysym.h"
 #ifdef HAVE_GBM
@@ -196,7 +198,14 @@ struct server {
 #endif
     GMainLoop *loop;
     int width, height, clients, dirty;
-    gint64 interval, last; /* microseconds between frames, the last frame's time */
+    /* the frames' times (pace.h: at most fps a second, docs/dev/architecture/vnc.md, "Frame
+     * rate"), the last one's start, and whether that rate is kept above 60 (rate.h): the frames'
+     * main loop work so far, the encoder's counters as last read */
+    struct pace pace;
+    gint64 last;
+    struct rate rate;
+    int fps;
+    unsigned long long enc_n, enc_us;
     guint render_source;
     unsigned frames, keys, unmapped, pointer_events;
     /* unchanged frames (docs/dev/architecture/vnc.md, "Unchanged frames"): rendered but not handed
@@ -504,12 +513,38 @@ static void read_rgb(struct server *s, struct nvnc_fb *fb, int all)
     s->rgb_reads++;
     s->rgb_rows += (unsigned long long)(y1 - y0);
 }
+/* A frame was made (or found unchanged), its main loop work cost_us: the rate's measure. */
+static void frame_cost(struct server *s, gint64 cost_us)
+{
+#ifdef HAVE_VIDEO
+    unsigned long long n, us;
+    video_server_encoded(s->video, &n, &us);
+    rate_encoded(&s->rate, (unsigned)(n - s->enc_n), (int64_t)(us - s->enc_us));
+    s->enc_n = n;
+    s->enc_us = us;
+#endif
+    int hz = rate_frame(&s->rate, cost_us);
+    if (!hz)
+        return;
+    fprintf(stderr,
+            "beanjar-vnc: %d fps not sustained (a frame's main loop work %.1f ms, encoding %.1f "
+            "ms, against %.1f): %d fps from now on\n",
+            s->fps, s->rate.last_main / 1000.0,
+            s->rate.last_enc < 0 ? 0.0 : s->rate.last_enc / 1000.0, 1000.0 / s->fps, hz);
+    s->fps = hz;
+    gint64 next = s->pace.next;
+    pace_set(&s->pace, hz);
+    s->pace.next = next;
+#ifdef HAVE_VIDEO
+    video_server_set_fps(s->video, hz);
+#endif
+}
 /* A frame as soon as the frame rate allows, while frames are wanted and something changed. */
 static void schedule(struct server *s)
 {
     if (idle(s) || !s->dirty || s->render_source)
         return;
-    gint64 wait = s->last + s->interval - g_get_monotonic_time();
+    gint64 wait = pace_wait(&s->pace, g_get_monotonic_time());
     s->render_source =
         wait > 0 ? g_timeout_add((guint)((wait + 999) / 1000), render, s) : g_idle_add(render, s);
 }
@@ -532,6 +567,7 @@ static void gbm_ready(struct server *s)
             s->unchanged++;
             vnc_frame_unref(&f->v);
             s->frames++;
+            frame_cost(s, g_get_monotonic_time() - s->last);
             schedule(s);
             return;
         }
@@ -557,6 +593,7 @@ static void gbm_ready(struct server *s)
         vnc_frame_unref(&s->last_frame->v);
     s->last_frame = f; /* the caller's reference */
     s->frames++;
+    frame_cost(s, g_get_monotonic_time() - s->last);
     schedule(s);
 }
 static gboolean gbm_fence_ready(gint fd, GIOCondition condition, gpointer data)
@@ -587,6 +624,7 @@ static gboolean render_gbm(struct server *s)
     s->force = 0;
     s->dirty = 0;
     s->last = g_get_monotonic_time();
+    pace_mark(&s->pace, s->last);
     s->pending = f;
     int fd = s->frames ? gl_fence() : -1; /* the first one: complete before "ready" */
     if (fd < 0) {
@@ -742,7 +780,14 @@ static gboolean render(gpointer data)
 {
     struct server *s = data;
     s->render_source = 0;
+    unsigned frames = s->frames;
+    int gbm = 0;
+#ifdef HAVE_GBM
+    gbm = s->gbm != NULL; /* its frames' work ends in gbm_ready */
+#endif
     render_frame(s);
+    if (!gbm && s->frames != frames)
+        frame_cost(s, g_get_monotonic_time() - s->last);
     shots_after_frame(s);
     return G_SOURCE_REMOVE;
 }
@@ -762,6 +807,7 @@ static void render_frame(struct server *s)
         die("rendering the frame failed");
     s->dirty = 0;
     s->last = g_get_monotonic_time();
+    pace_mark(&s->pace, s->last);
     /* the consumers that take RGB alone, read back for them: RFB clients that want pictures (not
      * a video client alone, or with paused RFB clients: neatvnc is not fed, nor its refinery run;
      * the first frame, before "ready"), and a video encoder that takes RGB (NVENC, V4L2, or
@@ -1259,7 +1305,9 @@ static const char usage[] =
     "BUS_ADDRESS: the VM's D-Bus display (unix:path=VM/run/dbus.sock; the other sockets beside "
     "it).\n"
     "ADDRESS: the VM's own, 127.0.1.N (beanjar vnc start gives it). Defaults: port 5900, "
-    "1280x720, 60 fps.\n"
+    "1280x720,\n"
+    "the VM's panel's refresh (vm-info.toml's panel_hz, else 60) in fps, any rate; above 60 "
+    "only\nwhile a frame's work fits in its time, else what it allows for the session.\n"
     "--websocket N: also RFB over WebSocket on ADDRESS:N, for noVNC in a browser (0: none).\n"
     "--password-file PATH: clients authenticate with the password on its first line (RSA-AES).\n"
     "Required unless ADDRESS is loopback (127.0.0.0/8, ::1), and with --unix. Not with "
@@ -1302,13 +1350,15 @@ static gboolean print_stats(gpointer data)
             "beanjar-vnc: stats t_us=%lld updates=%ld scanouts=%ld copies=%ld reply_us=%ld "
             "reply_max_us=%ld skipped=%ld renders=%u unchanged=%u render_us=%ld feeds=%u "
             "video_units=%llu video_nv12=%u rgb_reads=%u rgb_rows=%llu thumbnails=%u "
-            "thumbnails_cached=%u thumbnail_us=%lld cache_w=%ld cache_h=%ld recopies=%ld\n",
+            "thumbnails_cached=%u thumbnail_us=%lld cache_w=%ld cache_h=%ld recopies=%ld fps=%d "
+            "frame_main_us=%lld frame_encode_us=%lld\n",
             (long long)g_get_monotonic_time(), wv_counter(s->v, "dmabuf_updates"),
             wv_counter(s->v, "imports"), wv_counter(s->v, "frames"), wv_counter(s->v, "reply_us"),
             wv_counter(s->v, "reply_max_us"), wv_counter(s->v, "skipped"), s->frames, s->unchanged,
             render_us, s->feeds, units, nv12, s->rgb_reads, s->rgb_rows, s->shots, s->shots_cached,
             (long long)s->shot_us, wv_counter(s->v, "cache_w"), wv_counter(s->v, "cache_h"),
-            wv_counter(s->v, "recopies"));
+            wv_counter(s->v, "recopies"), s->fps, (long long)s->rate.last_main,
+            (long long)s->rate.last_enc);
     return G_SOURCE_CONTINUE;
 }
 int main(int argc, char **argv)
@@ -1318,7 +1368,7 @@ int main(int argc, char **argv)
                *unix_path = NULL, *local_path = NULL, *audio_path = NULL, *video_path = NULL,
                *video_encoder = "auto", *vaapi_adapter = NULL, *gl_adapter = NULL,
                *frames_mode = "auto";
-    int port = 5900, fps = 60, websocket = 0;
+    int port = 5900, fps = 0 /* the panel's */, websocket = 0;
     wv_signals();
     signal(SIGPIPE, SIG_IGN);
     s.v = wv_new();
@@ -1406,7 +1456,7 @@ int main(int argc, char **argv)
             continue;
         }
         if (!strcmp(option, "fps") && value) {
-            if (sscanf(value, "%d%c", &fps, &tail) != 1 || fps < 1 || fps > 120)
+            if (sscanf(value, "%d%c", &fps, &tail) != 1 || fps < 1 || fps > OUTPUT_HZ_LIMIT)
                 die("invalid frame rate");
             i++;
             continue;
@@ -1495,8 +1545,8 @@ int main(int argc, char **argv)
                 listen);
         return 1;
     }
-    s.interval = 1000000 / fps;
     wv_option(s.v, "address", addr);
+    wv_option(s.v, "output-hz", "0"); /* paced here (s.pace), not by the core */
     if (s.native)
         wv_option(s.v, "no-cursor", NULL);
 
@@ -1556,8 +1606,8 @@ int main(int argc, char **argv)
                     "beanjar-vnc: video: no RGB to NV12 on the GPU (%s): swscale converts\n", why);
     }
     if (video_path) {
-        s.video = video_server_new(video_path, video_encoder, s.width, s.height, fps, gbm,
-                                   s.yuv != NULL, video_wake, &s);
+        s.video = video_server_new(video_path, video_encoder, s.width, s.height,
+                                   fps ? fps : RATE_FLOOR, gbm, s.yuv != NULL, video_wake, &s);
         if (!s.video) {
             fprintf(stderr, "beanjar-vnc: cannot listen on %s: %s\n", video_path, strerror(errno));
             return 1;
@@ -1570,6 +1620,18 @@ int main(int argc, char **argv)
     wv_callbacks(s.v, NULL, redraw, quit, &s);
     wv_screenshot_hook(s.v, shot_wanted, &s);
     wv_start(s.v);
+    /* the frame rate: --fps, else the VM's panel's refresh (vm-info.toml's panel_hz, which
+     * wv_start read), whatever it is; above 60 only while it is sustained (frame_cost) */
+    if (!fps) {
+        long panel = wv_counter(s.v, "panel_hz");
+        fps = panel < 1 ? RATE_FLOOR : panel > OUTPUT_HZ_LIMIT ? OUTPUT_HZ_LIMIT : (int)panel;
+    }
+    s.fps = fps;
+    pace_set(&s.pace, fps);
+    rate_init(&s.rate, fps);
+#ifdef HAVE_VIDEO
+    video_server_set_fps(s.video, fps);
+#endif
 
     s.aml = aml_new();
     if (!s.aml)
@@ -1674,7 +1736,8 @@ int main(int argc, char **argv)
     if (video_path)
         fprintf(stderr, "beanjar-vnc: listening unix:%s (video, h264, encoder %s)\n", video_path,
                 video_encoder);
-    fprintf(stderr, "beanjar-vnc: ready, %dx%d, up to %d fps, %s\n", s.width, s.height, fps,
+    fprintf(stderr, "beanjar-vnc: ready, %dx%d, up to %d fps (the panel's %ld Hz%s), %s\n", s.width,
+            s.height, fps, wv_counter(s.v, "panel_hz"), fps > RATE_FLOOR ? ", while sustained" : "",
             password ? "password required (RSA-AES)" : "no password");
 
     update_cursor(&s); /* native: none until LG shows one, rather than the clients' own */

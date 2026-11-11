@@ -41,7 +41,15 @@ if have_vnc
   check_keysym = executable('check-vnc-keysym', 'vnc/check-keysym.c', '../../host/vnc/keysym.c',
     override_options: ['c_std=c11'])
   test('check-vnc-keysym', check_keysym, suite: ['unit', 'vnc'], timeout: 10)
+  # its frame rate above 60 (host/vnc/rate.c): kept while a frame's work fits in its time
+  check_vnc_rate = executable('check-vnc-rate', 'vnc/check-rate.c', '../../host/vnc/rate.c',
+    override_options: ['c_std=c11', 'warning_level=2', 'werror=true'])
+  test('check-vnc-rate', check_vnc_rate, suite: ['unit', 'vnc'], timeout: 10)
 endif
+# the output rate's pacing (host/viewer/core/pace.h): the viewer's and beanjar-vnc's pictures
+check_pace = executable('check-pace', 'viewer/check-pace.c',
+  override_options: ['c_std=c11', 'warning_level=2', 'werror=true'])
+test('check-pace', check_pace, suite: ['unit', 'viewer'], timeout: 10)
 
 # host/viewer/core: the virtual AMP (master gain and mute on the final media mix, the real mixer
 # driven with synthetic chunks), the capture port's availability (reaching a guest that opens after

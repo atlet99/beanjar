@@ -13,6 +13,7 @@
 #include "media.h"
 #include "peer.h"
 #include "capture.h"
+#include "pace.h"
 #include <errno.h>
 #include "../../../include/webos-ir.h"
 #include <EGL/egl.h>
@@ -113,6 +114,11 @@ struct wv {
      * cursor_serial last counted */
     int no_cursor;
     int standby; /* wv_standby: the TV is in standby, LG's cursor is not shown */
+    /* the output rate (docs/dev/architecture/viewer.md, "Output rate"): panel_hz the board's panel
+     * (vm-info.toml's panel_hz, else 60), output_hz the pictures a second the front end makes
+     * (option output-hz, else the panel's; 0: unpaced), pace their times */
+    int panel_hz, output_hz;
+    struct pace pace;
     /* wv_planes: the WV_PLANE_* this front end hides; whole: drawing for the guest's capture or a
      * bus Screenshot, which show every plane */
     int hidden, whole;
@@ -244,6 +250,8 @@ struct wv *wv_new(void)
     v->capture.fd = -1;
     v->display = EGL_NO_DISPLAY;
     v->context = EGL_NO_CONTEXT;
+    v->panel_hz = PANEL_HZ_DEFAULT;
+    v->output_hz = -1; /* the panel's */
     return v;
 }
 /* "hide-planes": "none", or a comma-separated list of "video", "ui" and "cursor"; -1 if bad. */
@@ -312,6 +320,14 @@ int wv_option(struct wv *v, const char *name, const char *value)
         if (hidden < 0)
             return -1;
         v->hidden = hidden;
+        return 0;
+    }
+    if (!strcmp(name, "output-hz") && value) {
+        char tail;
+        int hz;
+        if (sscanf(value, "%d%c", &hz, &tail) != 1 || hz < 0 || hz > OUTPUT_HZ_LIMIT)
+            return -1;
+        v->output_hz = hz;
         return 0;
     }
     if (!strcmp(name, "media-latency") && value) {
@@ -596,6 +612,8 @@ static void draw(struct wv *v, int dw, int dh, int primary)
         glDisable(GL_BLEND);
     }
     v->dirty = 0;
+    if (primary) /* a picture of the output: the next one is paced from it */
+        pace_mark(&v->pace, g_get_monotonic_time());
 }
 static void turn_drop(struct wv *v)
 {
@@ -1377,6 +1395,54 @@ static void reconnect_poll(struct wv *v)
     fprintf(stderr, "display: connected to the new QEMU\n");
     touch(v);
 }
+/* vm-info.toml in dir (host/core/beanjar/launch.py): its top-level lines, before any table */
+static char **vm_info_lines(const char *dir)
+{
+    char *path = g_build_filename(dir, "vm-info.toml", NULL), *info = NULL;
+    char **lines = NULL;
+    if (g_file_get_contents(path, &info, NULL, NULL)) {
+        lines = g_strsplit(info, "\n", -1);
+        for (char **l = lines; *l; l++)
+            if (*g_strstrip(*l) == '[') { /* a table: the rest is not top-level */
+                g_free(*l);
+                for (char **r = l + 1; *r; r++)
+                    g_free(*r);
+                *l = NULL;
+                break;
+            }
+    }
+    g_free(info);
+    g_free(path);
+    return lines;
+}
+/* A launch without the media helper (MEDIAHUB=0, or none built) has decoding off: its
+ * vm-info.toml says media = "off", and the viewer then runs as with --no-media, the video
+ * windows checkerboards. */
+static int vm_info_media_off(const char *dir)
+{
+    char **lines = vm_info_lines(dir);
+    int off = 0;
+    for (char **l = lines; l && *l; l++)
+        off |= !strcmp(*l, "media = \"off\"");
+    g_strfreev(lines);
+    return off;
+}
+/* vm-info.toml's integer key (key = N), or -1 */
+static int vm_info_int(const char *dir, const char *key)
+{
+    char **lines = vm_info_lines(dir);
+    int value = -1;
+    for (char **l = lines; l && *l; l++) {
+        size_t n = strlen(key);
+        int x;
+        char tail;
+        if (!strncmp(*l, key, n) && (*l)[n] == ' ' && sscanf(*l + n, " = %d%c", &x, &tail) == 1 &&
+            x >= 0)
+            value = x;
+    }
+    g_strfreev(lines);
+    return value;
+}
 void wv_start(struct wv *v)
 {
     if (!v->addr)
@@ -1419,21 +1485,31 @@ void wv_start(struct wv *v)
         /* A launch without the media helper (MEDIAHUB=0, or none built) has decoding off: its
          * vm-info.toml says media = "off" (host/core/beanjar/launch.py), and the viewer then
          * runs as with --no-media, the video windows checkerboards. */
-        char *info_path = g_build_filename(dir, "vm-info.toml", NULL), *info = NULL;
-        if (!v->media_prefix && !v->no_media && g_file_get_contents(info_path, &info, NULL, NULL)) {
-            char **lines = g_strsplit(info, "\n", -1);
-            for (char **l = lines; *l && **l != '['; l++)
-                if (!strcmp(g_strstrip(*l), "media = \"off\"")) {
-                    v->no_media = 1;
-                    fprintf(stderr, "media: decoding off (the launch runs no media helper)\n");
-                }
-            g_strfreev(lines);
+        if (!v->media_prefix && !v->no_media && vm_info_media_off(dir)) {
+            v->no_media = 1;
+            fprintf(stderr, "media: decoding off (the launch runs no media helper)\n");
         }
-        g_free(info);
-        g_free(info_path);
         g_free(dir);
         g_free(buspath);
     }
+    /* the board's panel, from the launch's vm-info.toml beside the bus socket */
+    if (!strncmp(v->addr, prefix, strlen(prefix))) {
+        char *buspath = g_uri_unescape_string(v->addr + strlen(prefix), NULL);
+        char *comma = strchr(buspath, ',');
+        if (comma)
+            *comma = 0;
+        char *dir = g_path_get_dirname(buspath);
+        int hz = vm_info_int(dir, "panel_hz");
+        if (hz > 0)
+            v->panel_hz = hz;
+        g_free(dir);
+        g_free(buspath);
+    }
+    if (v->output_hz < 0)
+        v->output_hz = v->panel_hz < OUTPUT_HZ_LIMIT ? v->panel_hz : OUTPUT_HZ_LIMIT;
+    pace_set(&v->pace, v->output_hz);
+    fprintf(stderr, "output: %d Hz panel, %d pictures a second%s\n", v->panel_hz, v->output_hz,
+            v->output_hz ? "" : " (unpaced)");
     cursor_init(&v->cursor, v->cursor_path ? v->cursor_path : default_cursor);
     video_init(&v->video, v->video_path ? v->video_path : default_video);
     ir_init(&v->ir, v->ir_path ? v->ir_path : default_ir);
@@ -1531,7 +1607,9 @@ int wv_poll(struct wv *v)
     reconnect_poll(v);
     if (signalled)
         v->quit = 1;
-    return (v->dirty ? 1 : 0) | (v->quit ? 2 : 0);
+    /* a change is reported when the output rate allows a picture (pace) */
+    int due = v->dirty && !pace_wait(&v->pace, g_get_monotonic_time());
+    return (due ? 1 : 0) | (v->quit ? 2 : 0);
 }
 static gboolean tick(gpointer data)
 {
@@ -1844,7 +1922,8 @@ static void screenshot_start(struct wv *v)
 void wv_attach(struct wv *v)
 {
     if (!v->source)
-        v->source = g_timeout_add(4, tick, v);
+        /* the poll: often enough for the output rate, or the panel's where the front end paces */
+        v->source = g_timeout_add(pace_poll_ms(v->output_hz ? v->output_hz : v->panel_hz), tick, v);
     screenshot_start(v);
 }
 /* The PC keyboard's keys for the remote's own functions go to the micom as the remote's buttons
@@ -1979,6 +2058,8 @@ long wv_counter(struct wv *v, const char *name)
         {"dmabuf_updates", v->dmabuf_updates},
         {"reply_us", (long)v->reply_us},
         {"reply_max_us", (long)v->reply_max_us},
+        {"panel_hz", v->panel_hz},
+        {"output_hz", v->output_hz},
     };
     for (size_t i = 0; i < G_N_ELEMENTS(counters); i++)
         if (!strcmp(name, counters[i].name))

@@ -27,7 +27,10 @@ struct wv *wv_new(void);
  * "no-osd", "media-silent", "no-cursor" (the front end shows LG's cursor itself, from wv_cursor:
  * the scene is drawn without it, and neither the pointer nor libim moving it is a change),
  * "hide-planes" (a comma-separated list of "video", "ui" and "cursor", or "none": wv_planes at
- * start). Flags take NULL or "1". Returns 0, or -1 for an unknown name or a bad value. */
+ * start), "output-hz" (the pictures a second the redraw callback and wv_poll allow: 0 unpaced;
+ * by default the panel's refresh, vm-info.toml's panel_hz, else 60, whatever it is; counters
+ * panel_hz and output_hz). Flags take NULL or "1". Returns 0, or -1 for an unknown name or
+ * a bad value. */
 int wv_option(struct wv *v, const char *name, const char *value);
 /* make_current: make the GL context the core draws with current (GtkGLArea.make_current); NULL
  * when it always is (headless, VNC). redraw: the composed frame changed (a scanout, the cursor, a

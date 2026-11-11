@@ -910,6 +910,24 @@ def motion_sensor(fw, target, tree=paths.TREE, broadcast=None):
     return tool_option(fw, target, "supportMotionDetectSensor", tree, broadcast)
 
 
+def panel_rate(cdir):
+    """The panel's refresh in Hz of the board whose run cache_dir made cdir: tv.hw.json's
+    panelOutputFrameRate, as the firmware's own hw-option-gen decodes the board's hwopt= (the digit
+    and its table differ between releases: d4 on webOS 5 and 6, d9 later, with 100 to 240 Hz).
+    None where the JSON or the field is missing, or the value is no "<n>Hz"."""
+    import json
+    import re
+
+    try:
+        with open(os.path.join(cdir, "tv.hw.json")) as f:
+            hw = json.load(f)
+    except (OSError, ValueError):
+        return None
+    value = (hw.get("tv.hw") or {}).get("panelOutputFrameRate") if isinstance(hw, dict) else None
+    m = re.fullmatch(r"(\d+)Hz", value) if isinstance(value, str) else None
+    return int(m.group(1)) if m and int(m.group(1)) > 0 else None
+
+
 def cache_dir(
     fw, fw_name, target, tree=paths.TREE, say=print, serial=None, broadcast=None, debug_mode=None
 ):

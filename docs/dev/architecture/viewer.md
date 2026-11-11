@@ -94,13 +94,51 @@ the chrome would be about three times as much code. Rust and C++ would mean rewr
   `wv_render(w, h)` reads the bound framebuffer (`GL_FRAMEBUFFER_BINDING`), which is not 0 under
   GTK, and draws there. It rebinds that framebuffer after using its own cache framebuffer. Frames
   are paced by GTK's frame clock: the core's poll source invalidates the area (`queue_render`) when
-  a scanout, cursor, video window or media frame changed.
+  a scanout, cursor, video window or media frame changed, at most at the [output rate](#output-rate).
 - **Latency.** The SDL viewer drew immediately with swap interval 0. GTK presents on the next
   frame-clock tick, which adds up to one refresh (16.7 ms at 60 Hz) of video latency against audio.
   Media is timed in `media_update()`, which picks the frame due now. A compensation (picking the
   frame due at the next vblank, from `GdkFrameClock`'s predicted presentation time) is possible
   later, if the A/V probe shows it matters. The headless path, which is what `check-media.sh`
   measures, is unchanged.
+
+## Output rate
+
+The VM's picture is made at most as often as the board's panel refreshes, as a TV's display engine
+composes video and OSD at the panel's rate: 60 times a second on a 60 Hz panel, 120 on a 120 Hz
+one, 144 or 240 on such panels; there is no ceiling but the panel's (and the host's, below). The
+guest's UI itself never draws more than 60 frames a second, on its own clock (its flips complete
+at a 60 Hz vblank, [build-and-boot](build-and-boot.md#the-displays-refresh)), so above 60 the UI
+changes at most 60 times a second whatever the output's rate, and the video planes are what come
+at the panel's rate: a 120 fps clip on a 120 Hz panel shows every picture, a 60 fps one each for
+two, and on a 144 Hz panel each picture lasts the pictures its time covers.
+
+- **The panel's refresh** is the board's, as the firmware decodes it: prepare
+  (`host/core/beanjar/prepare.py`) keeps `tv.hw.json`'s `panelOutputFrameRate`, which the
+  firmware's own `hw-option-gen` makes from the board's `hwopt=` when the EEPROM's records are made
+  (`lls.panel_rate`, webOS 5 on; the digit and its table are the release's: digit 4, 60 or 120 Hz,
+  on webOS 5 and 6, digit 9 later, with 100, 120, 144, 165, 180 and 240 Hz). Releases before
+  webOS 5 have no such run and get 60. The launch writes it to `vm-info.toml` as `panel_hz`, which
+  the core reads beside the D-Bus socket in `wv_start`; without it, 60.
+- **The core paces** (`core/pace.h`): option `output-hz` (0 unpaced, default the panel's) sets
+  the rate, and `wv_poll`, so the poll source's `redraw` callback and viewer-headless's loop,
+  report a change only when a picture is due. Due times lie on a grid of the period (1 s / rate,
+  in microseconds: no rate is assumed to be a multiple of 60) from the last picture drawn
+  (`wv_render`, `wv_frame*`), so a poll's lateness is made up by the next picture and the rate
+  holds; after a pause the grid restarts no sooner than half a period after the last picture, so
+  nothing bursts. The poll runs every half period, at most every 4 ms as before and at least every
+  1 ms, GLib's timer step (`pace_poll_ms`: 4 ms up to 125 Hz, 3 at 144, 2 at 240; above 500 Hz
+  pictures come on 1 ms polls and only the mean rate holds). Media pictures are picked every poll
+  by their pts (`media_update`); one replaced before it was drawn counts as `picked` but not
+  `shown` in the `present` reports. Counters `panel_hz` and `output_hz`.
+- **The GTK viewer** presents on its frame clock, so at the host display's refresh, and no more
+  often than the output rate: a 60 Hz desktop shows a 120 Hz panel's video at 60, a 144 Hz desktop
+  a 120 Hz panel's at 120 and a 240 Hz panel's at 144. The frame due at the next vblank (`GdkFrameClock`'s predicted presentation
+  time, under Latency above) is not used: the media picture drawn is the one due at the poll
+  before the draw.
+- **viewer-headless** draws at the output rate (it drew at every 2 ms poll that found a change).
+- **beanjar-vnc** paces its own frames by the same rule and lowers its rate when the host cannot
+  keep it ([vnc.md](vnc.md#frame-rate)); it sets `output-hz` 0.
 
 ## Components
 
@@ -133,7 +171,8 @@ viewer-headless (C, SDL offscreen): core/headless.c (+ SDL scancode names for --
 - **Setup.** `wv_new`, `wv_option(name, value)` takes the CLI names: `size`, `straight-alpha`,
   `cursor-socket`, `video-socket`, `capture-socket`, `media-socket`, `no-media`, `hwdec`, `media-wav`,
   `media-latency`, `media-volume` (0 to 2, 1.0 standard), `media-mute`,
-  `no-audio`, `audio-wav`, `sdl-audio`, `headless`, `osd-alpha`, `no-osd`, `no-cursor`.
+  `no-audio`, `audio-wav`, `sdl-audio`, `headless`, `osd-alpha`, `no-osd`, `no-cursor`, `output-hz`
+  ([Output rate](#output-rate)).
   `wv_callbacks(make_current, redraw, quit, data)`. `wv_start()` needs the GL context current. It
   creates the GL objects, connects the display, and opens the cursor, video, media and audio
   sources. `wv_attach()` adds the 4 ms poll source to the default main context, for GTK.

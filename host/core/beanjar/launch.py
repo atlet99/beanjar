@@ -264,6 +264,8 @@ def run(words, env=None):
         info["portrait"] = True
     if p.prepared.local_key:
         info["local_key"] = p.prepared.local_key  # the viewer's local key, prepared
+    # the panel's refresh in Hz, prepared: the viewer's and beanjar-vnc's output rate
+    info["panel_hz"] = p.prepared.panel_hz
     if not p.hub_argv:
         info["media"] = "off"  # no helper decodes: the viewer cores run as with --no-media
     info["beanjar"] = compat.run_info(p.tree)  # the versions, for logs and messages only

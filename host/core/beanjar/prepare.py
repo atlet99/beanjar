@@ -8,7 +8,8 @@ identity renew; a local clone), or with `beanjar prepare NAME`. A start only rea
 It is kept in the VM's directory, <vm>/prepared/ (the parent of its RUN_DIR: the checkout's
 development VMs and the regress instances have one too):
   prepared.json   what it was made from (inputs, files) and what start reads besides the images:
-                  the viewer's local key (lls.local_key) and the chip modules' parameters and host
+                  the viewer's local key (lls.local_key), the panel's refresh (lls.panel_rate),
+                  and the chip modules' parameters and host
                   share files from the firmware (targets.derived_params, targets.derived_files), with
                   lgemu's light sensor and ToF motion sensor where the board's tool options have
                   them (targets.light_dev, targets.tof_dev)
@@ -44,8 +45,10 @@ import sys
 
 from . import fwcache, lls, nvm, targets, partmap, paths
 
-VERSION = 1
+VERSION = 2
 DIR = "prepared"
+# the panel's refresh where the firmware's own decode of the board is not run (before webOS 5)
+DEFAULT_PANEL_HZ = 60
 RECORD = "prepared.json"
 PARTINFO = "partinfo.img"
 EEPROM = "eeprom.img"
@@ -176,6 +179,7 @@ class Prepared:
         self.dir = job.dir
         self.partmap = os.path.join(job.dir, PARTINFO)
         self.local_key = record.get("local_key")
+        self.panel_hz = record.get("panel_hz") or DEFAULT_PANEL_HZ
         self.derived_params = {k: tuple(v) for k, v in (record.get("derived_params") or {}).items()}
         self.derived_files = dict(record.get("derived_files") or {})
         image = records = None
@@ -244,6 +248,9 @@ def _make(job, new, say):
         debug_mode=job.debug_mode,
     )
     record = {"eeprom_note": chip.note}
+    # the panel's refresh (viewer and beanjar-vnc output rate, vm-info.toml's panel_hz): the
+    # firmware's own decode of the board (webOS 5 on), else a 60 Hz panel
+    record["panel_hz"] = chip.panel_hz or DEFAULT_PANEL_HZ
     if chip.image is not None:
         with open(os.path.join(new, EEPROM), "wb") as f:
             f.write(chip.image)

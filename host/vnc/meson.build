@@ -23,7 +23,7 @@ neatvnc_ffmpeg = declare_dependency(link_args: ['-L' + vendor['ffmpeg'] / 'lib',
 gbm_deps = [dependency('gbm', required: host_cross), dependency('libdrm', required: host_cross)]
 have_vnc_gbm = gbm_deps[0].found() and gbm_deps[1].found()
 if have_vnc
-  vnc_sources = ['main.c', 'keysym.c', 'audio.c', 'v4l2.c', 'tilediff.c', 'thumb.c',
+  vnc_sources = ['main.c', 'keysym.c', 'audio.c', 'v4l2.c', 'tilediff.c', 'thumb.c', 'rate.c',
                  'video.c', 'h264v4l2.c', 'yuv.c']
   vnc_args = ['-DHAVE_VIDEO']
   vnc_deps = video_deps + [neatvnc_ffmpeg, vendor_deps['neatvnc'], vendor_deps['aml1'], opus_dep,

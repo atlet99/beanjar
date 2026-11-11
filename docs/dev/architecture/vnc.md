@@ -43,7 +43,8 @@ VM, and stopping the VM stops it.
   encoder workers' completions) is a `g_unix_fd_add` source on the core's GLib main context;
   each wakeup is `aml_poll(0)` + `aml_dispatch`. Encoding runs in aml's worker threads.
 - **Frames on change, rate-limited.** `redraw` marks the picture dirty; a frame is made when a client
-  is connected, at most `--fps` per second (default 60). A frame whose pixels did not change is dropped
+  is connected, at most `--fps` per second (default the VM's panel's refresh:
+  [Frame rate](#frame-rate)). A frame whose pixels did not change is dropped
   ([Unchanged frames](#unchanged-frames)). Each frame goes into an `nvnc_fb_pool`
   buffer (XBGR8888, which is RGBA's byte order) and is fed whole; neatvnc's damage refinery
   hashes tiles and sends only what changed. neatvnc accepts no client before it has a buffer, so
@@ -591,6 +592,39 @@ What would shorten the wait further: not the copy's size but what surrounds it: 
 previous frame's render and flip are still queued when the update arrives, and the fixed cost of
 each GPU job. Neither is touched by this change.
 
+## Frame rate
+
+A frame is made at most `--fps` times a second; without `--fps`, at the VM's panel's refresh
+(the core's `panel_hz`, from `vm-info.toml`, [viewer](viewer.md#output-rate)), whatever it is: 60
+on a 60 Hz panel, 120, 144 or 240 on such panels (`--fps` takes up to 1000). The times follow the
+core's pacing rule (`pace.h`: a grid of the period, no burst after a pause; the core's own pacing
+is off, `output-hz` 0, and its poll runs at the panel's `pace_poll_ms`), and only changed pictures
+are made, so the guest's UI, which draws at most 60 frames a second, still gives at most 60, and
+more come only while a video plane changes that often. No frame is repeated to fill a rate. The
+video stream's header has the rate as its u16 (its high byte was not written before: a rate above
+255 would have been cut).
+
+**Above 60 only while sustained** (`rate.c`). The host must do a frame's work in a frame's time,
+8.3 ms at 120, 6.9 at 144, 4.2 at 240. Each frame's main loop work is timed: composing, the read
+backs and their comparison (memory frames), or from the GBM render's start to its fence and the
+hand-off (`gbm_ready`, with the NV12 conversion); and the encoder thread times each new picture it
+encodes (`video_server_encoded`). Both are averaged over windows of 60 frames after the first 30
+(the GL's and the encoder's first frames are slow on every host); a window whose mean of either is
+over the frame's time counts against the rate, one within it clears the count, and two in a row
+lower it for the rest of the session to what the slower mean allows with a tenth to spare
+(1 s / (1.1 x the mean), lower than before, never below 60, the UI's own rate), logged:
+
+```
+beanjar-vnc: 144 fps not sustained (a frame's main loop work 2.0 ms, encoding 7.5 ms, against 6.9): 121 fps from now on
+```
+
+The new rate is measured the same way and may be lowered again; 60 is never measured. The
+encoders opened later and the video clients that come later get the new rate in their header;
+neatvnc's own encodings (Tight, Open H.264) run in its worker threads, are not timed, and take the
+frames they can. The stats line has `fps=` (the rate now) and `frame_main_us=`,
+`frame_encode_us=` (the last window's means in us; 0 and -1 before one, and -1 for the encoding of
+a window with nothing encoded).
+
 ## Idle without clients
 
 With no RFB client (TCP, WebSocket, `--unix` or `--local`) and no video client, beanjar-vnc does no
@@ -986,7 +1020,8 @@ line for a measurement to take before and after a run and difference:
 ```
 beanjar-vnc: stats t_us=... updates=... scanouts=... copies=... reply_us=... reply_max_us=...
   skipped=... renders=... unchanged=... render_us=... feeds=... video_units=... video_nv12=...
-  rgb_reads=... rgb_rows=... thumbnails=... thumbnails_cached=... thumbnail_us=...
+  rgb_reads=... rgb_rows=... thumbnails=... thumbnails_cached=... thumbnail_us=... cache_w=...
+  cache_h=... recopies=... fps=... frame_main_us=... frame_encode_us=...
 ```
 
 (one line in the log). `t_us`: the monotonic clock. `updates`: QEMU's `UpdateDMABUF` calls, one

@@ -430,8 +430,10 @@ def sync_debug_status(image, nvm, mode, say=print):
 # A VM's new chip, worked out ahead (prepare.py, at create and when the firmware, the board or the
 # VM's serial or debug mode change): image, the bytes a blank state's EEPROM gets (None: it stays
 # blank, note says why); records, LLS's probe output for the board (records.txt, lls.cache_dir),
-# whose debugstatus item a programmed chip takes when the VM's debug mode changes.
-Chip = collections.namedtuple("Chip", "image records note")
+# whose debugstatus item a programmed chip takes when the VM's debug mode changes; panel_hz, the
+# panel's refresh the firmware's own generator decodes from the board (lls.panel_rate; None where
+# it was not run: before webOS 5).
+Chip = collections.namedtuple("Chip", "image records note panel_hz", defaults=(None,))
 
 
 def new_chip(
@@ -471,7 +473,7 @@ def new_chip(
                 records = f.read()
         except (lls.Error, OSError, subprocess.SubprocessError) as e:
             raise Error(f"EEPROM initialization failed: {e}") from e
-        return Chip(image, records, None)
+        return Chip(image, records, None, lls.panel_rate(cdir))
     if nvm.records is None:
         return Chip(None, None, None)
     board = board_params(target, tree, broadcast)
