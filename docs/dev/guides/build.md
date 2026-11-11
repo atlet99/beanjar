@@ -686,20 +686,42 @@ interfaces and initramfs. The commands and package requirements remain in this g
   defconfig or config fragment, options header, cross file or build script changes; inside,
   make/Ninja are incremental, and installed files are synced by content, so Mesa is not relinked
   by a re-run.
-- The Mesa stack (libffi, libdrm, Wayland, wayland-protocols, Mesa) is built once per distinct
-  configuration and shared by the targets that have it, in `build/mesa/<key>/{work,stage}`. The key
+- What does not depend on the whole target is built once and shared by the build directories
+  that would build it the same, in `<shared_dir>/<component>/<key>` (the option `shared_dir`, default
+  `build`): the arm64 kernel with its out-of-tree modules (`kernel/<key>`: `linux-obj` and a
+  directory per module), busybox (`busybox/<key>`), the SSH programs (`ssh/<key>`) and the Mesa
+  stack (`mesa/<key>`). Each key hashes what the targets sharing it have alike and nothing that
+  names a target, chip or release: the kernel's and busybox's the arm64 compiler prefix, the source
+  tree and (the kernel) the defconfig's name, so every target has the same one; SSH's the cross
+  file's host, compiler, flags and strip, so every webOS target has the same one (NetCast 4.5 and
+  SimpleSmart build no SSH). A target's build directory copies the results from there and builds
+  nothing of them.
+- `meson/shared.py` runs those builds except Mesa's: it locks the directory, and skips the build
+  when the directory already holds the result of the same inputs (the tree's wrap key, the
+  defconfig or fragment, the options headers, the module sources, the build script, the compiler's
+  `--version`, and for a module the kernel's and `lgemu`'s inputs). A changed input runs make again
+  in the same directory, incrementally, once; the other build directories then find it done. A
+  depfile on the directory's `.inputs` lets a build directory notice a result another one changed,
+  or a removed directory. In the guest package lane (`scripts/build-packages.sh guest`) this made an
+  ordinary target's build directory about 8 s instead of 82 s on 4 CPUs: before, each one
+  configured and built Dropbear twice and OpenSSH (39 s), ran Kbuild over the kernel and its nine
+  modules (29 s, compiler hits from ccache) and built busybox (10 s), one after another.
+- The Mesa stack (libffi, libdrm, Wayland, wayland-protocols, Mesa) is built by `mesa-stack.sh`,
+  in `<shared_dir>/mesa/<key>/{work,stage}`. Its key
   (`guest/layers/gl/mesa/meson.build`) hashes what a target can differ in: the cross file's compilers
   and flags with its paths left out, the Wayland it builds against (the firmware's own 1.20 or 1.22,
   else 1.26), whether Mesa links `libwayland-server-compat` (webOS 1 and 2), the EGL platforms and
-  extra options (NetCast 4.5). It names no target, chip or release. What every target has alike (the
+  extra options (NetCast 4.5). What every target has alike (the
   source trees, `mesa-stack.sh`) is not in the key: a change to it is built incrementally in each
-  shared directory, once, and the other targets then find nothing to do. `mesa-stack.sh` holds a lock
+  shared directory, once, and the other targets then find nothing to do (each target still runs
+  the inner builds' no-op, about 2 s). `mesa-stack.sh` holds a lock
   on the directory, so targets built in parallel wait for each other, and each target's Mesa steps
   depend on the directory's manifest (a depfile), so a target notices a stage another target changed or
   a removed `build/mesa`. On 2026-11-03 the 30 targets with
   Mesa had five keys: Wayland 1.26 (19 targets), 1.26 with the server compat library (`h13-afro`,
-  `m14-beehive`), 1.22 (3), 1.20 (5) and NetCast 4.5. A key no target uses any more stays until
-  `build/mesa` is removed, which costs one rebuild of each key.
+  `m14-beehive`), 1.22 (3), 1.20 (5) and NetCast 4.5.
+- A key no target uses any more stays until its directory is removed, which costs one rebuild of
+  each key still in use.
 - rootssh, devmode and hbchannel are made by their own scripts in `guest/layers/<name>/`
   (`meson/layer-script.py` runs them). They hold no keys: they are the same for every VM, and each VM's SSH keys reach the
   guest through its per-VM layer.

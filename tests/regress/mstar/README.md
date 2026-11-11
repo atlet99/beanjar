@@ -103,9 +103,9 @@ module or an LG register profile. Build the current kernel and `lgemu` first, th
 
 ```sh
 meson/kbuild.sh module "$PWD/subprojects/linux-6.18.53" \
-  "$PWD/build/guest-m2-simplesmart/kernel/linux-obj" aarch64-linux-gnu- \
+  "$(echo "$PWD"/build/kernel/*/linux-obj)" aarch64-linux-gnu- \
   "$PWD/tests/regress/mstar" "$PWD/build/mmio-fixture-obj" "$PWD/build/mmio-fixture.ko" \
-  "$PWD/build/guest-m2-simplesmart/kernel/modules/lgemu/obj/Module.symvers"
+  "$(echo "$PWD"/build/kernel/*/lgemu/obj/Module.symvers)"
 /opt/arm-webos-linux-gnueabi_sdk-buildroot/bin/arm-webos-linux-gnueabi-gcc \
   -marm -march=armv7-a -static -O2 -Wall -Wextra -Werror \
   tests/regress/mstar/check-mmio-fault.c -o build/check-mmio-fault

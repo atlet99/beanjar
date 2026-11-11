@@ -19,8 +19,9 @@
 # dependencies and ccache installed; the two SDKs (pinned below) downloaded to OUT/sdk, checked and
 # unpacked in /opt, where the cross files look; then every target (guest/targets, the table
 # host/core/beanjar/targets.py loads) built in OUT/guest-<target>, published to OUT/guest-publish
-# and its build directory removed, with ccache in OUT/ccache (each target compiles the same
-# kernel); packaging/debian/build.py --guest-only into OUT/debs. The guest build reads no firmware:
+# and its build directory removed, with ccache in OUT/ccache. What targets have alike (the kernel,
+# busybox, SSH, each Mesa configuration) is built once, in the checkout's build/<component>/<key>
+# (meson/shared.py), which the loop keeps; packaging/debian/build.py --guest-only into OUT/debs. The guest build reads no firmware:
 # each target's firmware facts are in guest/targets/facts.
 set -eu
 TOP=$(cd "$(dirname "$0")/.." && pwd)

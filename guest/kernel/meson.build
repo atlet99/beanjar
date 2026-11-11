@@ -8,23 +8,43 @@
 # its third the defconfig's own =m modules as modules_install lays them out, with the modules.dep
 # that depmod generated (<release>/...), which the initramfs carries in /lib/modules.
 # The out-of-tree modules in modules/ are built against its object tree.
-find_program(get_option('arm64_cross_compile') + 'gcc', native: true)
-kernel_obj = meson.current_build_dir() / 'linux-obj'
+#
+# Nothing of it depends on the target: it is built once, in <shared_dir>/kernel/<key> (meson/shared.py),
+# whose key is the compiler prefix, the defconfig's name and the source tree, and every target's
+# build directory takes the result from there: linux-obj/ (the object tree), the outputs, and a
+# directory per out-of-tree module. A changed input (the tree's wrap key, the defconfig, the script,
+# the compiler's version, a module's sources) runs make again in the same directory, once.
+arm64_gcc = get_option('arm64_cross_compile') + 'gcc'
+find_program(arm64_gcc, native: true)
 # kernel_debug: configs/debug.config over the defconfig, as a defconfig of its own name
 kernel_defconfig = files('configs/webos_virt_defconfig')
+kernel_defconfig_name = 'webos_virt_defconfig'
 if get_option('kernel_debug')
   kernel_defconfig = custom_target('webos_virt_debug_defconfig',
     input: ['configs/webos_virt_defconfig', 'configs/debug.config'],
     output: 'webos_virt_debug_defconfig',
     command: ['sh', '-c', 'cat "$1" "$2" > "$3"', 'sh', '@INPUT0@', '@INPUT1@', '@OUTPUT@'])
+  kernel_defconfig_name = 'webos_virt_debug_defconfig'
 endif
+kernel_root = shared_dir / 'kernel' / run_command(python, shared_py, 'key',
+  'cross_compile ' + get_option('arm64_cross_compile'), 'defconfig ' + kernel_defconfig_name,
+  'source ' + sources['linux']['dir'], check: true).stdout().strip()
+kernel_obj = kernel_root / 'linux-obj'
+# shared.py run, for the kernel and each module: the compiler's version is an input of all of them
+kernel_shared = [python, shared_py, 'run', '--tool', arm64_gcc]
 kernel_outputs = custom_target('kernel',
   output: ['Image', 'gen_init_cpio', 'kernel-modules'],
+  depfile: 'kernel.d',
   depends: sources['linux']['stamp'],
   depend_files: [kbuild, files('configs/webos_virt_defconfig', 'configs/debug.config')],
-  command: [kbuild, 'linux', sources['linux']['dir'], kernel_obj,
-            get_option('arm64_cross_compile'), kernel_defconfig, '@OUTPUT0@',
-            '@OUTPUT1@', '@OUTPUT2@'],
+  command: kernel_shared + ['--dir', kernel_root, '--depfile', '@DEPFILE@',
+            '--input', sources['linux']['dir'] / '.wrap-key', kbuild, kernel_defconfig,
+            '--file', kernel_root / 'Image', '@OUTPUT0@',
+            '--file', kernel_root / 'gen_init_cpio', '@OUTPUT1@',
+            '--tree', kernel_root / 'modules', '@OUTPUT2@', '--',
+            kbuild, 'linux', sources['linux']['dir'], kernel_obj,
+            get_option('arm64_cross_compile'), kernel_defconfig, kernel_root / 'Image',
+            kernel_root / 'gen_init_cpio', kernel_root / 'modules'],
   console: true,
   build_by_default: true)
 kernel = kernel_outputs[0]

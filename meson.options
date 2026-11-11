@@ -13,6 +13,8 @@ option('soc', type: 'combo', choices: ['', 'h13', 'm14', 'm2', 'm16p', 'm3', 'k5
   description: 'The SoC of the firmware target (guest/layers/soc/<soc>; lm14: LG\'s NetCast LM14, guest/layers/netcast45); the guest build needs it')
 option('webos', type: 'combo', choices: ['', 'afro', 'beehive', 'dreadlocks', 'dreadlocks2', 'goldilocks', 'goldilocks2', 'jhericurl', 'kisscurl', 'mullet', 'number1', 'ombre', 'ponytail', 'queue', 'spacebuns', 'simplesmart', 'netcast45'], value: '',
   description: 'The release family of the firmware target: a webOS codename (guest/layers/webos/<webos>), or simplesmart (LG\'s SimpleSmart line, guest/layers/simplesmart) or netcast45 (LG\'s NetCast 4.5, guest/layers/netcast45); the guest build needs it')
+option('shared_dir', type: 'string', value: '',
+  description: 'Where guest builds keep what they build once for every target that would build it the same (mesa/<key>, kernel/<key>, busybox/<key>, ssh/<key>); default: <source>/build')
 option('arm64_cross_compile', type: 'string', value: 'aarch64-linux-gnu-',
   description: 'CROSS_COMPILE prefix for the arm64 guest kernel, busybox and the initramfs input bridges')
 option('uapi_headers', type: 'string', value: '/usr/arm-linux-gnueabi/include',

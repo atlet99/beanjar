@@ -6,9 +6,10 @@
 #                cross (meson/cross/webos-sdk.ini), one per firmware target (-Dsoc, -Dwebos): everything that runs in the guest (32-bit ARM stubs,
 #                layers, SSH, Mesa, test programs) and the arm64 kernel, busybox and initramfs,
 #                which are built by their own Kbuild/make. These arm64 pieces take nothing of
-#                the target (no soc, webos, firmware or glibc_max): every target's build makes the
-#                same ones from the same inputs, and publishes them to the same build/Image,
-#                build/initramfs.cpio.gz and build/lgemu.ko
+#                the target (no soc, webos, firmware or glibc_max): they are built once in
+#                shared_dir (build/kernel/<key>, build/busybox/<key>; meson/shared.py), as are
+#                SSH and the Mesa stack, every target's build copies them from there, and
+#                publishes them to the same build/Image, build/initramfs.cpio.gz and build/lgemu.ko
 #   build/host   native (x86_64 workstation or aarch64 Pi): the viewer, the VM manager's GUI
 #                layouts, the firmware cache and the mitmproxy venv, the unit tests, and the
 #                prebuilt QEMU, FFmpeg and neatvnc (packaging/vendor.toml) published beside them

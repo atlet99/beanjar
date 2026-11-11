@@ -4,14 +4,18 @@
 # kernel's webos-ivshmem (patch 0018): built as lgemu.ko is (docs/dev/guides/build.md, "Kernel module
 # lgemu"), loaded by guest/initramfs/rootfs/init after lgemu.ko. Published as build/media-pool.ko
 # too, for a manual rmmod/insmod from /host.
+media_pool_dir = kernel_root / 'media-pool'
+media_pool_inputs = kbuild + [files('Kbuild', 'main.c', 'grants.c', 'grants.h', 'tests/media-pool-kunit.c',
+                              '../../../../include/webos-media.h')]
 media_pool_ko = custom_target('media-pool',
   output: 'media-pool.ko',
+  depfile: 'media-pool.ko.d',
   depends: [sources['linux']['stamp'], kernel_outputs],
-  depend_files: [kbuild, files('Kbuild', 'main.c', 'grants.c', 'grants.h', 'tests/media-pool-kunit.c',
-                              '../../../../include/webos-media.h')],
-  command: [kbuild, 'module', sources['linux']['dir'], kernel_obj,
-            get_option('arm64_cross_compile'), meson.current_source_dir(),
-            meson.current_build_dir() / 'obj', '@OUTPUT@'],
+  depend_files: media_pool_inputs,
+  command: kernel_shared + ['--dir', media_pool_dir, '--after', kernel_root, '--depfile', '@DEPFILE@',
+            '--input', media_pool_inputs, '--file', media_pool_dir / 'media-pool.ko', '@OUTPUT@', '--',
+            kbuild, 'module', sources['linux']['dir'], kernel_obj, get_option('arm64_cross_compile'),
+            meson.current_source_dir(), media_pool_dir / 'obj', media_pool_dir / 'media-pool.ko'],
   console: true,
   build_by_default: true)
 published += [['file', media_pool_ko.full_path(), 'media-pool.ko']]
@@ -26,5 +30,5 @@ media_pool_selftest = executable('media-pool-selftest', 'tests/media-pool-selfte
   link_args: ['-static', '-s'], install: false, build_by_default: true)
 run_target('media-pool-tests',
   command: [python, files('tests/run-tests.py'), '--selftest', media_pool_selftest, '--module', media_pool_ko,
-            '--kunit-dir', meson.current_build_dir() / 'obj'],
+            '--kunit-dir', media_pool_dir / 'obj'],
   depends: [media_pool_selftest, media_pool_ko])

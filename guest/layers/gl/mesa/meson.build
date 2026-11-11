@@ -7,7 +7,7 @@
 # file below or the script changes; each inner build is incremental.
 #
 # The stack is built once per distinct configuration and shared by the targets that have it:
-# build/mesa/<key>/{work,stage}, where <key> hashes everything a target can differ in (the cross
+# <shared_dir>/mesa/<key>/{work,stage} (default build/mesa), where <key> hashes everything a target can differ in (the cross
 # file's compilers and flags without its paths, the Wayland the firmware selects, the platforms and
 # extra options, the server compat link) and nothing that names the target. What every target has alike
 # (the source trees, mesa-stack.sh) is not in the key: a change to it reaches each shared build
@@ -112,7 +112,7 @@ endforeach
 mesa_key = run_command(python, '-c',
   'import hashlib, sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:16])',
   mesa_key_text, check: true).stdout().strip()
-mesa_root = top / 'build/mesa' / mesa_key
+mesa_root = shared_dir / 'mesa' / mesa_key
 mesa_stage = mesa_root / 'stage'
 mesa_work = mesa_root / 'work'
 cross_conf = {}

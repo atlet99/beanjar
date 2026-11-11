@@ -5,13 +5,17 @@
 # module lgemu"), carried in the initramfs, and loaded by /init when boot.conf's SOC_MODULES names
 # it (the chip table, guest/targets/soc/: m3, k5lp). Published as build/btmtk_usb.ko
 # too.
+btmtk_usb_dir = kernel_root / 'btmtk_usb'
+btmtk_usb_inputs = kbuild + [files('Kbuild', 'btmtk_usb.c')]
 btmtk_usb_ko = custom_target('btmtk_usb',
   output: 'btmtk_usb.ko',
+  depfile: 'btmtk_usb.ko.d',
   depends: [sources['linux']['stamp'], kernel_outputs],
-  depend_files: [kbuild, files('Kbuild', 'btmtk_usb.c')],
-  command: [kbuild, 'module', sources['linux']['dir'], kernel_obj,
-            get_option('arm64_cross_compile'), meson.current_source_dir(),
-            meson.current_build_dir() / 'obj', '@OUTPUT@'],
+  depend_files: btmtk_usb_inputs,
+  command: kernel_shared + ['--dir', btmtk_usb_dir, '--after', kernel_root, '--depfile', '@DEPFILE@',
+            '--input', btmtk_usb_inputs, '--file', btmtk_usb_dir / 'btmtk_usb.ko', '@OUTPUT@', '--',
+            kbuild, 'module', sources['linux']['dir'], kernel_obj, get_option('arm64_cross_compile'),
+            meson.current_source_dir(), btmtk_usb_dir / 'obj', btmtk_usb_dir / 'btmtk_usb.ko'],
   console: true,
   build_by_default: true)
 published += [['file', btmtk_usb_ko.full_path(), 'btmtk_usb.ko']]

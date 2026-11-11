@@ -262,7 +262,8 @@ cross file for two single-file programs.
 Linux 6.18.53 (`subprojects/linux.wrap`, patches in `guest/kernel/patches`), configured by
 `guest/kernel/configs/webos_virt_defconfig`: a `savedefconfig` file, so it lists only what differs from
 Kconfig's defaults (68 options set, 135 default options turned off). `meson/kbuild.sh` copies it
-to `arch/arm64/configs/` of the object tree (`build/guest-h13-afro/guest/kernel/linux-obj`), where Kbuild's
+to `arch/arm64/configs/` of the object tree (`build/kernel/<key>/linux-obj`, shared by every target's
+build directory: [Incremental builds](../guides/build.md#incremental-builds)), where Kbuild's
 `%_defconfig` target finds it, and runs `make webos_virt_defconfig`, then `make Image`. The
 `.config` is regenerated only when the defconfig differs from that copy or there is no `.config`;
 otherwise make keeps it, and its own `syncconfig` follows a changed source tree.
@@ -276,7 +277,7 @@ target built last.
 To change an option:
 
 ```sh
-cd build/guest-h13-afro/guest/kernel/linux-obj
+cd build/kernel/*/linux-obj                      # the one key there is, without kernel_debug
 make ARCH=arm64 menuconfig                      # or edit .config, then make ARCH=arm64 olddefconfig
 make ARCH=arm64 savedefconfig                   # writes ./defconfig
 cp defconfig ../../../../../guest/kernel/configs/webos_virt_defconfig
@@ -452,7 +453,7 @@ bytes (59 modules, 4.5 MB unpacked).
 `guest/kernel/modules/lgemu` is `lgemu.ko`, an out-of-tree module with the interfaces of LG's own kernel
 that the stock firmware uses and mainline Linux does not have. It is built by the kernel's Kbuild
 as an external module (`meson/kbuild.sh module`: `make M=guest/kernel/modules/lgemu
-MO=build/guest-h13-afro/guest/kernel/modules/lgemu/obj modules` against `build/guest-h13-afro/guest/kernel/linux-obj`), after the
+MO=build/kernel/<key>/lgemu/obj modules` against `build/kernel/<key>/linux-obj`), after the
 `kernel` target, whose `make Image modules` leaves the `Module.symvers` modpost checks the
 module's symbols against. So its vermagic always matches the Image. A changed kernel config rebuilds it from clean (`kbuild.sh` compares the
 object tree's `autoconf.h` with the one it was built with): Kbuild's own CONFIG_ dependencies of an
@@ -657,8 +658,8 @@ inodes are numbered in list order, so the same inputs give the same bytes (the g
 not keep initramfs mtimes anyway: no `INITRAMFS_PRESERVE_MTIME`).
 
 The initramfs holds no layer and nothing of a firmware, a firmware target or an install: it is the
-same for every VM, and every target's guest build packs the same one (as it builds the same kernel,
-busybox and `lgemu.ko`: none of them takes `soc`, `webos` or the firmware). What is about one
+same for every VM, and every target's guest build packs the same one (from the same kernel,
+busybox and `lgemu.ko`, built once for all of them: none of them takes `soc`, `webos` or the firmware). What is about one
 firmware comes at boot from the launcher: the layers, each a read-only disk (below, "Layer
 images"), and, in its host share, the boot manifest `/host/boot.conf` (`host/core/beanjar/targets.py`):
 the target's paks and their mount points, the layers bottom to top, the state disks, the firmware's
@@ -817,11 +818,11 @@ its `allnoconfig` turns every bool off even when `KCONFIG_ALLCONFIG` sets it. So
 `make allnoconfig`, the fragment's lines replace those options in `.config`, `make oldconfig`
 settles dependencies, and every `=y` of the fragment must still be set (a typo or a missing
 dependency fails the build). That runs when the fragment differs from its copy in the object tree
-(`build/guest-h13-afro/guest/initramfs/busybox/obj`) or there is no `.config`; otherwise make builds incrementally.
+(`build/busybox/<key>/obj`) or there is no `.config`; otherwise make builds incrementally.
 `KCONFIG_NOTIMESTAMP=1` keeps the build time out of the binary (its banner reads
 `BusyBox v1.37.0 ()`), so it is reproducible too.
 
 To change it, edit the fragment (a comment saying what needs the applet) and build. To find an
-option's name: `make -C subprojects/busybox-1.37.0 O=$PWD/build/guest-h13-afro/guest/initramfs/busybox/obj menuconfig`, `?`
+option's name: `make -C subprojects/busybox-1.37.0 O=$(echo $PWD/build/busybox/*/obj) menuconfig`, `?`
 on the entry, or `grep` the `Config.src`/`*.c` files for `//config:`. Options the fragment does not
 set are off; an option that only exists as a dependency of a listed one is set by `oldconfig`.

@@ -37,8 +37,8 @@ export KBUILD_BUILD_TIMESTAMP="1970-01-01 00:00:00 UTC" KBUILD_BUILD_USER=beanja
 	KBUILD_BUILD_VERSION=1
 shift 4
 JOBS=$(nproc)
-# ccache, when the machine has it, for the kernel and the external modules: every target's build
-# directory compiles the same kernel. Kbuild's compile lines name the object tree by relative
+# ccache, when the machine has it, for the kernel and the external modules: a new shared directory
+# (guest/kernel/meson.build) compiles the same kernel as the last one. Kbuild's compile lines name the object tree by relative
 # paths and the shared source tree by its absolute one, so one target's objects are hits for the
 # next as they are. No CCACHE_BASEDIR: it would make the source paths relative too, and
 # -fmacro-prefix-map would no longer strip them from __FILE__ (the Image would differ).

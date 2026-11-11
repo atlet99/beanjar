@@ -9,6 +9,11 @@ initramfs_py = files('initramfs.py')   # pack the initramfs with the kernel's ge
 layer_script = [python, files('layer-script.py')]   # layers made by their own build-layer.sh
 kbuild = files('kbuild.sh')            # the kernel's and busybox's own Kbuild
 venv_sh = files('venv.sh')             # a venv from a hash-pinned requirements file
+# What a guest build makes once for every target that would make it the same, each in
+# <shared_dir>/<component>/<key> (shared.py: the key, the lock, the skip and the copy into the build
+# directory): the Mesa stack, the arm64 kernel and its modules, busybox and the SSH programs.
+shared_py = files('shared.py')
+shared_dir = top / (get_option('shared_dir') != '' ? get_option('shared_dir') : 'build')
 
 # subprojects/<name>.wrap, unpacked into subprojects/<directory> by Meson's own wrap handling
 # (meson/fetch.py runs `meson subprojects download` and redoes it when the wrap or a patch
