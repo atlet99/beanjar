@@ -1,0 +1,17 @@
+models = ["W25H"]
+bring_up = ["W25H"]
+tested = false
+
+# W25H ponytail-papikonda (33.31.68) has W24H's super.pak images and every fstab and jail pin of
+# W24H ponytail: K24's paks and partition map.
+[release]
+base = "ponytail"
+paks = [
+    { file = "rootfs", serial = "rootfs", mount = "/" },
+    { file = "bsppart", serial = "bsppart" },
+    { file = "otncabi", serial = "otncabi", mount = "/mnt/otncabi" },
+    { file = "otycabi", serial = "otycabi", mount = "/mnt/otycabi" },
+    { file = "fonts", serial = "fonts", mount = "/mnt/fonts" },
+    { file = "license", serial = "license", mount = "/mnt/license" },
+]
+partmap = "k24-ombre"
