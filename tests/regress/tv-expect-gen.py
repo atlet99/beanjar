@@ -1460,7 +1460,8 @@ def target_row(target, fw_name, fw_dir):
             checks[cid] = dict(
                 present=False, design=True, source=f"{tvsuite.DESIGN_REASON} ({src})"
             )
-    broadcast = targets.broadcast_of_paks([f for f in fw.paks])
+    # the firmware's model_id.json; a firmware before it (jhericurl) names it only in its paks
+    broadcast = targets.firmware_broadcast(fw_dir) or targets.broadcast_of_paks(list(fw.paks))
     return dict(
         firmware=fw_name,
         release=rel,

@@ -211,7 +211,7 @@ def read(path, default=None):
 
 def _check_broadcast(path, cfg):
     """firmware.broadcast against the VM's firmware (targets.board_broadcast): a standard its chip has
-    a board for, and the paks' own where they name one. A firmware whose target its manifest does not
+    a board for, and the firmware's own where it names one (its model_id.json). A firmware whose target its manifest does not
     tell is left to the launcher, which checks the same."""
     from . import targets, paths
     from .core import vm_firmware

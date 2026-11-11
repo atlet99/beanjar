@@ -7,6 +7,7 @@ or `pytest tests/unit/regress/test_checklist.py`)."""
 
 import os
 import sys
+from unittest import mock
 
 sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "regress", "lib")
@@ -77,6 +78,9 @@ def test_from_firmware_dir(tmp_path):
     assert checklist.broadcast_of_firmware(tmp_path, ("tvservice-dvb",)) == "atsc"
     assert checklist.broadcast_of_firmware("/nonexistent", ("tvservice-dvb",)) == "dvb"
     assert checklist.broadcast_of_firmware(None, ("tvservice-dvb",)) == "dvb"
+    # the firmware's model_id.json (a super.pak firmware's paks name none)
+    with mock.patch.object(checklist.targets.paths, "model_id", return_value={"region": "ARIB"}):
+        assert checklist.broadcast_of_firmware(tmp_path, ("rootfs", "otncabi")) == "arib"
 
 
 def test_webos5():

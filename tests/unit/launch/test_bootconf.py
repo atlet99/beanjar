@@ -659,11 +659,13 @@ class BootConfTest(unittest.TestCase):
         )
         self.assertEqual(targets.settings_parts(H13_AFRO), ("nvram", "eeprom"))
 
+    @unittest.skipUnless(shutil.which("mksquashfs"), "needs squashfs-tools")
     def test_broadcast(self):
-        """A firmware's broadcast standard is its paks' (-dvb, -atsc, -arib; none for -global, none
-        for several); with one, a pak named for another region is the firmware's sibling and the
-        board is the row's for that standard. A firmware whose paks are the target's own (every target's,
-        W22O's global, W22H's ARIB) gets exactly what it got without a firmware."""
+        """A firmware's broadcast standard is its model_id.json region (test_firmware_broadcast.py);
+        a pak named for a region (-dvb, -atsc, -arib; none for -global, none for several) picks the
+        firmware's sibling of a pak, and the board is the row's for the standard. A firmware whose
+        paks are the target's own (every target's, W22O's global, W22H's ARIB) gets exactly what it
+        got without a firmware."""
         self.assertEqual(
             targets.broadcast_of_paks(["rootfs.pak", "otncabi-arib.pak", "fonts-arib.pak"]), "arib"
         )
@@ -711,6 +713,17 @@ class BootConfTest(unittest.TestCase):
                 os.path.join(tmp, "o22-jp"),
                 [f.replace("-global", "-arib") for f in targets.pak_files(o22q)],
             )
+            # W22O's Japanese queue build: its model_id.json says ARIB
+            src = os.path.join(tmp, "o22-jp-root", "etc", "starfish")
+            os.makedirs(src)
+            with open(os.path.join(src, "model_id.json"), "w") as f:
+                f.write('{"otaid": "HE_DTV_W22O_AFABJAPU", "machine": "O22", "region": "ARIB"}')
+            os.unlink(os.path.join(jp, "rootfs.pak"))
+            subprocess.run(
+                ["mksquashfs", os.path.join(tmp, "o22-jp-root"), os.path.join(jp, "rootfs.pak"),
+                 "-quiet", "-no-progress"],
+                check=True, stdout=subprocess.DEVNULL,
+            )  # fmt: skip
             self.assertEqual(targets.firmware_broadcast(jp), "arib")
             self.assertEqual(
                 [p.file for p in targets.paks(o22q, jp)],
@@ -788,7 +801,7 @@ class BootConfTest(unittest.TestCase):
             # the paks' standard stands; another is refused, as is one the chip has no board for
             self.assertEqual(targets.board_broadcast(o22q, jp, "arib"), "arib")
             with self.assertRaisesRegex(
-                targets.Error, "broadcast 'atsc', but the firmware's paks are 'arib'"
+                targets.Error, "broadcast 'atsc', but the firmware is 'arib'"
             ):
                 targets.board_broadcast(o22q, jp, "atsc")
             with self.assertRaisesRegex(targets.Error, "has no board for broadcast 'arib'"):

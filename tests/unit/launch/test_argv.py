@@ -1760,9 +1760,19 @@ class ArgvTest(unittest.TestCase):
         self.assertEqual(paths.default_candidates(("k8lp", "mullet"), {w22p: None}), [w22p])
 
     def test_target_firmware_prefers_default_board(self):
-        """Of several firmwares of a target, the one whose paks boot the chip's default board
+        """Of several firmwares of a target, the one that boots the chip's default board
         (targets.boots_default_board): K8HP's and O22's US board, so a global firmware over a
-        Japanese -arib one. None or several such stay ambiguous."""
+        Japanese ARIB one (its model_id.json region, here by the OTA ID's J). None or several such
+        stay ambiguous."""
+        self.enterContext(
+            mock.patch.object(
+                paths,
+                "model_id",
+                lambda d: {
+                    "region": "ARIB" if "_AFA" in d and "J" in d.rsplit("_", 1)[-1] else "GLOBAL"
+                },
+            )
+        )
         home, top = os.path.join(self.tmp, "home"), os.path.join(self.tmp, "top")
         fws = os.path.join(home, "Projects", "webos-firmwares")
         os.makedirs(os.path.join(top, "scratch", "firmware"))

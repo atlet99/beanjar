@@ -37,7 +37,8 @@ ITEMS = ("first-app", "region", "mount-readwrite", "tvservice", "eeprom", "modul
 ORDER = {"PASS": 0, "WARN": 1, "FAIL": 2}
 
 # The broadcast standards (targets.BROADCASTS) and what belongs to them. A firmware is built for one;
-# its paks say which (targets.broadcast_of_paks). countries: ISO 3166 alpha-3 as settingsservice's
+# its model_id.json says which (targets.firmware_broadcast), a firmware before it its paks
+# (targets.broadcast_of_paks). countries: ISO 3166 alpha-3 as settingsservice's
 # option.country; groups: the two-letter group and area codes (option.countryGroup,
 # contiLangCountry, tvconfig's rmmgroup and continentname, the smart service country's prefix:
 # "US7" -> US). A DVB firmware takes any region not of another standard.
@@ -51,9 +52,14 @@ TAINT_FORCED = 1 << 1
 
 
 def broadcast_of_firmware(fw_dir, pak_files=()):
-    """The broadcast standard of the firmware directory's paks (targets.firmware_broadcast);
-    pak_files (targets.pak_files) where the directory is not here."""
-    return targets.firmware_broadcast(fw_dir) or targets.broadcast_of_paks(pak_files)
+    """The broadcast standard of the firmware directory (targets.firmware_broadcast: its
+    model_id.json); for a firmware without one (before jhericurl), the paks it has, and for a
+    directory that is not here the target's (pak_files: targets.pak_files)."""
+    return (
+        targets.firmware_broadcast(fw_dir)
+        or targets.broadcast_of_paks(targets.firmware_paks(fw_dir))
+        or targets.broadcast_of_paks(pak_files)
+    )
 
 
 def region_broadcast(value, kind):

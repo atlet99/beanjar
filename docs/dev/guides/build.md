@@ -398,9 +398,10 @@ judges the facts here. Each item gets PASS, WARN or FAIL and a one-line reason:
 | `eeprom` | tvservice's `modelName` is empty (the ModelInfoDB was not read), or it differs from the bootloader's `modelName=` | |
 | `modules` | lgemu.ko or a `SOC_MODULES` module is not loaded; its vermagic is not `uname -r`; dmesg has a stale-build sign (symbol version, unknown symbol, `i2c_adapters: cannot register`); or the kernel is tainted F (forced load) | |
 
-The broadcast line comes from the firmware's own pak names: `-dvb`, `-atsc` or `-arib`, as in
-`tvservice-dvb.pak` or `otncabi-arib.pak`. They are read from its directory here, or from the
-release's `Pak.file` names if the directory is not here. Each line is matched against a list of
+The broadcast line is the firmware's own: its `model_id.json` region (`targets.firmware_broadcast`);
+for a firmware before jhericurl, which has none, its pak names (`-dvb`, `-atsc` or `-arib`, as in
+`tvservice-dvb.pak`), read from its directory here, or from the release's `Pak.file` names if the
+directory is not here. Each line is matched against a list of
 region codes. ATSC is USA, CAN, MEX and KOR (groups US, KR, CA, MX). ARIB is JPN (JP, JA). DVB is
 any region that belongs to neither.
 

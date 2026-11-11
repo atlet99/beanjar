@@ -217,6 +217,44 @@ def rootfs_entries(fw_dir, directories):
     )
 
 
+MODEL_ID = "etc/starfish/model_id.json"
+_model_ids = {}
+
+
+def model_id(fw_dir):
+    """The firmware's identity, its rootfs's etc/starfish/model_id.json as a dict (otaid, machine,
+    region: LG's nyxDeviceInfo module and libdile_tvregion read the broadcast standard from it), read
+    with unsquashfs from rootfs.pak or super.pak's logical rootfs; None without one (every firmware
+    before jhericurl, a missing or unreadable rootfs). Kept per image while it is unchanged."""
+    import json
+
+    from . import superpak
+
+    if not fw_dir:
+        return None
+    try:
+        logical = superpak.images(fw_dir)
+    except ValueError:
+        return None
+    src, offset = (
+        (logical["rootfs"].path, logical["rootfs"].offset)
+        if logical
+        else (os.path.join(fw_dir, "rootfs.pak"), 0)
+    )
+    try:
+        st = os.stat(src)
+    except OSError:
+        return None
+    key = (os.path.realpath(src), offset, st.st_size, st.st_mtime_ns)
+    if key not in _model_ids:
+        try:
+            identity = json.loads(_squashfs_cat(src, MODEL_ID, offset) or "null")
+        except ValueError:
+            identity = None
+        _model_ids[key] = identity if isinstance(identity, dict) else None
+    return _model_ids[key]
+
+
 def firmware_release(fw_dir):
     """(the release family, where it was read) of the firmware in fw_dir, read with
     unsquashfs; (None, why) without one. webOS: the codename of
@@ -349,19 +387,7 @@ def firmware_target(fw_dir, name=None):
         )
     # W24P also names NT25L firmware. Its model code alone cannot select K8LPN2.
     if model == "W24P":
-        logical = superpak.images(fw_dir)
-        src, offset = (
-            (logical["rootfs"].path, logical["rootfs"].offset)
-            if logical
-            else (os.path.join(fw_dir, "rootfs.pak"), 0)
-        )
-        try:
-            identity = json.loads(
-                _squashfs_cat(src, "etc/starfish/model_id.json", offset) or "null"
-            )
-        except ValueError:
-            identity = None
-        machine = identity.get("machine") if isinstance(identity, dict) else None
+        machine = (model_id(fw_dir) or {}).get("machine")
         if machine != "K8LPN2":
             raise ValueError(
                 f"{fw_dir}: W24P machine {machine or 'unknown'} is not K8LPN2: refused"

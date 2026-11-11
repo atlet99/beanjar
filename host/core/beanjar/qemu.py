@@ -318,7 +318,7 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
     except ValueError as e:
         raise Error(str(e)) from None
     try:
-        # the board's broadcast: the paks', else vm.toml's firmware.broadcast (BROADCAST)
+        # the board's broadcast: the firmware's (model_id.json), else vm.toml's firmware.broadcast (BROADCAST)
         p.broadcast = targets.board_broadcast(p.target, fw, env.get("BROADCAST"))
     except targets.Error as e:
         raise Error(f"BROADCAST: {e}") from None

@@ -3,9 +3,11 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Grouped VM schema and lossless edits."""
 
+from unittest import mock
+
 import pytest
 
-from beanjar import core, vmconfig, vmidentity, vmsettings
+from beanjar import core, paths, vmconfig, vmidentity, vmsettings
 
 
 @pytest.fixture
@@ -130,8 +132,11 @@ def test_broadcast(path, tmp_path):
         vmconfig.read(path)
     manifest.write_text('name = "x"\nchip = "o22"\nrelease = "queue"\n')
     (fw / "otncabi-arib.pak").touch()
-    with pytest.raises(core.Error, match="broadcast 'atsc', but the firmware's paks are 'arib'"):
-        vmconfig.read(path)
+    assert vmconfig.read(path)["broadcast"] == "atsc"  # pak names state no standard
+    # an ARIB firmware: its model_id.json says so
+    with mock.patch.object(paths, "model_id", return_value={"region": "ARIB"}):
+        with pytest.raises(core.Error, match="broadcast 'atsc', but the firmware is 'arib'"):
+            vmconfig.read(path)
 
 
 def test_mitm_flows():

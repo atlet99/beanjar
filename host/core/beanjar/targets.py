@@ -90,7 +90,7 @@ SocModule = namedtuple("SocModule", "name params derived", defaults=(None,))
 # it. False where nothing shows the model has one; a
 # row for another model sets its own.
 # broadcast_boards: ((broadcast, board_cmdline), ...), the board of another retail model for a
-# firmware of that broadcast standard (board_broadcast: its paks' -dvb, -atsc or -arib, or for a
+# firmware of that broadcast standard (board_broadcast: its model_id.json region, or for a
 # global firmware the VM's vm.toml firmware.broadcast), in the same layer; the others boot
 # board_cmdline. The board's region values must be the firmware's (W22O: the global C2, the US C2
 # on the same global firmware, and the Japanese one). Where board_cmdline is one of them, that
@@ -124,11 +124,11 @@ Soc = namedtuple(
     "broadcast_boards touch portrait light_bus thermal tof_bus broadcast_params",
     defaults=(None, None, (), None, False, False, (), False, False, None, False, None, ()),
 )
-# Prefer the US model: a chip whose global firmware (paks naming no standard) ships on US retail
+# Prefer the US model: a chip whose global firmware (model_id.json region GLOBAL) ships on US retail
 # models, the models DB's models of its OTA ID, boots a US model of that firmware by default
 # (board-atsc.cmdline: ATSC, the US country digit, configd's USA RMM group). Its European board
-# (board-dvb.cmdline) stays a VM's choice with vm.toml's firmware.broadcast "dvb"; a firmware whose
-# paks name a standard boots that standard's board (docs/user/board-profiles.md).
+# (board-dvb.cmdline) stays a VM's choice with vm.toml's firmware.broadcast "dvb"; a firmware that
+# names a standard (firmware_broadcast) boots that standard's board (docs/user/board-profiles.md).
 US_BOARD = "/etc/emulator/board-atsc.cmdline"
 EU_BOARD = "/etc/emulator/board-dvb.cmdline"
 Release = namedtuple(
@@ -224,8 +224,10 @@ Target = namedtuple(
 )
 
 INIT_SYSTEMS = ("upstart", "systemd", "sysvinit")
-# The broadcast standards. A firmware is built for one, and its paks say which (tvservice-dvb.pak,
-# otncabi-arib.pak, ...); a global build's paks (otncabi-global.pak) name none.
+# The broadcast standards. A firmware is built for one, and its model_id.json says which
+# (firmware_broadcast; GLOBAL for a global build); its region paks, where it has them, are named for
+# it (tvservice-dvb.pak, otncabi-arib.pak, ...; a global build's otncabi-global.pak), but a
+# super.pak firmware's are not.
 BROADCASTS = ("dvb", "atsc", "arib")
 
 
@@ -875,10 +877,27 @@ def firmware_paks(fw):
         return []
 
 
+# model_id.json's region (paths.model_id) -> the broadcast standard: the values LG's nyxDeviceInfo
+# module and libdile_tvregion compare it with, GLOBAL a global build (which names none)
+MODEL_ID_REGIONS = {"ARIB": "arib", "ATSC": "atsc", "DVB": "dvb", "GLOBAL": None}
+
+
 def firmware_broadcast(fw):
-    """The broadcast standard of the firmware directory fw, from its paks (broadcast_of_paks), or
-    None."""
-    return broadcast_of_paks(firmware_paks(fw))
+    """The broadcast standard of the firmware directory fw as the firmware itself states it: its
+    rootfs's etc/starfish/model_id.json region (paths.model_id; ARIB, ATSC, DVB, or GLOBAL for a
+    global build: None), which a super.pak firmware's pak names do not carry. None for a firmware
+    without model_id.json (before jhericurl; those chips have one board, and their paks are named
+    for their standard, which only picks the paks: _broadcast_release) or without fw. An Error for
+    a region LG's code does not name."""
+    identity = paths.model_id(fw)
+    if identity is None or "region" not in identity:
+        return None
+    region = identity["region"]
+    if region not in MODEL_ID_REGIONS:
+        raise Error(
+            f"{fw}: model_id.json's region {region!r} is not one of {', '.join(MODEL_ID_REGIONS)}"
+        )
+    return MODEL_ID_REGIONS[region]
 
 
 def default_broadcast(target):
@@ -890,11 +909,11 @@ def default_broadcast(target):
 
 def board_broadcast(target, fw=None, broadcast=None):
     """The broadcast standard whose board a VM of the target boots (board_cmdline), worked out once
-    per launch: the firmware directory fw's own (firmware_broadcast), else broadcast, the VM's choice
-    for a global firmware whose paks name none (vm.toml's firmware.broadcast: W22O's global queue as
-    the global C2, "dvb"), else the chip's default (default_broadcast: "atsc" for a chip that boots
-    its US model). broadcast must be one the chip has a board of (Soc.broadcast_boards) and, where
-    the paks name one, that one."""
+    per launch: the firmware directory fw's own (firmware_broadcast: its model_id.json region), else
+    broadcast, the VM's choice for a global firmware (vm.toml's firmware.broadcast: W22O's global
+    queue as the global C2, "dvb"), else the chip's default (default_broadcast: "atsc" for a chip
+    that boots its US model). broadcast must be one the chip has a board of (Soc.broadcast_boards)
+    and, where the firmware names one, that one."""
     own = firmware_broadcast(fw)
     if not broadcast:
         return own or default_broadcast(target)
@@ -905,13 +924,14 @@ def board_broadcast(target, fw=None, broadcast=None):
             + (f" (it has: {', '.join(boards)})" if boards else "")
         )
     if own and own != broadcast:
-        raise Error(f"broadcast {broadcast!r}, but the firmware's paks are {own!r}")
+        raise Error(f"broadcast {broadcast!r}, but the firmware is {own!r} (its model_id.json)")
     return broadcast
 
 
 def boots_default_board(target, fw):
     """Whether a VM of the target boots the chip's default board (Soc.board_cmdline) from the firmware
-    directory fw (board_broadcast: by its paks, a global firmware the default board's standard)."""
+    directory fw (board_broadcast: by its model_id.json, a global firmware the default board's
+    standard)."""
     return board_cmdline(target, board_broadcast(target, fw)) == soc(target).board_cmdline
 
 

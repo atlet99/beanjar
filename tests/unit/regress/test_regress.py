@@ -208,11 +208,18 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(sel, [("h13-afro", WT1H)])
 
     def test_several_firmwares_the_default_board(self):
-        """Of several firmwares of a target, the one whose paks boot the chip's default board: K8HP's
-        US board, so its global firmware (otncabi-global.pak) over its Japanese one (-arib); two
+        """Of several firmwares of a target, the one that boots the chip's default board: K8HP's
+        US board, so its global firmware over its Japanese one (model_id.json region ARIB); two
         that both boot it stay ambiguous."""
         us, jp = "04.60.85.01-HE_DTV_W22H_AFADATAA", "04.60.85.01-HE_DTV_W22H_AFADJAAA"
-        with tempfile.TemporaryDirectory() as d:
+
+        def model_id(fw):
+            return {"region": "ARIB" if os.path.basename(fw) == jp else "GLOBAL"}
+
+        with (
+            tempfile.TemporaryDirectory() as d,
+            mock.patch.object(regress.paths, "model_id", model_id),
+        ):
             for n, pak in ((us, "otncabi-global.pak"), (jp, "otncabi-arib.pak")):
                 os.makedirs(os.path.join(d, n))
                 open(os.path.join(d, n, pak), "w").close()

@@ -1,10 +1,15 @@
 # Boot a global firmware as another region's model
 
-A firmware is built for one broadcast standard, and its pak names usually say which
-(`otncabi-arib.pak`, `tvservice-dvb.pak`). The VM then boots that standard's board
-(the soc file's `broadcast_boards`, `guest/targets/soc/<chip>.toml`), and nothing needs choosing.
+A firmware is built for one broadcast standard, and its `etc/starfish/model_id.json` says which:
+its `region` is `ARIB`, `ATSC`, `DVB` or `GLOBAL`, the value LG's own nyxDeviceInfo module and
+libdile_tvregion read (`targets.firmware_broadcast`). The VM then boots that standard's board (the
+soc file's `broadcast_boards`, `guest/targets/soc/<chip>.toml`), and nothing needs choosing. Its
+region paks, where it has them, are named for the same standard (`otncabi-arib.pak`,
+`tvservice-dvb.pak`), but a `super.pak` firmware's are not, and those names only pick the
+paks. Firmwares before jhericurl have no `model_id.json`;
+their chips have one board.
 
-A global build's paks (`otncabi-global.pak`) name no standard. The same image ships on models of
+A global build (`GLOBAL`) names no standard. The same image ships on models of
 several regions, and the board command line decides which one the TV is: its model, hwopt
 country digit, country group and ToolOpt feed the firmware's own generators. Without a choice
 the VM boots the chip's default board.
@@ -25,11 +30,11 @@ broadcast = "dvb"
 ```
 
 The value is one of `dvb`, `atsc` or `arib`. The launcher then boots that standard's board, the
-same way it boots a firmware whose paks name the standard: `boot.conf`'s `BOARD_CMDLINE`, the EEPROM's
+same way it boots a firmware that names the standard: `boot.conf`'s `BOARD_CMDLINE`, the EEPROM's
 factory records and the memory and display sizes all follow it. The standard is worked out once per
-launch (`targets.board_broadcast`): the paks' own standard, else `firmware.broadcast`, else the chip's
-default (`targets.default_broadcast`, `atsc` where the default is the US board). A standard the
-chip has no board for is refused, and so is one that differs from the paks' standard.
+launch (`targets.board_broadcast`): the firmware's own standard, else `firmware.broadcast`, else
+the chip's default (`targets.default_broadcast`, `atsc` where the default is the US board). A
+standard the chip has no board for is refused, and so is one that differs from the firmware's.
 
 Change the standard only with fresh TV state (`beanjar wipe <vm>`). The EEPROM's factory records and
 the country picked in the first-use setup were made for the old board, and they would override
@@ -54,7 +59,7 @@ board, where the European board gives `O22N2_DVB_EU`.
 | k7lp | W21P | 65UP8000PUR | 43UP77009LB | |
 | k8lp | W22P | 75NANO75UQA | 55NANO756QA | |
 | k8ap | W22L | 32LQ630BPUA | 32LQ570B6LA | |
-| k8hp | W22H | 65QNED85UQA | | 55QNED85JQA, from the paks |
+| k8hp | W22H | 65QNED85UQA | | 55QNED85JQA, by the firmware |
 | k8hpp | W23H | 86QNED80URA | 86UR80006LA | |
 | k8lpn | W23P | 75UR8000AUA | 43UR8050PSB (Australia) | |
 | k8lpn2 | W24P | 43UT8000AUA | 43UT80006LA | |
@@ -62,7 +67,7 @@ board, where the European board gives `O22N2_DVB_EU`.
 | k24n | W25H | 55QNED85AUA | 55QNED85A6C | |
 | k25lp | W25P | 43UA7500ZUA | 43UA75006LA | |
 | lm21an | W22A | 70UQ8000AUB | 43UQ80006LB | |
-| o22 | W22O | OLED55C2PUA | OLED55C21LA, global C2 | OLED55C2PJA, from the paks |
+| o22 | W22O | OLED55C2PUA | OLED55C21LA, global C2 | OLED55C2PJA, by the firmware |
 | o22n | W23O | OLED77C3PUA | OLED55C36LA | |
 | o22n2 | W24G | OLED55C4PUA | OLED55C44LA | |
 | o22n3 | W25G | OLED55C5PUA | OLED55C54LA | |
@@ -72,7 +77,7 @@ board, where the European board gives `O22N2_DVB_EU`.
 W21A's `lm21a` board was a US model (65UP7560AUD) already and stays its only board.
 
 W22H's global firmwares (AFADATAA, AFABATPU) ship on US models; its Japanese ones (AFADJAAA,
-AFABJAPU) name their paks `-arib` and boot the Japanese QNED85. Its US board comes from that
+AFABJAPU) say ARIB and boot the Japanese QNED85. Its US board comes from that
 firmware's own generators directly (65QNED85UQA on 04.60.85, 23.25.75 and
 43.22.73, which agree), not from a European line: no European board is derived for it. Its
 US board's tuner has the K8 chips' European values, as W22P's, until the US tuner is derived.
