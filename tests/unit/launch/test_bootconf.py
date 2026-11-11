@@ -530,6 +530,7 @@ class BootConfTest(unittest.TestCase):
             "o24-ombre": base | {"ftdi_sio"},
             "o24-ponytail": base | {"ftdi_sio"},
             "o24-queue": base | {"ftdi_sio", "ch341", "cp210x"},
+            "o24n-ponytail": base | {"ftdi_sio"},
             "k8hp-number1": base,
             "k8hp-ombre": base,
             "k8hp-ponytail": base,
@@ -1073,6 +1074,7 @@ class BootConfTest(unittest.TestCase):
             "o22": "OLED55C2PUA",
             "o22n": "OLED77C3PUA",
             "o22n2": "OLED55C4PUA",
+            "o24n": "OLED55G5WUA",
             "o24": "OLED55G4SUB",
         }
         seen = set()
@@ -1221,6 +1223,7 @@ class BootConfTest(unittest.TestCase):
                 "o24-ombre",
                 "o24-ponytail",
                 "o24-queue",
+                "o24n-ponytail",
             ],
         )
         self.assertEqual(targets.of_firmware("W24G", "spacebuns"), ("o22n2", "spacebuns"))
@@ -1298,6 +1301,7 @@ class BootConfTest(unittest.TestCase):
                 "o24-ombre": 2560,
                 "o24-ponytail": 2560,
                 "o24-queue": 2560,
+                "o24n-ponytail": 2560,
             },
         )
 

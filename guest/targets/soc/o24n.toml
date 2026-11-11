@@ -1,0 +1,7 @@
+# O24N (W25O) is O24 to its firmware: the kernel prints O24(LG1214) and maps chip=O24.. to BASE id
+# 0x28, its lxboot prints the O24 family and its ponytail bsppart libraries are W24O ponytail's
+# builds (libhal_ucom among them). Its libdile_i2c keeps NVM 7/0xa0, LIGHT_SENSOR 1 and
+# TMF882X_SENSOR_N 1 and libdil_tu_plugin is the ponytail one of O22N2 and O24. Its own board, the
+# G5: nothing shows the far-field microphone (mic stays false).
+
+base = "o24"

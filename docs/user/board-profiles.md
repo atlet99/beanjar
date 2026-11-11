@@ -63,6 +63,7 @@ board, where the European board gives `O22N2_DVB_EU`.
 | o22n | W23O | OLED77C3PUA | OLED55C36LA | |
 | o22n2 | W24G | OLED55C4PUA | OLED55C44LA | |
 | o24 | W24O | OLED55G4SUB | OLED55G45LW | |
+| o24n | W25O | OLED55G5WUA | OLED55G54LW | |
 
 W21A's `lm21a` board was a US model (65UP7560AUD) already and stays its only board.
 
