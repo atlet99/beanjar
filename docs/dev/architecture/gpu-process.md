@@ -1,8 +1,8 @@
 # The GPU in its own process (vhost-user-gpu)
 
 A VM's virgl GPU can run in QEMU's own vhost-user-gpu backend (`contrib/vhost-user-gpu` of the
-same QEMU source, built by `host/tools/build/qemu/build.sh` and shipped in `beanjar-qemu` as
-`/usr/libexec/beanjar/vhost-user-gpu`), not on QEMU's main loop. This is meant for ARM hosts
+same QEMU source, in beanjar-vendor's prebuilt QEMU, published as `build/qemu/libexec` and
+shipped in `beanjar-qemu` as `/usr/libexec/beanjar/vhost-user-gpu`), not on QEMU's main loop. This is meant for ARM hosts
 with a GPU's render node (the Raspberry Pi 5, the ROCK Pi 4 boards). The guest sees the same
 virtio-gpu with the same resolution, outputs and id. The measurements behind it: with virgl on the main loop, every frame the guest UI renders holds up usb-redir, the
 xHCI, the chardevs and the display, and a USB camera lost a fifth of its frames.

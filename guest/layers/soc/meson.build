@@ -33,7 +33,7 @@
 # the kernel (lgemu.ko, on lg115x.ko's and mstar-utopia.ko's buses), under the stock HAL_I2C_*.
 
 # Choosing the shims (docs/dev/architecture/build-and-boot.md, "Choosing the shims"): by what the
-# firmware's rootfs image holds (fw_rootfs, listed from its pak), not by a release's name, so a
+# firmware's rootfs image holds (fw_path, guest/targets/meson.build), not by a release's name, so a
 # release newer than the last one studied gets the shims its consumers need.
 #
 # libsestore: wherever the stock library is there and something reads secure store items through it
@@ -42,9 +42,12 @@
 # reads the model secret through (nyxSecureStore.module NEEDs libsestore.so.0: queue and spacebuns).
 # A chip whose table sets sestore_model_items_nyx (O22) also answers the regional model items
 # there (sestore_model_items).
-fw_sestore_nyx = 'usr/lib/nyx/modules/nyxSecureStore.module' in fw_rootfs
+sestore_nyx = 'usr/lib/nyx/modules/nyxSecureStore.module'
 ssg_getter = 'usr/palm/services/com.webos.service.secondscreen.gateway/helpers/bus/ssl-cert-getter.js'
-if 'usr/lib/libsestore.so.0.1.0' in fw_rootfs and (ssg_getter in fw_rootfs or fw_sestore_nyx)
+sestore_stock = 'usr/lib/libsestore.so.0.1.0'
+fw_questions += ['path ' + sestore_nyx, 'path ' + ssg_getter, 'path ' + sestore_stock]
+fw_sestore_nyx = fw_path.get(sestore_nyx, false)
+if fw_path.get(sestore_stock, false) and (fw_path.get(ssg_getter, false) or fw_sestore_nyx)
   hal_stock += {'libsestore': ['libsestore.so.0', 'libsestore.so.0.1.0', []]}
   sestore_model_items = get_variable('sestore_model_items_nyx', false) and fw_sestore_nyx
 endif
@@ -54,9 +57,17 @@ endif
 # the libdile_gal shim's engine, so it needs that shim too.
 shims = {}
 foreach name, sonames : hal_stock    # [soname, stock file, aliases(, 'bsppart': not in the rootfs)]
-  if sonames.length() < 4 and 'usr/lib/' + sonames[1] not in fw_rootfs
-    message('soc ' + soc + ': no usr/lib/' + sonames[1] + ' in the firmware, no ' + name + ' shim')
-  elif name == 'libhalgal' and 'usr/lib/' + hal_stock.get('libdile_gal', ['', ''])[1] not in fw_rootfs
+  stock = 'usr/lib/' + sonames[1]
+  gal_stock = 'libdile_gal' in hal_stock ? 'usr/lib/' + hal_stock['libdile_gal'][1] : ''
+  if sonames.length() < 4
+    fw_questions += 'path ' + stock
+  endif
+  if name == 'libhalgal' and gal_stock != ''
+    fw_questions += 'path ' + gal_stock
+  endif
+  if sonames.length() < 4 and not fw_path.get(stock, false)
+    message('soc ' + soc + ': no ' + stock + ' in the firmware, no ' + name + ' shim')
+  elif name == 'libhalgal' and not fw_path.get(gal_stock, false)
     message('soc ' + soc + ': no libdile_gal shim, no libhalgal shim')
   else
     shims += {name: sonames}

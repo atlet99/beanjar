@@ -13,7 +13,6 @@ Repository source is grouped by its role:
 | `host/helpers/` | Native host runtime support: media, networking, SSH key conversion, SquashFS inspection and firmware-derived tables |
 | `guest/helpers/` | Guest-architecture programs, including the ARM LLS EEPROM probe |
 | `guest/kernel`, `guest/initramfs`, `guest/layers` | Guest kernel, early userspace and firmware adaptation layers |
-| `host/tools/build/` | Development build drivers for host QEMU |
 | `guest/tools/` | Build utilities for guest SSH binaries |
 | `host/scripts/` | Host VM launcher and helper scripts |
 | `guest/scripts/` | Scripts executed inside the VM |
@@ -29,8 +28,8 @@ boundary: native host executables install in `libexec`, guest executables in
 `share/beanjar/guest`. Installed runtime paths are independent of these checkout
 directories.
 
-The top-level `meson.build` sets up what the modules share (options, the firmware directory and
-target, the guest's glibc ceiling and staging command, the list of what is published) and enters one
+The top-level `meson.build` sets up what the modules share (options, the firmware target and its
+facts, the host build's firmware directory, the guest's glibc ceiling and staging command, the list of what is published) and enters one
 directory per module with `subdir()`. For a webOS guest build (`meson.is_cross_build()`), it enters
 `guest/tools/ssh`, `guest/layers/soc/<chip>` after its bases (the chip's table: `hal_stock`, `gst_plugin_dir`,
 `soc_phys_base`, `gl_vendor_stubs`; and its `rootfs/`), `guest/layers/webos/src/pmlogd`,
@@ -44,10 +43,10 @@ chip's `hal_stock` names and `video`, shared by every chip), `guest/layers/{gl,h
 and `guest/layers/gl/test`. SimpleSmart instead enters `guest/layers/simplesmart`, `kernel` and
 `initramfs`; NetCast enters `guest/layers/gl/mesa`, `guest/layers/netcast45`, `kernel` and `initramfs`.
 On the host build it enters `host/viewer`, `host/helpers/kvm`, `host/helpers/media-helper`,
-`host/ui` (the GTK windows' layouts), `host/tools/build/qemu`,
+`host/ui` (the GTK windows' layouts),
 `host/scripts` (the firmware cache), `host/helpers/network` (the mitmproxy venv) and the unit tests
-`tests/{netstub,securestore,input,viewer,manager}`. `meson/meson.build` holds the helpers: the build's scripts
-and the source trees of the wraps. Layer directories without a `meson.build` (normal)
+`tests/{netstub,securestore,input,viewer,manager}`. `meson/meson.build` holds the helpers: the build's scripts,
+the source trees of the wraps and, in the host build, the prebuilt programs (`vendor`, `vendor_deps`). Layer directories without a `meson.build` (normal)
 are used as they are; a `guest/layers/<name>` with one is only the source of a generated layer, and the
 launcher never takes it for the layer itself.
 
@@ -94,12 +93,12 @@ source-layer inheritance.
 
 Which shims a target's soc layer gets is decided by what its firmware contains, not by the release's
 name, so a release newer than the last one studied gets the shims its consumers need without a
-new rule. The top-level `meson.build` lists the firmware's rootfs image once at configure time
-(`fw_rootfs`: `host/scripts/vm-launcher firmware-files`, `paths.rootfs_entries`, which runs
-`unsquashfs -ls` on `rootfs.pak` or `super.pak`'s logical rootfs): the entries of `usr/lib`,
-`usr/lib/nyx/modules` and the second screen gateway's `helpers/bus`. An extracted `rootfs/` beside
-the paks is never consulted for this, so a partial extraction cannot change a selection.
-`guest/layers/soc/meson.build` then applies:
+new rule. The build reads no firmware: each rule asks whether the target's rootfs image has a path
+(`fw_path`), answered by the target's checked-in firmware facts, `guest/targets/facts/<chip>-<release>.txt`
+([Firmware facts](../guides/build.md#commands); `guest/targets/meson.build`). `host/scripts/vm-launcher
+firmware-facts` writes the answers from the image's own listing (`paths.rootfs_entries`, which runs
+`unsquashfs -ls` on `rootfs.pak` or `super.pak`'s logical rootfs), never from an extracted `rootfs/`,
+so a partial extraction cannot change a selection. `guest/layers/soc/meson.build` then applies:
 
 - A chip's `hal_stock` names the shims its stock libraries may need. One whose stock file is not
   in the rootfs is not built (a configure message names it); a `bsppart` entry is not checked.
@@ -134,13 +133,13 @@ elements) are such rules. Chip-keyed tables (a chip's directory and its `base`) 
   checkout's files and the build's outputs, and the firmware name and directory (`FW`:
   `<collection>/<name>` in the first of the host's firmware collections that has it,
   `firmware_dirs` in `~/.config/beanjar/config.toml`, default `/srv/beanjar/firmware`), for the
-  launcher and as the build's default (`host/scripts/vm-launcher config FW`, which the build and the
-  shell tools run). `FW=` in the environment overrides it (a directory, or a firmware name looked
-  up in the same collections), and `-Dfirmware=DIR` overrides it
-  for a build directory. A guest build directory of a given target without `-Dfirmware` (one set up
-  by hand) takes that target's firmware whatever `FW` is (`host/scripts/vm-launcher config FW --target
-  <chip>-<release>`, `Tree.target_firmware`: the default firmware if it resolves to the target, else the
-  one firmware in those collections that does), so reconfiguring it needs no `FW`.
+  launcher and as the host build's default (`host/scripts/vm-launcher config FW`, which the host build
+  and the shell tools run). `FW=` in the environment overrides it (a directory, or a firmware name
+  looked up in the same collections), and `-Dfirmware=DIR` overrides it for the host build's
+  firmware cache. The guest build takes no firmware: its target's facts are in the tree
+  (`guest/targets/facts/`). `host/scripts/vm-launcher config FW --target <chip>-<release>`
+  (`Tree.target_firmware`: the default firmware if it resolves to the target, else the one firmware in
+  those collections that does) gives a target's firmware, which `firmware-facts` reads by default.
 - `meson.build`: warnings (`warning_level=2`, `werror=true`; the one exception is the video plugins' GStreamer
   headers), `-O2`, `c_std=gnu99` for the guest, and the glibc ceiling (the release's: 2.14.1 on
   afro, 2.19 on beehive, dreadlocks, dreadlocks2 and SimpleSmart, 2.24 on goldilocks and
@@ -149,18 +148,16 @@ elements) are such rules. Chip-keyed tables (a chip's directory and its `base`) 
   `readelf -V` and the build fails on a newer `GLIBC_` version. Guest code is compiled with
   `-U_FILE_OFFSET_BITS` (Meson defines it to 64): it shares structures with the firmware's
   libraries, built with 32-bit `off_t`.
-- `meson.options`: `publish_dir`, `firmware`, `soc` and `webos` (the [firmware target](firmware-targets.md)),
+- `meson.options`: `publish_dir`, `firmware` (the host build's), `soc` and `webos` (the [firmware target](firmware-targets.md), which a guest build needs),
   `arm64_cross_compile` (default
-  `aarch64-linux-gnu-`), `uapi_headers`, `qemu` (the patched QEMU; auto: wherever its build
-  dependencies are, required on a host without a render node; see [Host packages](../guides/build.md#host-packages)), `firmware_cache` (auto: when the firmware's paks are there), `mitmproxy`, `ffmpeg`
-  (video and media-audio decoding in `media-helper`; auto: when libavcodec, libavutil and
-  libswresample are available). Without FFmpeg the helper still drains the guest and serves
-  lifecycle/clock metadata, explicitly reporting decoder-unavailable. The viewer has no FFmpeg
-  dependency and shows its video-window pattern when no decoded picture is available.
-  `meson configure build/host -Dffmpeg=disabled` changes one.
+  `aarch64-linux-gnu-`), `uapi_headers`, `firmware_cache` (auto: when the firmware's paks are
+  there), `mitmproxy`, `virtcam`, `kernel_debug`. `meson configure build/host -Dmitmproxy=disabled`
+  changes one. The prebuilt QEMU, FFmpeg and neatvnc are not options: every host build has them
+  (below, "Downloads"). The viewer has no FFmpeg dependency and shows its video-window pattern
+  when no decoded picture is available.
 
 The launcher starts one `media-helper` beside each VM. `host/helpers/media-helper/meson.build`
-selects the `host/media/decode/` engine or `decode-unavailable.c`; `host/viewer/meson.build` links the
+builds it with the `host/media/decode/` engine on the private FFmpeg; `host/viewer/meson.build` links the
 presentation code and shared decoded-IPC helpers only. `MEDIA_HWDEC=auto|none|TYPE` selects the
 helper's initial hardware preference. `MEDIAHUB=0` omits the helper and turns decoding off: the
 launch writes `media = "off"` to `vm-info.toml`, and the viewer cores then show the video windows'
@@ -169,17 +166,20 @@ checkerboard (as with `--no-media`); the viewer cannot decode compressed QEMU so
 
 ## Downloads
 
-`host/tools/build/qemu/` contains the host QEMU build support and the four display patches. The
-upstream source remains a pinned Meson subproject; the published executable remains
-`build/qemu/bin/qemu-system-aarch64`. The launcher runs it whenever it is published, and the
-system QEMU otherwise (`paths.Tree.qemu`); that choice is independent of this source directory.
+QEMU, FFmpeg and neatvnc (with aml) are not built here: they are beanjar-vendor's prebuilt
+tarballs, pinned by release tag and SHA-256 in `packaging/vendor.toml`. The host build's
+`meson/vendor.py` downloads the tarballs for its architecture into `build/vendor/download`,
+refuses one whose hash differs, unpacks each into `build/vendor` and publishes the trees as
+`build/qemu`, `build/ffmpeg` and `build/neatvnc` (packaging/debian/README.md, "The prebuilt
+programs"). The published executable is `build/qemu/bin/qemu-system-aarch64`; the launcher runs it
+whenever it is published, and the system QEMU otherwise (`paths.Tree.qemu`).
 
 Every source tarball is a `[wrap-file]` in `subprojects/` with its `source_hash` (sha256), and
 Meson's own wrap handling fetches it: `meson subprojects download` puts the tarball in Meson's
 package cache, `subprojects/packagecache` (or `$MESON_PACKAGE_CACHE_DIR`), checks it, unpacks it
 into `subprojects/<directory>` (one tree for every build directory), and applies the wrap's
 patches. Patches are `diff_files` of the wraps, listed in order; `subprojects/packagefiles/*` are
-links to `guest/kernel/patches`, `host/tools/build/qemu/patches` and `guest/layers/gl/patches/{mesa,wayland}`, so a new patch
+links to `guest/kernel/patches` and `guest/layers/gl/patches/{mesa,wayland}`, so a new patch
 is a new file there plus a line in the wrap. The trees of packages that do not build with Meson
 (Linux, busybox, Dropbear, OpenSSH, libffi, GStreamer) get `patch_directory = source-only`, a
 `meson.build` that only marks them as unpacked for Meson (it is never configured).
@@ -202,9 +202,6 @@ None of them is configured as a Meson subproject. They are built by their own bu
 custom targets, for these reasons:
 
 - **Linux, busybox:** Kbuild, and arm64 (below).
-- **QEMU:** its `configure` wraps its own Meson build (Python venv, subprojects, cross files);
-  it is not usable as a subproject. It is built for its patches on every host that has its build
-  dependencies (see [Host packages](../guides/build.md#host-packages)); its libraries are Debian's (`host/tools/build/qemu/build.sh`).
 - **Dropbear, OpenSSH, libffi:** autotools; `guest/tools/ssh/build-ssh.sh` and
   `guest/layers/gl/mesa/mesa-stack.sh` build them out of tree.
 - **Wayland, libdrm, Mesa:** a cross build of Wayland needs a native `wayland-scanner` of exactly

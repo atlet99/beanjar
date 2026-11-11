@@ -11,8 +11,6 @@ architecture pages record the current contracts and the decisions behind them, o
 - [Testing](guides/testing.md): the unit, integration and regress tiers, and how to write a test.
 - [Coverage](guides/coverage.md): line and branch coverage of the host programs.
 - [Formatting](guides/formatting.md): clang-format, Ruff and the pre-commit hooks.
-- [neatvnc 1.0 for Debian trixie](guides/neatvnc-local.md): the local neatvnc and aml packages
-  that `beanjar-vnc` builds against.
 
 ## Architecture
 

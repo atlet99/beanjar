@@ -124,9 +124,17 @@ video_args = ['-Wno-unused-parameter', '-Wno-deprecated-declarations', '-Wno-mis
   '-DGLIB_VERSION_MAX_ALLOWED=GLIB_VERSION_' + gst_set['glib'],
   '-DGST_DISABLE_DEPRECATED']
 video_args += gst_set['args']
-video_link = ['-Wl,-z,defs', '-Wl,--allow-shlib-undefined', '-Wl,--as-needed',
-  fwlib / 'libgstaudio-1.0.so.0', fwlib / 'libgstvideo-1.0.so.0', fwlib / 'libgstbase-1.0.so.0', fwlib / 'libgstreamer-1.0.so.0',
-  fwlib / 'libgobject-2.0.so.0', fwlib / 'libglib-2.0.so.0']
+# The firmware's GStreamer and GLib: their stubs (fw_stubs, guest/targets/meson.build).
+video_link = ['-Wl,-z,defs', '-Wl,--allow-shlib-undefined', '-Wl,--as-needed']
+video_link_depends = []
+foreach lib : ['libgstaudio-1.0.so.0', 'libgstvideo-1.0.so.0', 'libgstbase-1.0.so.0', 'libgstreamer-1.0.so.0',
+               'libgobject-2.0.so.0', 'libglib-2.0.so.0']
+  fw_questions += 'lib usr/lib/' + lib
+  if 'usr/lib/' + lib in fw_stubs
+    video_link += fw_stubs['usr/lib/' + lib].full_path()
+    video_link_depends += fw_stubs['usr/lib/' + lib]
+  endif
+endforeach
 # Plugins are loaded with dlopen: modules, no SONAME (as GStreamer's own). In the soc layer
 # (../meson.build stages them).
 video_layer_args = []
@@ -137,20 +145,23 @@ foreach name, srcs : gst_set['plugins']
   endforeach
   plugin = shared_module(name, files(paths), gst_headers,
     c_args: video_args + ['-DESSINK_TYPE_NAME="EsSink-' + name.replace('.', '_') + '"'], link_args: video_link,
-    dependencies: glib_headers)
+    link_depends: video_link_depends, dependencies: glib_headers)
   video_layer_args += ['--file', plugin, gst_plugin_dir / 'lib' + name + '.so', '755']
   # Realtek's gst-omx: the factories and ranks of the stock registration, read by the firmware's
   # GStreamer under qemu-arm (tests/integration/layers/test_omx_registration.py; skipped without it)
   if srcs.contains('rtkomx.c')
-    guest_test_artefacts += {'omx_plugin': plugin.full_path(), 'firmware': firmware}
+    guest_test_artefacts += {'omx_plugin': plugin.full_path()}
     guest_test_depends += plugin
   endif
 endforeach
 # K8's Realtek rvscale (W22H: the camera player's PTZ pipeline; src/rvscale.c), where the
 # firmware has the stock plugin: its instance init asserts in se_open without the SoC's scaler.
-if gst_set['plugins'] == rtk_plugins and gst_plugin_dir / 'libgstrvscale.so' in fw_rootfs
+if gst_set['plugins'] == rtk_plugins
+  fw_questions += 'path ' + gst_plugin_dir / 'libgstrvscale.so'
+endif
+if gst_set['plugins'] == rtk_plugins and fw_path.get(gst_plugin_dir / 'libgstrvscale.so', false)
   plugin = shared_module('gstrvscale', files('src/rvscale.c'), gst_headers,
-    c_args: video_args, link_args: video_link, dependencies: glib_headers)
+    c_args: video_args, link_args: video_link, link_depends: video_link_depends, dependencies: glib_headers)
   video_layer_args += ['--file', plugin, gst_plugin_dir / 'libgstrvscale.so', '755']
 endif
 foreach f : gst_set.get('files', [])

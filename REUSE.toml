@@ -59,15 +59,6 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "Mariotaku <git@mariotaku.me> and the Beanjar contributors"
 SPDX-License-Identifier = "MIT"
 
-[[annotations]]
-path = [
-  "host/tools/build/qemu/patches/**.patch",
-  "scripts/neatvnc-local/patches/**.patch",
-]
-precedence = "aggregate"
-SPDX-FileCopyrightText = "Mariotaku <git@mariotaku.me> and the Beanjar contributors"
-SPDX-License-Identifier = "GPL-2.0-or-later"
-
 # The landing page's stylesheet is Bootstrap's Cover example without the unused button rules.
 [[annotations]]
 path = "site/site.css"

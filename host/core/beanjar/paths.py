@@ -11,8 +11,9 @@ and the network wrappers take everything from it, so moving to an install prefix
 The firmware a launch boots (firmware()): FW_NAME by default, found in the host's firmware
 collections (firmware_dirs(): the machine's config.toml, firmware_dirs, default
 /srv/beanjar/firmware), the first that has it. FW in the environment wins: a directory (any path
-with a '/', e.g. a manager VM's <vm>/firmware), or a bare firmware name looked up there. A build directory takes -Dfirmware=DIR; a guest build
-directory without one boots its target's firmware (target_firmware()), whatever FW says.
+with a '/', e.g. a manager VM's <vm>/firmware), or a bare firmware name looked up there. The host build
+takes -Dfirmware=DIR for its firmware cache; target_firmware() is a target's firmware (the one
+`vm-launcher firmware-facts` reads).
 
 A firmware boots as a (chip, release) target: the SoC, whose
 layer is guest/layers/soc/<chip>, and the webOS release family (its codename), guest/layers/webos/<release>.
@@ -125,8 +126,7 @@ def default_candidates(target, fws):
     default choice: all of them if the whole target is in bring-up, else those not of a bring-up model
     (targets.BRING_UP; W21Z on W21P's k7lp-kisscurl); of several, the one whose paks boot the chip's
     default board (targets.boots_default_board: K8HP's US -global firmware over its Japanese -arib
-    one) where exactly one does. The others boot only when named (regress --fw, a build directory's
-    -Dfirmware)."""
+    one) where exactly one does. The others boot only when named (regress --fw, FW)."""
     from . import targets
 
     target = tuple(target)

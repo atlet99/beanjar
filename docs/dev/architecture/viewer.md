@@ -290,9 +290,8 @@ The helper accepts `--hwdec auto|none|TYPE`; the launcher passes `MEDIA_HWDEC` a
 policy. Viewer `--hwdec` remains a preference sent to the helper and acknowledged for the next
 codec-open boundary; an active decoder continues unchanged. With decoding on, a shown video
 window without a decoded picture is black, as on a TV. `--no-media` turns decoding off for this
-viewer (the helper goes on decoding) and draws such windows as the diagnostic checkerboard. A
-helper built without FFmpeg drains packets and reports decoder-unavailable metadata; the viewer
-then shows the checkerboard too. `MEDIAHUB=0` omits the helper and writes `media = "off"` to the
+viewer (the helper goes on decoding) and draws such windows as the diagnostic checkerboard.
+`MEDIAHUB=0` omits the helper and writes `media = "off"` to the
 launch's `vm-info.toml`, which the viewer core reads beside the D-Bus socket and takes as
 `--no-media`; there is no second decoder in the viewer.
 
@@ -680,8 +679,8 @@ first, so PyGObject does not install its fallback over the core's.
 The build stays in `host/viewer/meson.build`, in the host build.
 
 - `libbeanjar-viewer-core.so` is a `shared_library`. It needs gio-unix, egl, glesv2, sdl2 (audio),
-  threads and m. It has no libavcodec, libavutil or libswresample dependency; the optional
-  `-Dffmpeg=auto` dependency belongs to `host/helpers/media-helper/meson.build`.
+  threads and m. It has no libavcodec, libavutil or libswresample dependency; the private FFmpeg
+  belongs to `host/helpers/media-helper/meson.build`.
 - `viewer-headless` is an `executable` linked to it, with an rpath of `$ORIGIN`.
 - `beanjar-viewer` is the Python launcher, and `beanjar_ui/viewer/` is the package. Both are published
   as-is.

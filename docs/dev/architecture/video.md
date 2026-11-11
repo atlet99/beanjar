@@ -37,8 +37,9 @@ overload explicitly resets/reconnects the guest port for session replay and a ne
 `media-sessions.log` records guest lifecycle, `media-helper.out` records decoder work, and the
 viewer records presentation. `MEDIAHUB=0` omits the helper: decoding is off, and the launch's
 `vm-info.toml` says `media = "off"` so that every viewer core of the VM runs as with `--no-media`;
-there is no compressed decoder in the viewer. Without FFmpeg the helper drains guest media and
-serves lifecycle/clock metadata with an explicit decoder-unavailable flag.
+there is no compressed decoder in the viewer. The helper decodes with the private FFmpeg
+(beanjar-vendor's, with the V4L2 Request API hwaccels; docs/dev/guides/build.md, "The prebuilt
+programs").
 
 A guest decoder whose output goes to a consumer that needs pixels (media-standins.md, "Decoding
 for the guest") opens a DECODE session instead. The helper decodes it (hardware first) and
@@ -84,7 +85,7 @@ LG's window control supplies placement and visibility. The viewer combines the d
 with the TV's OSD. A video plane without input is black, and so is a shown window without a
 decoded picture while decoding is on: before the first frame, between streams, after a helper
 restart, and for a codec the helper has no decoder for (as on a TV). Only with decoding off
-(viewer `--no-media`, a `MEDIAHUB=0` launch, or a helper built without FFmpeg) does such a
+(viewer `--no-media` or a `MEDIAHUB=0` launch) does such a
 window show the diagnostic checkerboard (60 guest pixels per square, light grey and dark blue),
 which marks "video here, not decoded". Either way the window counts as drawn without a picture
 (`video_draws` and `video_pictures` in the viewer's exit line), and VIDEO capture refuses it. Guest PCM delivered through QEMU's

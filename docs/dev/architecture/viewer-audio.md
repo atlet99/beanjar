@@ -24,8 +24,7 @@ playback and drift correction against the helper's snapshot of the guest pipelin
 Without a sound device the headless path consumes and records samples in real time.
 
 The helper continues decoding and retiring expired output without a viewer; the viewer has no
-codec or resampler dependency. Without FFmpeg the helper reports decoder-unavailable while
-preserving lifecycle/clock metadata. `MEDIAHUB=0` supplies no media decoder. See
+codec or resampler dependency. `MEDIAHUB=0` supplies no media decoder. See
 [the video architecture](video.md#transport-and-session-ownership)
 for bounds, clock mapping, generations and FD ownership. Media audio and guest PCM remain
 separate inputs, so a successful test of one does not establish the other.

@@ -1589,8 +1589,8 @@ class ArgvTest(unittest.TestCase):
         return cfg
 
     def test_target_firmware(self):
-        """A guest build directory without -Dfirmware takes its target's firmware (host/scripts/vm-launcher config FW
-        --target): the default firmware if it resolves to the target, else the one that does, the host's
+        """A target's firmware (host/scripts/vm-launcher config FW --target, what firmware-facts
+        reads): the default firmware if it resolves to the target, else the one that does, the host's
         first collection first (config.toml's firmware_dirs). A firmware is the target its rootfs's
         release resolves to, not its model's."""
         home, top = os.path.join(self.tmp, "home"), os.path.join(self.tmp, "top")
@@ -1656,7 +1656,7 @@ class ArgvTest(unittest.TestCase):
 
     def test_target_firmware_leaves_out_bring_up_model(self):
         """W21Z boots on W21P's supported target but is in bring-up: the target's firmware is W21P's, as in regress's
-        select(); W21Z alone is no firmware of the target (it boots only when named, -Dfirmware)."""
+        select(); W21Z alone is no firmware of the target (it boots only when named, FW)."""
         home, top = os.path.join(self.tmp, "home"), os.path.join(self.tmp, "top")
         fws = os.path.join(home, "Projects", "webos-firmwares")
         w21p, w21z = "03.21.10.01-HE_DTV_W21P_AFADATAA", "03.20.25.01-HE_PJT_W21Z_AFADATAA"

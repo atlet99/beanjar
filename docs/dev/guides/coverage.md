@@ -11,7 +11,7 @@ Debian packages: `gcovr`, `lcov`, `python3-coverage` (on top of the host build's
 
 ```sh
 meson setup build/coverage -Db_coverage=true -Doptimization=0 -Ddebug=true \
-  -Dpublish_dir=$PWD/build/coverage/publish -Dqemu=disabled -Dfirmware_cache=disabled
+  -Dpublish_dir=$PWD/build/coverage/publish -Dfirmware_cache=disabled
 meson compile -C build/coverage
 meson test -C build/coverage                   # all host suites, in parallel (about 90 s)
 ninja -C build/coverage coverage-report        # the report below

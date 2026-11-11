@@ -4,22 +4,55 @@ The Python code is three packages, each with its own `pyproject.toml` and Debian
 `beanjar` (`host/core`: the core, the CLI and the host runtime, no GTK), `beanjar_ui`
 (`host/ui`: the VM manager's and the viewer's GTK windows) and `beanjar_web` (`host/web`).
 The native `beanjar` package contains the core, the viewer's native core (`libbeanjar-viewer-core.so`,
-`viewer-headless`) and the host helpers, and recommends `beanjar-ui`.
+`viewer-headless`), the host helpers and the private FFmpeg they decode with
+(`/usr/lib/beanjar/ffmpeg`, below), and recommends `beanjar-ui`.
 `beanjar-ui` (architecture all, `/usr/bin/beanjar-ui`) is the windows: `beanjar_ui`, its layouts
 (both GResource bundles), the desktop entry and the icon, over GTK 4 and libadwaita for Python.
 `beanjar-guest` contains the same ARM guest payload for arm64 and amd64 hosts.
 `beanjar-vnc` (`/usr/bin/beanjar-vnc`, `beanjar vnc start NAME`) serves a VM's TV picture
-over VNC with the viewer core of the same `beanjar` and neatvnc 1.0 (`libneatvnc1`), and its
-sound as Opus (`libopus0`) or PCM. Debian trixie has only neatvnc 0.9.1, so on Debian hosts
-`libneatvnc1` and `libaml1` are local builds of Debian's packaging
-([neatvnc-local](../../docs/dev/guides/neatvnc-local.md)), installed before `beanjar-vnc`; Raspberry
-Pi OS has its own `libneatvnc1`.
+over VNC with the viewer core of the same `beanjar` and neatvnc 1.0 with aml 1.0, which it carries
+in `/usr/lib/beanjar/neatvnc` (Debian trixie has only neatvnc 0.9.1), and its sound as Opus
+(`libopus0`) or PCM.
 `beanjar-web` (architecture all, `/usr/bin/beanjar-web`) shows VMs in a browser: Debian's
 `novnc`, Debian's `bootstrap-icons` for its buttons, and a popup remote, served by `python3-aiohttp`
 ([web viewer](../../docs/dev/architecture/web-viewer.md)).
-An optional, separately built `beanjar-qemu` supplies patched QEMU. `beanjar`
-depends on it or on Debian's `qemu-system-arm` and `qemu-system-modules-opengl`;
-the launcher runs `beanjar-qemu` whenever it is installed.
+`beanjar-qemu` is the patched QEMU (`/usr/libexec/beanjar/qemu-system-aarch64`, its
+`vhost-user-gpu` beside it, and its data in `/usr/share/beanjar/qemu`). `beanjar` depends on it or
+on Debian's `qemu-system-arm` and `qemu-system-modules-opengl`; the launcher runs `beanjar-qemu`
+whenever it is installed.
+
+### The prebuilt programs
+
+QEMU, FFmpeg and neatvnc with aml are not built here: they are the prebuilt tarballs that
+[beanjar-vendor](https://github.com/mariotaku/beanjar-vendor) releases for Debian 13 on amd64 and
+arm64, with their patches and build scripts. `packaging/vendor.toml` pins each one's release tag
+and the SHA-256 of each architecture's tarball. The host build (`meson/vendor.py`) downloads them
+into `build/vendor/download`, checks them against the pin and unpacks them into `build/vendor`,
+links the libraries through their own pkg-config files and publishes the three trees as they are
+(`build/qemu`, `build/ffmpeg`, `build/neatvnc`); `build.py` packages them from the host publish
+directory. There is no other source: no system package or local build stands in for them. A new
+version is a new beanjar-vendor release and a new pin: its tag and the two hashes from the
+release's `SHA256SUMS`, checked against a download; the host build reconfigures by itself. If the
+release's `BUILDINFO` names different runtime libraries (a codec library's new soname), update
+roles `host` and `host-arm64` (`packaging/debian/build-deps`) to match.
+
+- `beanjar` ships FFmpeg's shared libraries in `/usr/lib/beanjar/ffmpeg/lib`. The copy keeps
+  FFmpeg's symbol versions, the same as Debian's, so no process may load both: the media helper
+  and `beanjar-vnc` link the private copy, through RUNPATH `/usr/lib/beanjar/ffmpeg/lib`, and
+  `beanjar-vnc` also links each FFmpeg library `libneatvnc` needs, whose own RUNPATH is only its
+  directory.
+- `beanjar-vnc` ships `libneatvnc` and `libaml` in `/usr/lib/beanjar/neatvnc/lib`, beside Debian's
+  `libneatvnc0` and `libaml0t64` (Weston's), and takes FFmpeg from the `beanjar` it depends on.
+- `beanjar-qemu` is the QEMU tree, already stripped.
+
+Each package depends on what its own binaries need (dpkg-shlibdeps, with the private libraries
+on its search path and adding no dependency) and on what the prebuilt tree's `BUILDINFO` says the
+private libraries need, less Debian's FFmpeg, neatvnc and aml libraries that the private copies
+replace (dpkg-shlibdeps names those too where the build machine has them installed: it prefers a
+library that belongs to a package); `beanjar-qemu`'s Depends is its `BUILDINFO`'s. Each tree's
+licence texts, `NOTICE` and `BUILDINFO` go to the package's `/usr/share/doc/<package>/<program>`
+(`beanjar-qemu`'s to `/usr/share/doc/beanjar-qemu`), with a stanza in its `copyright` naming the
+release, whose assets carry the corresponding source of the GPL programs.
 
 Application code is in `/usr/lib/beanjar` (the Python packages in `core/`, `ui/` and `web/`, as
 source), native launchers and helpers in
@@ -60,15 +93,36 @@ package; `--no-rebuild` skips the step. `--guest-publish` elsewhere is taken as 
 Separate native inputs can be supplied with `--host-publish`, `--architecture`
 and a `--shlibs-file` holding `dpkg-shlibdeps -O`'s output (its `shlibs:Depends=...`
 line) in that native build lane, and `--vnc-shlibs-file` the same for `beanjar-vnc`.
-`--guest-publish` supplies the shared guest input. `--qemu-publish` explicitly
-assembles the optional QEMU package, its binary stripped; a QEMU build is never included implicitly.
+`--guest-publish` supplies the shared guest input. `beanjar-qemu` is always assembled, from the
+host publish directory's `qemu` tree.
 
-`--host-only` builds only `beanjar`, `beanjar-ui`, `beanjar-vnc` and `beanjar-web`, from the host publish directory
-(the native artifacts, both GResource bundles and `source-version.toml`) and the host's
+`--host-only` builds only `beanjar`, `beanjar-ui`, `beanjar-vnc`, `beanjar-web` and `beanjar-qemu`, from the host publish directory
+(the native artifacts, the prebuilt trees, both GResource bundles and `source-version.toml`) and the host's
 sources in the checkout. It reads no guest input: it never looks at the guest publish
 directory, the component builder, a guest tree or a guest package, and it runs no git.
 The private-key audit, the native architecture check and the shared-library dependencies
-still apply.
+still apply. `--guest-only` is its counterpart: only `beanjar-guest`, from the guest publish
+directory and the guest's sources in the checkout, with no host input.
+
+### Built on GitHub
+
+The Packages workflow (`.github/workflows/packages.yml`) builds `beanjar`, `beanjar-ui`,
+`beanjar-vnc`, `beanjar-web` and `beanjar-qemu` for amd64 and arm64, each natively on GitHub's
+hosted runner of that architecture in a `debian:trixie` container, with
+`scripts/build-packages.sh host`: the prebuilt programs downloaded and checked, role `host`'s
+build dependencies, the host build without the mitmproxy venv, then `build.py --host-only`. A third job builds `beanjar-guest` on the amd64 runner with
+`scripts/build-packages.sh guest`: role `guest`'s build dependencies and ccache; the webOS and
+NetCast SDKs, openlgtv/buildroot-nc4 release assets pinned by SHA-256 in the script, unpacked in
+`/opt` where the cross files look; every target of `guest/targets` built in turn, from its
+checked-in firmware facts, into one publish directory (each build directory removed once it has
+published; ccache makes every target's kernel after the first a cache hit); then
+`build.py --guest-only`. The wraps download from their upstreams, checked by their hashes.
+The same script builds the packages locally as root in a throwaway trixie container, for example
+`docker run --rm -v "$PWD:/src" debian:trixie /src/scripts/build-packages.sh host` (or `guest`)
+from a clean clone with its full history (the version comes from git). Pushes to `main` and pull
+requests run both lanes as a check; a manual run (Actions, Packages, "Run workflow") also uploads
+the `.deb` files as the run's artifacts `beanjar-debs-amd64` (with the host's architecture-all
+packages), `beanjar-debs-arm64` and `beanjar-debs-guest`.
 
 ### Versions and compatibility
 
@@ -117,30 +171,26 @@ for logs and messages. VM directories carry no version or format marker.
 
 ### arm64 packages from the PC
 
-The arm64 packages are cross-built on the x86_64 PC against Debian's own arm64 libraries (and the
-local arm64 `libneatvnc-dev` and `libaml-dev`, installed with multiarch), so they install on plain
-Debian (a Rock Pi 4, with the local `libneatvnc1` and `libaml1`) as well as on the Pi (Raspberry Pi
-OS's `libneatvnc1`): the local build's shlibs ask for `libneatvnc1 (>= 1.0.0)`, which both satisfy. A Pi-built package would not: Raspberry
-Pi OS's FFmpeg has epoch 8 (`8:7.1.5-...+rpt2`), and dpkg-shlibdeps there writes
-`libavcodec61 (>= 8:7.1.5)`, which Debian's `7:` never satisfies. With role `host-arm64`
-(docs/dev/guides/build.md, "Host packages") installed:
+The arm64 packages are cross-built on the x86_64 PC against Debian's own arm64 libraries
+(installed with multiarch) and the arm64 prebuilt programs, so they install on plain Debian (a Rock
+Pi 4) as well as on the Pi (Raspberry Pi OS). A Pi-built package would not: Raspberry Pi OS's
+libraries carry their own versions (its FFmpeg has epoch 8, `8:7.1.5-...+rpt2`), which plain
+Debian's never satisfy. With role `host-arm64` (docs/dev/guides/build.md, "Host packages")
+installed:
 
 ```sh
 scripts/build.sh host-arm64            # build/host-arm64, published to build/publish-arm64
-python3 packaging/debian/build.py --host-publish build/publish-arm64 \
-  --qemu-publish build/publish-arm64/qemu
+python3 packaging/debian/build.py --host-publish build/publish-arm64
 ```
 
 The architecture is the published host artifacts' (their ELF machine; `--architecture` may name
 it, and must agree). When it is not the PC's own, dpkg-shlibdeps runs with `DEB_HOST_ARCH` set to
 it, so it reads the arm64 libraries and their packages from multiarch with
-`aarch64-linux-gnu-objdump`, and `beanjar-qemu` is stripped with `aarch64-linux-gnu-strip`.
+`aarch64-linux-gnu-objdump`.
 `beanjar-guest`, `beanjar-ui` and `beanjar-web` are architecture all and the same as the amd64 build's.
 
 On a plain Debian 13 Rock Pi 4A (2026-10-26) `apt install` of the five packages resolved
-everything from Debian (129 packages) and kept the board's locally built, higher-versioned
-FFmpeg (`7:7.1.5-0+deb13u1+v4l2req1`), which satisfies
-`libavcodec61 (>= 7:7.1.5)`. The packages add nobody to a group: a user runs VMs with KVM only
+everything from Debian (129 packages). The packages add nobody to a group: a user runs VMs with KVM only
 in group `kvm` (`/dev/kvm`), GPU rendering needs group `render` (`/dev/dri/renderD*`), and the
 media helper's V4L2 request decoding group `video` (`/dev/media*`, `/dev/video*`). The postinst's
 `setcap` fails on a root without extended attributes (that board's NFS root); only `link = "lan"`
@@ -159,19 +209,18 @@ changes (`source-version.toml`), so build from a clean checkout of the commit, f
 ```sh
 scripts/build.sh host-arm64
 python3 packaging/debian/build.py --host-publish build/publish-arm64 --host-only --output <dir>
-scp <dir>/beanjar{,-vnc}_<version>_arm64.deb <dir>/beanjar-{ui,web}_<version>_all.deb <pi-host>:/tmp/
+scp <dir>/beanjar{,-vnc,-qemu}_<version>_arm64.deb <dir>/beanjar-{ui,web}_<version>_all.deb <pi-host>:/tmp/
 ```
 
 and on the Pi:
 
 ```sh
 sudo apt install /tmp/beanjar_<version>_arm64.deb /tmp/beanjar-vnc_<version>_arm64.deb \
-  /tmp/beanjar-ui_<version>_all.deb /tmp/beanjar-web_<version>_all.deb
+  /tmp/beanjar-qemu_<version>_arm64.deb /tmp/beanjar-ui_<version>_all.deb /tmp/beanjar-web_<version>_all.deb
 ```
 
-All four together: `beanjar-ui`, `beanjar-vnc` and `beanjar-web` depend on the exact `beanjar` version. The
-`beanjar-vnc` links Raspberry Pi OS's `libneatvnc1` and `libaml1` (`libneatvnc1 (>= 1.0.0)`, which
-its 1.0.4-1+rpt1 satisfies), where the PC's builds link the local ones. Keep the Pi's own checkout
+All together: `beanjar-ui`, `beanjar-vnc` and `beanjar-web` depend on the exact `beanjar` version.
+`beanjar-vnc` and the media helper use their own neatvnc and FFmpeg, not Raspberry Pi OS's. Keep the Pi's own checkout
 current with `git push pi main` (a tree changed by a file sync has to be stashed first:
 the Pi's `receive.denyCurrentBranch` is `updateInstead`). The debs are not kept after installing.
 

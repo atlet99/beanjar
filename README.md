@@ -97,7 +97,7 @@ with that cross file; subsequent `scripts/build.sh guest` runs reuse it:
 
 ```sh
 meson setup --cross-file meson/cross/lgtv-sdk.ini build/guest-lm14-netcast45 \
-  -Dsoc=lm14 -Dwebos=netcast45 -Dfirmware=/path/to/extracted-lm14-paks
+  -Dsoc=lm14 -Dwebos=netcast45
 meson compile -C build/guest-lm14-netcast45
 ```
 
@@ -150,8 +150,8 @@ servers do not accept. The [manager guide](host/core/README.md) explains these
 settings and each VM's identity.
 
 The x86_64 host uses TCG; a Raspberry Pi 5 uses KVM. An aarch64 host needs AArch32 at EL0 for
-KVM; otherwise it needs TCG. On WSL2, the host build uses a patched QEMU for virgl through
-Mesa's d3d12. See [Host packages](docs/dev/guides/build.md#host-packages) for setup details.
+KVM; otherwise it needs TCG. The host build and `beanjar-qemu` use a patched QEMU, which on WSL2 renders virgl
+through Mesa's d3d12. See [Host packages](docs/dev/guides/build.md#host-packages) for setup details.
 
 ## Documentation
 

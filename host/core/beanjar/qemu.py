@@ -1269,9 +1269,8 @@ def gpu_process(env, node, qemu, tree=paths.TREE, say=print):
 def tcg_rendernode(env=os.environ):
     """The render node of a TCG VM's virgl display: RENDERNODE, else the first /dev/dri/renderD*
     that is not vgem's,
-    else "surfaceless", which only the vendored QEMU (build/qemu) has. The host build asks the same (`host/scripts/vm-launcher config
-    RENDERNODE`, host/tools/build/qemu/meson.build): its `qemu` option auto builds that QEMU only where this is
-    surfaceless."""
+    else "surfaceless", which only the vendored QEMU (build/qemu, beanjar-qemu) has
+    (`host/scripts/vm-launcher config RENDERNODE` prints it)."""
     return env.get("RENDERNODE") or first_rendernode() or "surfaceless"
 
 

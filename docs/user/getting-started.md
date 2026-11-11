@@ -72,9 +72,9 @@ sudo apt install ./build/packages/beanjar-guest_<version>_all.deb \
   ./build/packages/beanjar-ui_<version>_all.deb
 ```
 
-`beanjar-vnc` (the TV picture over VNC) and `beanjar-web` (VMs in a browser) are optional. Debian
-13 has no neatvnc 1.0, which `beanjar-vnc` needs; see the [packages guide](../../packaging/debian/README.md)
-for that and for the other packages.
+`beanjar-vnc` (the TV picture over VNC) and `beanjar-web` (VMs in a browser) are optional, and so
+is `beanjar-qemu`, the patched QEMU (without it the VMs run on Debian's); see the
+[packages guide](../../packaging/debian/README.md) for the packages.
 
 The packages install the commands `beanjar` (the CLI; without arguments it opens the manager
 window), `beanjar-ui` (the manager window), `beanjar-viewer`, and with the optional packages

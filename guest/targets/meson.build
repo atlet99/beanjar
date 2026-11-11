@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# What the guest build of a target asks of its firmware, answered by facts/<chip>-<release>.txt beside
+# the target's own file (host/core/beanjar/fwfacts.py has the format; docs/dev/guides/build.md,
+# "Firmware facts"). The build reads no firmware: the facts are generated from one and checked in.
+#
+#   fw_path      {rootfs path: bool}: whether the firmware's rootfs image has it (the shim rules)
+#   fw_version   {rootfs path: version suffix}: of the file a library name resolves to, none without
+#   fw_stubs     {rootfs path: custom target}: a firmware library's link-time stub, with its SONAME
+#                and the symbols the guest code uses of it, so a link against it records what a
+#                link against the firmware's own file did
+#   fw_questions what the modules asked ("KIND PATH"); each rule adds its own before reading the
+#                answer (a missing one reads as no), and the top-level meson.build stops the setup
+#                when the file does not answer one
+fwstub_py = files('../../meson/fwstub.py')
+fw_facts = meson.current_source_dir() / 'facts' / guest_target + '.txt'
+fw_path = {}
+fw_version = {}
+fw_lib = {}
+fw_questions = []
+if fs.is_file(fw_facts)
+  foreach line : fs.read(fw_facts).split('\n')
+    w = line.split(' ')
+    if w[0] == 'path'
+      fw_path += {w[1]: w[2] == 'yes'}
+    elif w[0] == 'version'
+      fw_version += {w[1]: w[2]}
+    elif w[0] == 'lib'
+      fw_lib += {w[1]: w[2]}
+    endif
+  endforeach
+endif
+fw_stubs = {}
+fw_stub_cc = meson.get_compiler('c').cmd_array() + get_option('c_args')
+foreach lib, soname : fw_lib
+  fw_stubs += {lib: custom_target('fwstub-' + fs.name(lib),
+    input: fw_facts,
+    output: fs.name(lib),
+    command: [python, fwstub_py, 'stub', '@INPUT@', lib, '@OUTPUT@', '--'] + fw_stub_cc,
+    depend_files: files('../../host/core/beanjar/fwfacts.py'))}
+endforeach

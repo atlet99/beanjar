@@ -9,7 +9,8 @@ stock plugin's registration: one factory per section at the section's rank, and,
 gst-omx adds (gst_omx_dec_bin_register, gst_rtk_codec_bin_register), one per section the pattern
 "(omx(.+)dec)1" matches with component-name omx_vdec or omx_adec, named after the match, at 257,
 or 0 if the name holds "auto". Run by the guest build lane of a Realtek target (its artefacts.json:
-omx_plugin, firmware; guest/layers/soc/src/video/meson.build), skipped elsewhere.
+omx_plugin, target; guest/layers/soc/src/video/meson.build), with the target's firmware
+(host/scripts/vm-launcher config FW --target); skipped elsewhere or without that firmware.
 """
 
 import configparser
@@ -30,7 +31,19 @@ GUEST = json.loads(ARTEFACTS.read_text()) if ARTEFACTS.is_file() else {}
 if not GUEST.get("omx_plugin"):
     pytest.skip("not a Realtek guest build lane (no omx_plugin)", allow_module_level=True)
 PLUGIN = Path(GUEST["omx_plugin"]).resolve()
-ROOTFS = Path(GUEST["firmware"]).resolve() / "rootfs"
+_FW = subprocess.run(
+    [
+        str(Path(__file__).resolve().parents[3] / "host/scripts/vm-launcher"),
+        "config",
+        "FW",
+        "--target",
+        GUEST["target"],
+    ],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.DEVNULL,
+    text=True,
+)
+ROOTFS = Path(_FW.stdout.strip() or "/nonexistent").resolve() / "rootfs"
 
 SECTION = """[{name}]
 type-name={type}

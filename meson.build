@@ -10,8 +10,8 @@
 #                same ones from the same inputs, and publishes them to the same build/Image,
 #                build/initramfs.cpio.gz and build/lgemu.ko
 #   build/host   native (x86_64 workstation or aarch64 Pi): the viewer, the VM manager's GUI
-#                layouts, the patched QEMU, the firmware cache
-#                and the mitmproxy venv, the unit tests
+#                layouts, the firmware cache and the mitmproxy venv, the unit tests, and the
+#                prebuilt QEMU, FFmpeg and neatvnc (packaging/vendor.toml) published beside them
 #   build/host-arm64
 #                the same programs cross-built on the PC for arm64 (meson/cross/debian-arm64.ini)
 #                against Debian's arm64 libraries, for the arm64 packages; its tests are built,
@@ -47,15 +47,15 @@ if publish_dir == '' and host_cross
 elif publish_dir == ''
   publish_dir = top / 'build'
 endif
-# Without -Dfirmware: a guest build of a given target (-Dsoc, -Dwebos, as scripts/build.sh sets them up)
-# takes that target's firmware, whatever FW the environment of a later reconfigure has; anything else
-# takes FW's (the default firmware without it).
-firmware = get_option('firmware')
-if firmware == '' and guest_lane and 'auto' not in [get_option('soc'), get_option('webos')]
-  firmware = run_command(files('host/scripts/vm-launcher'), 'config', 'FW', '--target',
-                         get_option('soc') + '-' + get_option('webos'), check: true).stdout().strip()
-elif firmware == ''
-  firmware = run_command(files('host/scripts/vm-launcher'), 'config', 'FW', check: true).stdout().strip()
+# The firmware: what the host build's firmware cache converts (host/scripts/meson.build), -Dfirmware
+# or else FW's (the default firmware without it). The guest build reads none: what it asks of its
+# target's firmware is in the tree (guest/targets/meson.build).
+firmware = ''
+if not guest_lane
+  firmware = get_option('firmware')
+  if firmware == ''
+    firmware = run_command(files('host/scripts/vm-launcher'), 'config', 'FW', check: true).stdout().strip()
+  endif
 endif
 
 # The build's scripts (python, stage_py, publish_py, layer_script, ...) and the unpacked source
@@ -85,38 +85,32 @@ if guest_lane
   cc = meson.get_compiler('c')
   strip = find_program('strip')
   readelf = find_program('readelf')
-  # The firmware target this build is for: the SoC
-  # (guest/layers/soc/<soc>) and the webOS release family, the codename (guest/layers/webos/<webos>). auto takes the target of
-  # the firmware (host/scripts/vm-launcher config TARGET, host/core/beanjar/paths.py); a value given must agree
-  # with it.
-  fw_target = run_command(files('host/scripts/vm-launcher'), 'config', 'TARGET', env: {'FW': firmware}, check: false)
-  if fw_target.returncode() != 0
-    error('the firmware ' + firmware + ' is not one this tree supports: ' + fw_target.stderr().strip())
-  endif
-  fw_target = fw_target.stdout().strip().split('-')
-  soc = get_option('soc') == 'auto' ? fw_target[0] : get_option('soc')
-  webos = get_option('webos') == 'auto' ? fw_target[1] : get_option('webos')
-  if [soc, webos] != fw_target
-    error('-Dsoc=' + soc + ' -Dwebos=' + webos + ', but the firmware ' + firmware + ' is ' + '-'.join(fw_target))
+  # The firmware target this build is for: the SoC (guest/layers/soc/<soc>) and the webOS release
+  # family, the codename (guest/layers/webos/<webos>), both given (scripts/build.sh gives FW's target,
+  # host/scripts/vm-launcher config TARGET).
+  soc = get_option('soc')
+  webos = get_option('webos')
+  if '' in [soc, webos]
+    error('the guest build is of one firmware target: give -Dsoc and -Dwebos (docs/dev/guides/build.md)')
   endif
   # LG's SimpleSmart line (webos 'simplesmart', docs/dev/architecture/simplesmart.md) is not webOS: its one
   # always-used layer is guest/layers/simplesmart, beside the arm64 pieces every target builds the same.
   simplesmart = webos == 'simplesmart'
   # LG's NetCast 4.5 (webos 'netcast45', docs/dev/architecture/netcast45.md): its one always-used layer is
   # guest/layers/netcast45, built with the NetCast SDK (meson/cross/lgtv-sdk.ini); it links nothing of
-  # the firmware, which needs only its paks.
+  # the firmware.
   netcast45 = webos == 'netcast45'
-  fwlib = firmware / (simplesmart ? 'root.pak.unsquashfs/lib' : 'rootfs/usr/lib')
-  if not netcast45 and not fs.is_dir(fwlib)
-    error('no extracted firmware root at ' + fwlib + ' (set -Dfirmware=DIR)')
-  endif
+  guest_target = soc + '-' + webos
+  # What the shim rules and links ask of the target's firmware (guest/targets/meson.build): fw_path
+  # (a rootfs path: whether the firmware's rootfs image has it), fw_version, fw_stubs (a firmware
+  # library: its link-time stub), from guest/targets/facts/<target>.txt. Each rule adds its question
+  # to fw_questions; an unanswered one stops the setup once every module is read.
+  subdir('guest/targets')
   # What the shim rules decide by (guest/layers/soc/meson.build, docs/dev/architecture/build-and-boot.md
   # "Choosing the shims"). webos_reached: the webOS releases up to and including this one, in LG's
   # order (targets.WEBOS_ORDER), so a rule only a release can decide is "'queue' in webos_reached" and
-  # later releases inherit it. fw_rootfs: the entries of these directories of the firmware's rootfs
-  # image, listed from its pak with unsquashfs (never the extracted tree, which may be partial).
+  # later releases inherit it.
   webos_reached = []
-  fw_rootfs = []
   if not simplesmart and not netcast45
     foreach r : run_command(files('host/scripts/vm-launcher'), 'config', 'RELEASES',
                             check: true).stdout().strip().split('\n')
@@ -127,10 +121,6 @@ if guest_lane
     if webos_reached[-1] != webos
       error('webOS release ' + webos + ' is not in targets.WEBOS_ORDER')
     endif
-    fw_rootfs = run_command(files('host/scripts/vm-launcher'), 'firmware-files',
-      'usr/lib', 'usr/lib/nyx/modules', 'usr/lib/gstreamer-1.0',
-      'usr/palm/services/com.webos.service.secondscreen.gateway/helpers/bus',
-      env: {'FW': firmware}, check: true).stdout().strip().split('\n')
   endif
   # A chip's or release's directory may name its base, another of the same axis, in a file 'base'
   # (docs/dev/guides/build.md, "Layer bases"): the base's meson.build is read first (its table, its rootfs/
@@ -153,7 +143,6 @@ if guest_lane
   endforeach
   soc_dirs = axis_dirs.get('soc', [])
   webos_dirs = axis_dirs.get('webos', [])
-  guest_target = soc + '-' + webos
   if fs.name(meson.project_build_root()) != 'guest-' + guest_target
     warning('the build directory of ' + guest_target + ' is build/guest-' + guest_target + ' (docs/dev/guides/build.md)')
   endif
@@ -227,6 +216,23 @@ if guest_lane
     endif
     subdir(module)
   endforeach
+  # Every question the modules asked, for host/scripts/vm-launcher firmware-facts --build; one the
+  # facts file does not answer stops the setup here.
+  run_command(python, fwstub_py, 'questions', meson.project_build_root() / 'firmware-questions.txt',
+              fw_questions, check: true)
+  fw_unanswered = []
+  foreach q : fw_questions
+    w = q.split(' ')
+    if w[1] not in {'path': fw_path, 'version': fw_version, 'lib': fw_stubs}[w[0]] and q not in fw_unanswered
+      fw_unanswered += q
+    endif
+  endforeach
+  if fw_unanswered.length() > 0 or not fs.is_file(fw_facts)
+    error('guest/targets/facts/' + guest_target + '.txt is missing or does not answer:\n  ' +
+          '\n  '.join(fw_unanswered) + '\nhost/scripts/vm-launcher firmware-facts ' + guest_target +
+          ' --build ' + meson.project_build_root() + ' writes it from the target\'s firmware ' +
+          '(docs/dev/guides/build.md, "Firmware facts")')
+  endif
   # The guest build's integration tests (docs/dev/guides/testing.md): those of tests/integration/layers
   # whose artefacts this target has; the others skip.
   configure_file(output: 'artefacts.json', configuration: guest_test_artefacts, output_format: 'json')
@@ -290,12 +296,16 @@ else
       'host/helpers/media-helper',            # the VM's end of the media ports
       'host/helpers/virtcam',             # the virtual USB camera (beanjar io usb plug --camera)
       'host/ui',                   # the GTK windows: beanjar_ui and its layouts
-      'host/tools/build/qemu',
       'host/scripts',              # the firmware cache
       'host/helpers/network',             # the mitmproxy venv
       'tests',                     # the unit and integration tiers (docs/dev/guides/testing.md)
     ]
     subdir(module)
+  endforeach
+  # The prebuilt programs (meson/meson.build), as they are: the launcher runs build/qemu, and
+  # build/ffmpeg and build/neatvnc are the libraries the programs above find through their RUNPATH
+  foreach program : ['qemu', 'ffmpeg', 'neatvnc']
+    published += [['tree', vendor[program], program]]
   endforeach
   # The host build lane's source version (packaging/identity.py), which packaging reads
   publish_depends += custom_target('source-version',

@@ -18,7 +18,7 @@ venv_sh = files('venv.sh')             # a venv from a hash-pinned requirements 
 fetch_py = files('fetch.py')
 sources = {}
 foreach name : ['linux', 'busybox', 'gstreamer', 'gstreamer18', 'gstreamer112', 'gstreamer1141', 'gstreamer1144', 'gstreamer1162', 'dropbear', 'openssh', 'libffi', 'libdrm',
-                'wayland', 'wayland120', 'wayland122', 'wayland-protocols', 'mesa', 'qemu', 'usbipdcpp']
+                'wayland', 'wayland120', 'wayland122', 'wayland-protocols', 'mesa', 'usbipdcpp']
   directory = ''
   foreach line : fs.read(top / 'subprojects' / name + '.wrap').split('\n')
     if line.startswith('directory')
@@ -68,4 +68,64 @@ if not guest_lane
   # Debian 13's blueprint-compiler (0.16; the Python script runs with the system python3).
   blueprint = find_program('blueprint-compiler', version: '>= 0.16', required: have_gtk)
   gnome = import('gnome')
+
+  # The prebuilt third-party programs (meson/vendor.py): QEMU, FFmpeg and neatvnc with aml, as
+  # beanjar-vendor releases them for this architecture, pinned in packaging/vendor.toml (reading it
+  # here reconfigures when the pin changes). Each is unpacked once into build/vendor and
+  # published as it is to publish_dir (build/qemu, build/ffmpeg, build/neatvnc), where the
+  # launcher runs QEMU from and the programs linking the libraries find them; the packages ship
+  # the same trees (packaging/debian/build.py).
+  vendor_arch = {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(host_machine.cpu_family(), '')
+  if vendor_arch == ''
+    error('beanjar-vendor has no prebuilt programs for ' + host_machine.cpu_family() +
+          ' (amd64 and arm64 only)')
+  endif
+  fs.read(top / 'packaging/vendor.toml')
+  vendor_programs = ['qemu', 'ffmpeg', 'neatvnc']
+  vendor_trees = run_command(python, files('vendor.py'), 'tree', vendor_arch, vendor_programs,
+                             check: true).stdout().strip().split('\n')
+  vendor = {}
+  foreach i : range(vendor_programs.length())
+    vendor += {vendor_programs[i]: vendor_trees[i]}
+  endforeach
+  # The libraries through their own pkg-config files, which find their tree from where they are
+  # (prefix=${pcfiledir}/../..), with this machine's pkg-config (the cross file's in the arm64
+  # build) and the two trees first on its path. neatvnc's Requires.private names the FFmpeg
+  # libraries, which resolve to the private copy, and Debian's -dev packages of its other
+  # libraries (role host, packaging/debian/build-deps). The trees' own -I come first, and a
+  # system directory such as /usr/include/<triplet>, where Debian's libavcodec-dev would have its
+  # headers, is dropped: it must never come before the private copy's. Programs linking these need RUNPATH /usr/lib/beanjar/<program>/lib
+  # (installed) and $ORIGIN/../<program>/lib (published beside build/<program>): vendor_rpath.
+  vendor_pkg_config = find_program('pkg-config')
+  vendor_env = environment({'PKG_CONFIG_PATH': vendor['ffmpeg'] / 'lib/pkgconfig' + ':' +
+                                               vendor['neatvnc'] / 'lib/pkgconfig'})
+  vendor_deps = {}
+  foreach name : ['libavcodec', 'libavfilter', 'libavutil', 'libswresample', 'libswscale',
+                  'neatvnc', 'aml1']
+    args = {}
+    foreach what : ['cflags', 'libs']
+      own = []
+      other = []
+      foreach f : run_command(vendor_pkg_config, '--' + what, name, env: vendor_env,
+                              check: true).stdout().strip().split()
+        if f.startswith('-I' + vendor['ffmpeg']) or f.startswith('-I' + vendor['neatvnc'])
+          own += f
+        # not the compiler's own system directories, which it searches anyway, after every -I
+        elif (f not in other and f != '-I/usr/include' and
+              not (f.startswith('-I/usr/include/') and f.endswith('-linux-gnu')))
+          other += f
+        endif
+      endforeach
+      args += {what: own + other}
+    endforeach
+    vendor_deps += {name: declare_dependency(compile_args: args['cflags'], link_args: args['libs'],
+      version: run_command(vendor_pkg_config, '--modversion', name, env: vendor_env,
+                           check: true).stdout().strip())}
+  endforeach
+  vendor_rpath = {}
+  foreach program : ['ffmpeg', 'neatvnc']
+    vendor_rpath += {program: '$ORIGIN/../' + program + '/lib:/usr/lib/beanjar/' + program + '/lib'}
+  endforeach
+  summary({'QEMU': vendor['qemu'], 'FFmpeg': vendor['ffmpeg'], 'neatvnc': vendor['neatvnc']},
+          section: 'Prebuilt (packaging/vendor.toml)')
 endif

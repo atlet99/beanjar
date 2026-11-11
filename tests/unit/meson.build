@@ -8,21 +8,20 @@
 check_media_ipc = executable('check-media-ipc', 'media/check-ipc.c', '../../host/media/ipc.c',
   override_options: ['c_std=gnu11', 'warning_level=2', 'werror=true'])
 test('check-media-ipc', check_media_ipc, suite: ['unit', 'media'], timeout: 10)
-if have_ffmpeg
-  # Same engine list as the helper (host/media/decode/sources.txt).
-  lease_engine_sources = []
-  foreach s : fs.read('../../host/media/decode/sources.txt').split(' ')
-    st = s.strip()
-    if st != ''
-      lease_engine_sources += '../../host/media/decode/' + st
-    endif
-  endforeach
-  check_media_leases = executable('check-media-leases',
-    ['media/check-leases.c', '../../host/media/ipc.c'] + lease_engine_sources,
-    dependencies: ffmpeg_deps + [dependency('threads')],
-    override_options: ['c_std=gnu11', 'warning_level=2', 'werror=true'])
-  test('check-media-leases', check_media_leases, suite: ['unit', 'media'], timeout: 10)
-endif
+# Same engine list as the helper (host/media/decode/sources.txt).
+lease_engine_sources = []
+foreach s : fs.read('../../host/media/decode/sources.txt').split(' ')
+  st = s.strip()
+  if st != ''
+    lease_engine_sources += '../../host/media/decode/' + st
+  endif
+endforeach
+check_media_leases = executable('check-media-leases',
+  ['media/check-leases.c', '../../host/media/ipc.c'] + lease_engine_sources,
+  dependencies: ffmpeg_deps + [dependency('threads')],
+  build_rpath: vendor['ffmpeg'] / 'lib',       # the private FFmpeg, unpacked in build/vendor
+  override_options: ['c_std=gnu11', 'warning_level=2', 'werror=true'])
+test('check-media-leases', check_media_leases, suite: ['unit', 'media'], timeout: 10)
 check_media_unavailable = executable('check-media-unavailable', 'media/check-unavailable.c',
   '../../host/media/ipc.c',
   override_options: ['c_std=gnu11', 'warning_level=2', 'werror=true'])

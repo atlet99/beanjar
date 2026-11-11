@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The prebuilt third-party programs the host build links and publishes and the packages ship:
+# beanjar-vendor's releases (its README), one table per program, the release tag
+# (<program>-<version>) and the SHA-256 of each architecture's tarball, from the release's
+# SHA256SUMS. meson/vendor.py downloads them into build/vendor, checks them and unpacks them.
+#
+# A new version: tag a release in beanjar-vendor, then put its tag and the two hashes here (check
+# them against a download, sha256sum, not only against SHA256SUMS) and rebuild; the host build
+# reconfigures by itself when this file changes.
+
+repository = "mariotaku/beanjar-vendor"
+
+# QEMU with Beanjar's display patches: build/qemu, beanjar-qemu
+[qemu]
+tag = "qemu-10.0.2+beanjar1"
+amd64 = "735fae3b23688b878ef85c9400fbe6c63f87fbe5977e089c3a4b83382c3de6d5"
+arm64 = "3b0d91ddbc9cf3f173702b207598e504170ce3d85ad72b9bcea57bb4f6b01b7c"
+
+# FFmpeg with the V4L2 Request API hwaccels, /usr/lib/beanjar/ffmpeg: the media helper's
+# decoding and beanjar-vnc's video (beanjar)
+[ffmpeg]
+tag = "ffmpeg-7.1.5+beanjar1"
+amd64 = "bc721471faa32cc36e54e2b57400408cadb8e99f73f6400e260c7d3c5305e651"
+arm64 = "4af1e0cd93a8cd79527218706b1b45ebe0a093036bbcae9c9c0021973575e28f"
+
+# neatvnc 1.0 and aml 1.0, /usr/lib/beanjar/neatvnc: beanjar-vnc
+[neatvnc]
+tag = "neatvnc-1.0.4+beanjar1"
+amd64 = "8cb1a4f7ffb3ff13b97b78d0197109af3da789774fbf2632a31c678e64d317f2"
+arm64 = "2c24a05a82b35b927099a76d0362814b9da2c7ef01efcb3fd80afc0e4512b14a"

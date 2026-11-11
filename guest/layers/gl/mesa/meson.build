@@ -25,21 +25,27 @@ mesa_stack = files('mesa-stack.sh')
 fw_wayland = get_variable('firmware_wayland', '')
 fw_wl_src = ''
 fw_wl_stamp = []
+# The firmware's libwayland-client: the version suffix of the file its soname links to (fw_version,
+# guest/targets/meson.build), 20.0 for 1.20; none without one. NetCast 4.5's Mesa has no Wayland.
+fw_wl_have = 'none'
+if not netcast45
+  fw_questions += 'version usr/lib/libwayland-client.so.0'
+  fw_wl_have = fw_version.get('usr/lib/libwayland-client.so.0', 'none')
+endif
 if fw_wayland != ''
   fw_wl_ver = fw_wayland.split('.')
   fw_wl_wrap = 'wayland' + fw_wl_ver[0] + fw_wl_ver[1]
   if fw_wl_wrap not in sources
     error('firmware_wayland ' + fw_wayland + ': no subprojects/' + fw_wl_wrap + '.wrap')
   endif
-  fw_wl_so = 'libwayland-client.so.0.' + fw_wl_ver[1] + '.' + fw_wl_ver[2]
-  if fs.is_file(fwlib / 'libwayland-client.so.0') and not fs.is_file(fwlib / fw_wl_so)
-    error('firmware_wayland ' + fw_wayland + ', but the firmware has no usr/lib/' + fw_wl_so)
+  if fw_wl_have != 'none' and fw_wl_have != fw_wl_ver[1] + '.' + fw_wl_ver[2]
+    error('firmware_wayland ' + fw_wayland + ', but the firmware\'s libwayland-client.so.0 is its .' + fw_wl_have)
   endif
   fw_wl_src = sources[fw_wl_wrap]['dir']
   fw_wl_stamp = [sources[fw_wl_wrap]['stamp']]
 else
   foreach minor : range(18, 40)
-    if fs.is_file(fwlib / 'libwayland-client.so.0.@0@.0'.format(minor))
+    if fw_wl_have == '@0@.0'.format(minor)
       error('the firmware\'s libwayland-client is 1.@0@: set firmware_wayland in its webos layer'.format(minor))
     endif
   endforeach

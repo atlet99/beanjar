@@ -1,9 +1,0 @@
-# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
-# SPDX-License-Identifier: GPL-2.0-or-later
-# The host's patched QEMU (host/tools/build/qemu/meson.build). Patches: host/tools/build/qemu/patches.
-[wrap-file]
-directory = qemu-10.0.2
-source_url = https://download.qemu.org/qemu-10.0.2.tar.xz
-source_filename = qemu-10.0.2.tar.xz
-source_hash = ef786f2398cb5184600f69aef4d5d691efd44576a3cff4126d38d4c6fec87759
-diff_files = qemu/0001-ui-egl-add-a-surfaceless-EGL-display-for-hosts-witho.patch, qemu/0002-ui-egl-egl_fb_read_rect-honour-y-accept-a8r8g8b8.patch, qemu/0003-ui-dbus-read-GL-scanouts-back-when-they-cannot-be-ex.patch, qemu/0004-ui-dbus-drop-a-listener-when-its-connection-closes.patch

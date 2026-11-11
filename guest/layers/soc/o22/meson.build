@@ -41,7 +41,8 @@ sestore_model_items_nyx = true
 # The shim answers the TA call TEEC_ERROR_NOT_SUPPORTED, which KADP takes as success. KADP is
 # bsppart's; its .so.0 names, links to the stock file there, are made links to the shim. Wherever
 # the firmware's secure clock goes through nyx's DRM module (nyxDrm.module: queue and spacebuns).
-if 'usr/lib/nyx/modules/nyxDrm.module' in fw_rootfs
+fw_questions += 'path usr/lib/nyx/modules/nyxDrm.module'
+if fw_path.get('usr/lib/nyx/modules/nyxDrm.module', false)
   hal_stock += {'libkadaptor': ['libkadaptor.so.2', 'libkadaptor.so.2.0.1',
     ['libkadaptor.so.0', 'libkadaptor.so.0.1.0'], 'bsppart']}
   kadaptor_source = 'kadaptor-securetime.c'

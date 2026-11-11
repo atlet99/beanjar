@@ -8,7 +8,7 @@ check-qemu-listener-close.py QEMU DISPLAY1_XML
 QEMU (build/qemu's, no guest, CPUs stopped) on a private bus; a listener registers on Console_0
 and closes its connection, three times. Each listener's DisplayChangeListener must be unregistered
 when its connection closes (QEMU's displaychangelistener_unregister trace), and nothing reported.
-Before host/tools/build/qemu/patches/0004 the connection's filter held a reference on the
+Before the patched QEMU's patch 0004 (beanjar-vendor's qemu/patches) the connection's filter held a reference on the
 listener, so it was never freed, and every later frame was sent to the closed connection:
 "Failed to call update: The connection is closed" per frame and listener, for as long as QEMU ran.
 """

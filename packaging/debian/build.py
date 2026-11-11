@@ -5,7 +5,8 @@
 
 The versions are the ones the build lanes published (packaging/identity.py): the host packages take
 the host publish directory's source-version.toml, beanjar-guest the guest publish directory's
-guest-installation.toml. Git is never run here. --host-only reads no guest input at all."""
+guest-installation.toml. Git is never run here. --host-only reads no guest input at all,
+--guest-only no host input."""
 
 import argparse
 import hashlib
@@ -25,9 +26,8 @@ from beanjar import targets as beanjar_targets  # noqa: E402
 
 PREFIX = Path("usr/lib/beanjar")
 IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc")
-# Debian architecture -> ELF e_machine and GNU triplet (the cross binutils' prefix)
+# Debian architecture -> ELF e_machine
 ELF_MACHINE = {"arm64": 183, "amd64": 62}
-TRIPLET = {"arm64": "aarch64-linux-gnu", "amd64": "x86_64-linux-gnu"}
 BUILD_ARCH = None  # this machine's Debian architecture (main)
 
 
@@ -35,11 +35,17 @@ BUILD_ARCH = None  # this machine's Debian architecture (main)
 # OpenGL module (paths.Tree.qemu). A Depends alternative is one package, so each of Debian's two
 # packages gets its own beanjar-qemu alternative.
 QEMU_DEPENDS = "beanjar-qemu | qemu-system-arm, beanjar-qemu | qemu-system-modules-opengl"
-# libepoxy dlopens these at run time (libEGL.so.1; libGL.so.1, else libOpenGL.so.0), so
-# dpkg-shlibdeps cannot see them. libgbm1 is linked and found by shlibdeps.
-QEMU_DLOPEN_DEPENDS = "libegl1, libopengl0"
 
-
+# The prebuilt programs of beanjar-vendor (packaging/vendor.toml), which the host build publishes
+# as they are: build/qemu, build/ffmpeg and build/neatvnc (meson/vendor.py). Their packages
+# depend on what each tree's BUILDINFO says its binaries need (dpkg-shlibdeps where they were
+# built), less the libraries the private copies replace: Debian's FFmpeg, which neatvnc was built
+# against and which no Beanjar process may load beside the private one, and neatvnc and aml.
+VENDOR_REPOSITORY = "https://github.com/mariotaku/beanjar-vendor"
+PRIVATE_LIBRARY_PACKAGES = re.compile(
+    r"(libavcodec|libavdevice|libavfilter|libavformat|libavutil|libpostproc|libswresample"
+    r"|libswscale|libneatvnc|libaml)[0-9]"
+)
 # The camera (beanjar io usb plug --camera) runs GStreamer as a child: gst-launch-1.0 with
 # videotestsrc and videoconvert (plugins-base), timeoverlay (pango, in gstreamer1.0-x) and jpegenc
 # (plugins-good).
@@ -57,6 +63,45 @@ License: LGPL-3.0
 Comment: This product uses usbipdcpp (https://github.com/yunsmall/usbipdcpp), licensed under
  LGPLv3. Built unmodified from that source (subprojects/usbipdcpp.wrap names the revision) and
  linked dynamically. On Debian systems the licence is in /usr/share/common-licenses/LGPL-3.
+
+Files: usr/lib/beanjar/ffmpeg/*
+Copyright: the FFmpeg developers
+License: GPL-2.0-or-later
+Comment: FFmpeg {version} with the V4L2 Request API hwaccels, as beanjar-vendor builds it
+ ({repository}, release {tag}, whose ffmpeg-{version}-source.tar.xz is the corresponding source).
+ Most of FFmpeg is LGPL-2.1-or-later; built with --enable-gpl and linking GPL libraries, the
+ libraries as built are GPL-2.0-or-later. FFmpeg's licence texts and NOTICE are in
+ /usr/share/doc/beanjar/ffmpeg, with the build's BUILDINFO. On Debian systems the GPL is in
+ /usr/share/common-licenses/GPL-2.
+"""
+# beanjar-vnc's: neatvnc and aml, ISC (not among Debian's common licences: the texts are shipped).
+VNC_COPYRIGHT = """\
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: beanjar
+
+Files: usr/lib/beanjar/neatvnc/*
+Copyright: Andri Yngvason and the neatvnc and aml contributors
+License: ISC
+Comment: neatvnc {version} and aml, with Beanjar's V4L2 H.264 patches (ISC), as beanjar-vendor
+ builds them ({repository}, release {tag}). Their licence texts, and NOTICE for the code they
+ include from elsewhere under BSD licences, are in /usr/share/doc/beanjar-vnc/neatvnc and
+ /usr/share/doc/beanjar-vnc/aml, with the build's BUILDINFO.
+"""
+# beanjar-qemu's: QEMU, GPL-2.0-only with parts under compatible licences, and its firmware images.
+QEMU_COPYRIGHT = """\
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: QEMU
+Source: https://www.qemu.org/
+
+Files: *
+Copyright: Fabrice Bellard and the QEMU contributors
+License: GPL-2.0-only
+Comment: QEMU {version} with Beanjar's display patches, as beanjar-vendor builds it
+ ({repository}, release {tag}, which carries the upstream QEMU tarball the binaries are built
+ from; the patches are in the tag's source). Some of QEMU's parts are under other compatible
+ licences, and the firmware images in /usr/share/beanjar/qemu each under its own: QEMU's
+ COPYING, COPYING.LIB, LICENSE, pc-bios-README and NOTICE are in /usr/share/doc/beanjar-qemu,
+ with the build's BUILDINFO. On Debian systems the GPL is in /usr/share/common-licenses/GPL-2.
 """
 
 
@@ -261,11 +306,6 @@ def stage_web(work):
     return web
 
 
-def binutil(arch, tool):
-    """tool (strip, objdump) for arch: this machine's own, or the cross binutils' for another."""
-    return tool if arch == BUILD_ARCH else f"{TRIPLET[arch]}-{tool}"
-
-
 def elf_arch(path):
     """The Debian architecture of the ELF at path, from its e_machine."""
     with path.open("rb") as stream:
@@ -278,14 +318,24 @@ def elf_arch(path):
     raise SystemExit(f"not an ELF of a packaged architecture: {path}")
 
 
-def native_dependencies(root, arch, libdirs=()):
+def native_dependencies(root, arch, libdirs=(), private=()):
     """libdirs: where libraries of another package that root's ELFs need are (dpkg-shlibdeps
-    finds them there, and they add no dependency of their own). For an arch other than this
-    machine's (a cross build), dpkg-shlibdeps runs with DEB_HOST_ARCH: it reads that architecture's
-    multiarch libraries and packages (dpkg --add-architecture) with its triplet's objdump."""
+    finds them there, and they add no dependency of their own). private: directories of root
+    holding prebuilt libraries (vendor_tree), which are not examined (their Depends are their
+    BUILDINFO's) but found like libdirs. For an arch other than this machine's (a cross build),
+    dpkg-shlibdeps runs with DEB_HOST_ARCH: it reads that architecture's multiarch libraries and
+    packages (dpkg --add-architecture) with its triplet's objdump. Where this machine has Debian's
+    FFmpeg, neatvnc or aml libraries too, dpkg-shlibdeps takes those, which belong to a package,
+    over the private copies, which do not: merge_depends drops them."""
+    private = [Path(p) for p in private]
     elfs = []
     for path in root.rglob("*"):
-        if path.is_file() and "usr/share" not in str(path.relative_to(root)):
+        if (
+            path.is_file()
+            and not path.is_symlink()
+            and "usr/share" not in str(path.relative_to(root))
+            and not any(path.is_relative_to(p) for p in private)
+        ):
             with path.open("rb") as stream:
                 if stream.read(4) == b"\x7fELF":
                     elfs.append(path)
@@ -299,7 +349,10 @@ def native_dependencies(root, arch, libdirs=()):
                 "dpkg-shlibdeps",
                 "-O",
                 "--ignore-missing-info",
-                *["-l" + str(p) for p in sorted({p.parent for p in elfs} | set(libdirs))],
+                *[
+                    "-l" + str(p)
+                    for p in sorted({p.parent for p in elfs} | set(libdirs) | set(private))
+                ],
                 *["-e" + str(p) for p in elfs],
             ],
             cwd=work,
@@ -307,6 +360,87 @@ def native_dependencies(root, arch, libdirs=()):
             env=dict(os.environ, DEB_HOST_ARCH=arch),
         )
     return shlibs_depends(output)
+
+
+def split_depends(depends):
+    """A Depends field's groups (comma-separated), stripped, empty ones dropped."""
+    return [group.strip() for group in depends.split(",") if group.strip()]
+
+
+def merge_depends(*fields):
+    """One Depends field from several: the groups of all in order, each once, the private
+    copies' Debian twins (PRIVATE_LIBRARY_PACKAGES) dropped, and where several give the same
+    package as a single ">=" relation (or none), only the strictest."""
+    merged, versions = [], {}
+    for field in fields:
+        for group in split_depends(field):
+            if PRIVATE_LIBRARY_PACKAGES.match(group):
+                continue
+            m = re.fullmatch(r"([a-z0-9][a-z0-9+.:-]*)(?:\s*\(>=\s*([^)\s]+)\s*\))?", group)
+            if not m:
+                if group not in merged:
+                    merged.append(group)
+                continue
+            name, version = m.groups()
+            if name not in versions:
+                versions[name] = version
+                merged.append(name)
+            elif version and (
+                versions[name] is None
+                or subprocess.run(
+                    ["dpkg", "--compare-versions", version, "gt", versions[name]]
+                ).returncode
+                == 0
+            ):
+                versions[name] = version
+    return ", ".join(f"{g} (>= {versions[g]})" if versions.get(g) else g for g in merged)
+
+
+def vendor_tree(hp, program, arch):
+    """The prebuilt program's tree the host build published (hp/<program>, meson/vendor.py) and
+    its BUILDINFO, checked to be for arch."""
+    sys.path.insert(0, str(TOP / "meson"))
+    import vendor
+
+    tree = hp / program
+    if not (tree / "BUILDINFO").is_file():
+        raise SystemExit(f"missing input: {tree}/BUILDINFO")
+    info = vendor.buildinfo(tree / "BUILDINFO")
+    if info.get("Program") != program or info.get("Architecture") != arch:
+        raise SystemExit(
+            f"{tree}: a prebuilt {info.get('Program')} for {info.get('Architecture')}, "
+            f"not {program} for {arch}"
+        )
+    return tree, info
+
+
+def vendor_licence(text, info):
+    """A copyright stanza template filled in with the program's release (BUILDINFO)."""
+    return text.format(
+        version=info["Version"],
+        tag=f"{info['Program']}-{info['Version']}",
+        repository=VENDOR_REPOSITORY,
+    )
+
+
+def stage_libraries(tree, destination):
+    """The runtime part of a prebuilt library tree's lib/ (the shared libraries and their soname
+    links; no development links, pkg-config files or headers) into destination."""
+    destination.mkdir(parents=True, exist_ok=True)
+    count = 0
+    for path in sorted((tree / "lib").iterdir()):
+        if re.search(r"\.so\.[0-9]", path.name):
+            if path.is_symlink():
+                target = os.readlink(path)
+                if "/" in target:
+                    raise SystemExit(f"external symlink in input: {path}")
+                (destination / path.name).symlink_to(target)
+            else:
+                shutil.copy2(path, destination / path.name)
+                (destination / path.name).chmod(0o644)  # Debian's mode for a shared library
+                count += 1
+    if not count:
+        raise SystemExit(f"no shared libraries in {tree}/lib")
 
 
 def components(source, destination):
@@ -407,8 +541,11 @@ def stage_host(work, hp, arch, ident):
         copy(hp / relative, destination)
         if elf_arch(destination) != arch:
             raise SystemExit(f"wrong native artifact architecture: {relative}")
-    # the firmware target table targets.py loads at import (paths.Tree.src's guest/targets)
+    # the firmware target table targets.py loads at import (paths.Tree.src's guest/targets), without
+    # what only the guest build reads there (its meson.build, the targets' firmware facts)
     copy(TOP / "guest/targets", host / "usr/share/beanjar/targets")
+    shutil.rmtree(host / "usr/share/beanjar/targets/facts", ignore_errors=True)
+    (host / "usr/share/beanjar/targets/meson.build").unlink(missing_ok=True)
     copy(
         TOP / "host/helpers/network/requirements.txt",
         host / "usr/share/beanjar/mitmproxy/requirements.txt",
@@ -446,9 +583,25 @@ def stage_host(work, hp, arch, ident):
         ),
         0o755,
     )
+    # the private FFmpeg (media-helper; beanjar-vnc's too, which depends on this beanjar) and
+    # neatvnc with aml (beanjar-vnc), each found through its programs' RUNPATH
+    # /usr/lib/beanjar/<program>/lib, with its licence texts and BUILDINFO in the package's doc
+    for root, program in ((host, "ffmpeg"), (vnc, "neatvnc")):
+        tree, info = vendor_tree(hp, program, arch)
+        stage_libraries(tree, root / PREFIX / program / "lib")
+        for doc in sorted((tree / "share/doc").iterdir()):
+            copy(doc, root / "usr/share/doc" / root.name / doc.name)
+        copy(tree / "BUILDINFO", root / "usr/share/doc" / root.name / program / "BUILDINFO")
     for root in (host, vnc):
         copy(TOP / "packaging/debian/README.md", root / "usr/share/doc" / root.name / "README.md")
-    write(host / "usr/share/doc/beanjar/copyright", HOST_COPYRIGHT)
+    write(
+        host / "usr/share/doc/beanjar/copyright",
+        vendor_licence(HOST_COPYRIGHT, vendor_tree(hp, "ffmpeg", arch)[1]),
+    )
+    write(
+        vnc / "usr/share/doc/beanjar-vnc/copyright",
+        vendor_licence(VNC_COPYRIGHT, vendor_tree(hp, "neatvnc", arch)[1]),
+    )
     # link = "lan"'s helper (host/helpers/network/lan-helper.c): CAP_NET_ADMIN only, as a file
     # capability, which dpkg cannot carry; without it link=lan fails at start and says so
     write(
@@ -459,6 +612,26 @@ def stage_host(work, hp, arch, ident):
         0o755,
     )
     return host, vnc
+
+
+def stage_qemu(work, hp, arch):
+    """The beanjar-qemu tree from the prebuilt QEMU the host build published (hp/qemu, already
+    stripped), and its Depends, the tree's BUILDINFO's (libepoxy's dlopened libEGL and libOpenGL
+    included)."""
+    tree, info = vendor_tree(hp, "qemu", arch)
+    q = work / "beanjar-qemu"
+    for relative in ("bin/qemu-system-aarch64", "libexec/vhost-user-gpu"):
+        # vhost-user-gpu: QEMU's own backend, the VM's GPU in its own process on an ARM host
+        # (qemu.gpu_process); its libraries are a subset of qemu-system-aarch64's
+        binary = q / "usr/libexec/beanjar" / Path(relative).name
+        copy(tree / relative, binary)
+        if elf_arch(binary) != arch:
+            raise SystemExit(f"wrong QEMU architecture: {tree / relative}")
+    copy(tree / "share/qemu", q / "usr/share/beanjar/qemu")
+    copy(tree / "share/doc/qemu", q / "usr/share/doc/beanjar-qemu")
+    copy(tree / "BUILDINFO", q / "usr/share/doc/beanjar-qemu/BUILDINFO")
+    write(q / "usr/share/doc/beanjar-qemu/copyright", vendor_licence(QEMU_COPYRIGHT, info))
+    return q, merge_depends(info["Depends"])
 
 
 def stage_ui(work, hp):
@@ -530,6 +703,42 @@ def audit_private(*roots):
                 raise SystemExit(f"private key in payload: {path.relative_to(root)}")
 
 
+def package_guest(a, identity, work):
+    """beanjar-guest from the guest publish directory, its version the guest lane's."""
+    gp = (a.guest_publish or a.publish).resolve()
+    if gp == (TOP / "build").resolve() and not a.no_rebuild:
+        rebuild_targets(gp)
+    subprocess.run(
+        [
+            sys.executable,
+            str(TOP / "packaging/shippable.py"),
+            str(gp),
+        ],
+        check=True,
+    )
+    stamp = published_identity(identity, gp / "guest-installation.toml", guest=True)
+    subprocess.run(["dpkg", "--validate-version", stamp["version"]], check=True)
+    guest = stage_guest(work, gp, stamp)
+    audit_private(guest)
+    subprocess.run(
+        [
+            sys.executable,
+            str(TOP / "packaging/shippable.py"),
+            str(guest / "usr/share/beanjar/guest"),
+        ],
+        check=True,
+    )
+    control(
+        guest,
+        "beanjar-guest",
+        stamp["version"],
+        "all",
+        "",
+        "Beanjar virtual TV kernel and guest components",
+    )
+    package(guest, a.output / f"beanjar-guest_{stamp['version']}_all.deb", stamp["commit_epoch"])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--publish", type=Path, default=TOP / "build")
@@ -552,7 +761,12 @@ def main():
     parser.add_argument(
         "--host-only",
         action="store_true",
-        help="only beanjar, beanjar-ui, beanjar-vnc and beanjar-web; no guest input is read",
+        help="only beanjar, beanjar-ui, beanjar-vnc, beanjar-web and beanjar-qemu; no guest input is read",
+    )
+    parser.add_argument(
+        "--guest-only",
+        action="store_true",
+        help="only beanjar-guest; no host input is read",
     )
     parser.add_argument(
         "--shlibs-file",
@@ -560,9 +774,6 @@ def main():
         help="dpkg-shlibdeps -O's output (shlibs:Depends=...) in the native build lane",
     )
     parser.add_argument("--vnc-shlibs-file", type=Path, help="as --shlibs-file, for beanjar-vnc")
-    parser.add_argument(
-        "--qemu-publish", type=Path, help="separately package this patched QEMU build"
-    )
     parser.add_argument("--output", type=Path, default=TOP / "build/packages")
     a = parser.parse_args()
     global BUILD_ARCH
@@ -571,23 +782,34 @@ def main():
         raise SystemExit("Debian 13 and Python 3.13 required")
     if 'VERSION_ID="13"' not in Path("/etc/os-release").read_text():
         raise SystemExit("Debian 13 required")
+    if a.host_only and a.guest_only:
+        parser.error("--host-only and --guest-only exclude each other")
     identity = load_identity()
+    a.output = a.output.resolve()
+    if a.guest_only:
+        a.output.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="beanjar-deb-", dir=a.output) as work:
+            package_guest(a, identity, Path(work))
+        return
     hp = (a.host_publish or a.publish).resolve()
     # the architecture the host lane built for (build/publish-arm64: the arm64 cross build's)
     arch = a.architecture or elf_arch(hp / "viewer/viewer-headless")
     host_ident = published_identity(identity, hp / "source-version.toml")
     version = host_ident["version"]
     subprocess.run(["dpkg", "--validate-version", version], check=True)
-    a.output = a.output.resolve()
     a.output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="beanjar-deb-", dir=a.output) as work:
         work = Path(work)
         host, vnc = stage_host(work, hp, arch, host_ident)
         audit_private(host, vnc)
-        libs = (
-            shlibs_depends(a.shlibs_file.read_text(), a.shlibs_file)
-            if a.shlibs_file
-            else native_dependencies(host, arch)
+        ffmpeg = host / PREFIX / "ffmpeg/lib"
+        libs = merge_depends(
+            (
+                shlibs_depends(a.shlibs_file.read_text(), a.shlibs_file)
+                if a.shlibs_file
+                else native_dependencies(host, arch, private=[ffmpeg])
+            ),
+            vendor_tree(hp, "ffmpeg", arch)[1]["Depends"],
         )
         control(
             host,
@@ -598,10 +820,18 @@ def main():
             "Beanjar TV firmware VMs: the core, its command line and the host runtime",
             recommends=f"beanjar-ui (= {version})",
         )
-        vnc_libs = (
-            shlibs_depends(a.vnc_shlibs_file.read_text(), a.vnc_shlibs_file)
-            if a.vnc_shlibs_file
-            else native_dependencies(vnc, arch, [host / PREFIX / "viewer"])
+        vnc_libs = merge_depends(
+            (
+                shlibs_depends(a.vnc_shlibs_file.read_text(), a.vnc_shlibs_file)
+                if a.vnc_shlibs_file
+                else native_dependencies(
+                    vnc,
+                    arch,
+                    [host / PREFIX / "viewer", ffmpeg],
+                    private=[vnc / PREFIX / "neatvnc/lib"],
+                )
+            ),
+            vendor_tree(hp, "neatvnc", arch)[1]["Depends"],
         )
         control(
             vnc,
@@ -612,40 +842,7 @@ def main():
             "Beanjar VMs' TV picture as a VNC server (neatvnc), without a desktop",
         )
         if not a.host_only:
-            gp = (a.guest_publish or a.publish).resolve()
-            if gp == (TOP / "build").resolve() and not a.no_rebuild:
-                rebuild_targets(gp)
-            subprocess.run(
-                [
-                    sys.executable,
-                    str(TOP / "packaging/shippable.py"),
-                    str(gp),
-                ],
-                check=True,
-            )
-            stamp = published_identity(identity, gp / "guest-installation.toml", guest=True)
-            subprocess.run(["dpkg", "--validate-version", stamp["version"]], check=True)
-            guest = stage_guest(work, gp, stamp)
-            audit_private(guest)
-            subprocess.run(
-                [
-                    sys.executable,
-                    str(TOP / "packaging/shippable.py"),
-                    str(guest / "usr/share/beanjar/guest"),
-                ],
-                check=True,
-            )
-            control(
-                guest,
-                "beanjar-guest",
-                stamp["version"],
-                "all",
-                "",
-                "Beanjar virtual TV kernel and guest components",
-            )
-            package(
-                guest, a.output / f"beanjar-guest_{stamp['version']}_all.deb", stamp["commit_epoch"]
-            )
+            package_guest(a, identity, work)
         package(host, a.output / f"beanjar_{version}_{arch}.deb", host_ident["commit_epoch"])
         package(vnc, a.output / f"beanjar-vnc_{version}_{arch}.deb", host_ident["commit_epoch"])
         ui = stage_ui(work, hp)
@@ -670,31 +867,10 @@ def main():
             "Beanjar VMs in a browser: noVNC and a popup TV remote",
         )
         package(web, a.output / f"beanjar-web_{version}_all.deb", host_ident["commit_epoch"])
-        if a.qemu_publish:
-            q = work / "beanjar-qemu"
-            binary = q / "usr/libexec/beanjar/qemu-system-aarch64"
-            copy(a.qemu_publish / "bin/qemu-system-aarch64", binary)
-            # QEMU's build keeps its debug info (112 MB on x86-64); the package ships without it.
-            if elf_arch(binary) != arch:
-                raise SystemExit("wrong QEMU architecture: " + str(a.qemu_publish))
-            subprocess.run([binutil(arch, "strip"), "--strip-unneeded", binary], check=True)
-            # QEMU's own vhost-user-gpu backend, the VM's GPU in its own process on an ARM host
-            # (qemu.gpu_process); its libraries are a subset of qemu-system-aarch64's
-            backend = q / "usr/libexec/beanjar/vhost-user-gpu"
-            copy(a.qemu_publish / "libexec/vhost-user-gpu", backend)
-            if elf_arch(backend) != arch:
-                raise SystemExit("wrong vhost-user-gpu architecture: " + str(a.qemu_publish))
-            subprocess.run([binutil(arch, "strip"), "--strip-unneeded", backend], check=True)
-            copy(a.qemu_publish / "share/qemu", q / "usr/share/beanjar/qemu")
-            control(
-                q,
-                "beanjar-qemu",
-                version,
-                arch,
-                f"{native_dependencies(q, arch)}, {QEMU_DLOPEN_DEPENDS}",
-                "Beanjar patched QEMU",
-            )
-            package(q, a.output / f"beanjar-qemu_{version}_{arch}.deb", host_ident["commit_epoch"])
+        qemu, qemu_depends = stage_qemu(work, hp, arch)
+        audit_private(qemu)
+        control(qemu, "beanjar-qemu", version, arch, qemu_depends, "Beanjar patched QEMU")
+        package(qemu, a.output / f"beanjar-qemu_{version}_{arch}.deb", host_ident["commit_epoch"])
 
 
 if __name__ == "__main__":

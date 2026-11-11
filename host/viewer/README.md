@@ -13,10 +13,9 @@ audio and the media audio play through SDL audio. The same core without a window
 ## Build and run
 
 On Debian, install `libsdl2-dev libglib2.0-dev libegl-dev libgles-dev pkg-config`,
-`python3-venv` and a C compiler. The per-VM media helper's optional decoder needs
-`libavcodec-dev libavutil-dev libswresample-dev` (`-Dffmpeg=auto`); the viewer has no FFmpeg
-dependency. Without those libraries the helper drains media and reports decoder-unavailable,
-so video windows keep their test pattern. SDL 2.26 or newer is required. The window needs GTK 4 and libadwaita for
+`python3-venv` and a C compiler. The per-VM media helper decodes with the private FFmpeg that the
+host build downloads (`packaging/vendor.toml`, docs/dev/guides/build.md, "The prebuilt programs");
+the viewer has no FFmpeg dependency. SDL 2.26 or newer is required. The window needs GTK 4 and libadwaita for
 Python: `python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 blueprint-compiler` (GTK 4.12 and libadwaita 1.7 or newer; Debian 13
 on both machines: 4.18 and 1.7.6), at build time too, for its layouts (below); without it the viewer builds and runs headless only. The viewer is part
 of the host build (`meson.build` here, docs/dev/guides/build.md), which publishes `build/viewer/`:
@@ -491,7 +490,7 @@ raw compressed sockets cannot be fed directly to this viewer.
   stream there is), stretched to the window, scaled like the OSD and under it, so it shows only
   where the OSD is alpha 0. Without a picture (none yet, between streams, a codec the helper
   cannot decode) the window is black, as on a TV. Only with decoding off (`--no-media`, a
-  `MEDIAHUB=0` launch, a helper built without FFmpeg) does it get the milestone 1 checkerboard
+  `MEDIAHUB=0` launch) does it get the milestone 1 checkerboard
   (60 guest pixels per square, light grey and dark blue), marking video that is not decoded.
   Live TV's windows (the tuner's decoders, external inputs) come as muted. `fullScreen` windows
   are 1920x1080.
@@ -551,20 +550,20 @@ The listener also implements `org.qemu.Display1.Listener.Unix.Map` and lists it 
 each `UpdateMap` uploads the rectangle from it with `glTexSubImage2D` (whole rows of
 `a8r8g8b8` as `GL_BGRA_EXT` when `GL_EXT_texture_format_BGRA8888` is there, converted
 otherwise) before replying, since QEMU reads its next frame into the same memory once
-the reply is in. Stock QEMU uses it only for 2D surfaces. The QEMU of the
-host build (`host/tools/build/qemu/`) also sends GL scanouts this way when its EGL display cannot
+the reply is in. Stock QEMU uses it only for 2D surfaces. The patched QEMU
+(beanjar-vendor's, `build/qemu`) also sends GL scanouts this way when its EGL display cannot
 export dmabufs, as on WSL2 (below); the surface is `a8r8g8b8`, so the OSD keeps its
 alpha and the video shows through as with a dmabuf.
 
 ### WSL2 (WSLg)
 
 WSL2 has no `/dev/dri`, so the dmabuf path cannot work at either end. With the patched
-QEMU (the host build's `host/tools/build/qemu/`, see `) virgl renders
+QEMU (beanjar-vendor's, which the host build publishes as `build/qemu`) virgl renders
 on the Windows GPU through Mesa's d3d12 driver, QEMU reads each GL update back into
 shared memory, and the viewer draws it in a WSLg window:
 
 ```sh
-scripts/build.sh host                     # the patched QEMU and the viewer
+scripts/build.sh host                     # the viewer, and the patched QEMU published
 LAYERS=normal,gl DISPLAY_BACKEND=dbus NET_LINK=off host/scripts/vm-launcher start
 build/viewer/beanjar-viewer "unix:path=$PWD/build/dbus.sock"
 host/scripts/vm-launcher stop

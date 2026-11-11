@@ -6,7 +6,7 @@ target and the host build:
 | Directory     | Machine                         | Builds                                                   |
 |---------------|---------------------------------|----------------------------------------------------------|
 | `build/guest-<chip>-<release>` (WT1H: `build/guest-h13-afro`) | cross, `meson/cross/webos-sdk.ini` for webOS/SimpleSmart or `meson/cross/lgtv-sdk.ini` for NetCast 4.5 (x86_64 SDKs), `-Dsoc=<chip> -Dwebos=<release>` | target-specific 32-bit ARM layers and tools (webOS: common, soc, webos, gl with Mesa and optional layers; SimpleSmart: simplesmart; NetCast 4.5: netcast45 with Mesa); and the arm64 kernel with its modules (lgemu.ko, lg115x.ko, mstar-utopia.ko, rtk.ko, btmtk_usb.ko, webos_tv.ko, lgfs.ko), busybox and initramfs |
-| `build/host`  | native (x86_64 or the Pi's aarch64) | the viewer, the GTK layouts (viewer, VM manager), the patched QEMU, the firmware cache, the mitmproxy venv, the unit tests |
+| `build/host`  | native (x86_64 or the Pi's aarch64) | the viewer, the GTK layouts (viewer, VM manager), the firmware cache, the mitmproxy venv, the unit tests; the prebuilt QEMU, FFmpeg and neatvnc published beside them |
 | `build/host-arm64` | cross on the x86_64 PC, `meson/cross/debian-arm64.ini` (Debian's aarch64 GCC and Debian's arm64 libraries, multiarch) | the host build's programs for arm64, published to `build/publish-arm64` for the arm64 packages; its tests are built, not run; no firmware cache or mitmproxy venv |
 
 ## Commands
@@ -25,7 +25,7 @@ NetCast 4.5 needs the lgtv SDK cross file on its first setup:
 
 ```sh
 meson setup --cross-file meson/cross/lgtv-sdk.ini build/guest-lm14-netcast45 \
-  -Dsoc=lm14 -Dwebos=netcast45 -Dfirmware=/path/to/extracted-lm14-paks
+  -Dsoc=lm14 -Dwebos=netcast45
 meson compile -C build/guest-lm14-netcast45
 ```
 
@@ -33,9 +33,40 @@ meson compile -C build/guest-lm14-netcast45
 preconfigure NetCast as above before using that helper. It reuses an existing build directory.
 SimpleSmart uses the webOS SDK with `-Dsoc=m2 -Dwebos=simplesmart`.
 
-Import accepts the extracted paks. Guest compilation also needs unpacked library directories
-for webOS (`rootfs/usr/lib`) and SimpleSmart (`root.pak.unsquashfs/lib`); NetCast 4.5 builds
-from its paks without that unpacked-library requirement.
+The guest build reads no firmware: what it asks of its target's firmware is checked in as the
+target's firmware facts (below), so a clone without any firmware builds every target.
+
+**Firmware facts.** `guest/targets/facts/<chip>-<release>.txt`, beside the target's own
+`guest/targets/<chip>-<release>.toml`, answers the questions the guest build asks of the target's
+firmware, and nothing else: whether its rootfs image has a path a shim rule decides by
+(`path usr/lib/nyx/modules/nyxDrm.module no`), the version suffix of a library a rule checks
+(`version usr/lib/libwayland-client.so.0 20.0`), and for each firmware library the guest code links
+against, its SONAME (`lib usr/lib/libglib-2.0.so.0 libglib-2.0.so.0`) and the symbols the guest code
+uses of it, with their default version where the library versions them, their type and a data
+symbol's size (`sym usr/lib/libgstreamer-1.0.so.0 _gst_debug_min object 4`). One fact per line,
+sorted; `host/core/beanjar/fwfacts.py` has the format. The build links against stub libraries made
+from the lib and sym lines (`guest/targets/meson.build`, `meson/fwstub.py`): each has the library's
+SONAME and those symbols only, so a plugin or program records the same `NEEDED` entries, dynamic
+symbols and version needs as a link against the firmware's own file did.
+
+Each rule adds its question to `fw_questions` before it reads the answer; the setup writes them to
+`firmware-questions.txt` in the build directory and stops, naming them, when the facts file does not
+answer one. `host/scripts/vm-launcher firmware-facts <target>` answers them from the target's
+extracted firmware (its paks for paths, the extracted `rootfs/` or `root.pak.unsquashfs/` for
+libraries; `--firmware DIR` for another):
+
+```sh
+host/scripts/vm-launcher firmware-facts k8hp-ombre --build build/guest-k8hp-ombre   # write
+host/scripts/vm-launcher firmware-facts k8hp-ombre --check                          # report drift
+```
+
+With `--build`, the questions are those the build directory asked, and once its objects are compiled
+the symbols are those its link steps against a firmware library leave undefined that the library
+defines (a new call into GStreamer fails the link with `-z defs` until then: compile, run the
+command, compile again). Without it, the facts file's own questions and symbols are looked up again,
+which is what `--check` does. A new target: `meson setup` (stops with the questions), the command with
+`--build`, `meson setup --wipe` with the same options, `meson compile` (its links fail), the command
+again, `meson compile`.
 
 The arm64 packages are cross-built on the PC (`scripts/build.sh host-arm64`, role `host-arm64`
 below; packaging/debian/README.md, "arm64 packages from the PC"): an ordinary Meson cross build,
@@ -47,12 +78,23 @@ meson compile -C build/host-arm64      # publishes to build/publish-arm64
 
 A cross file for aarch64 selects the host lane (`host_cross` in `meson.build`); one for 32-bit
 ARM the guest lane. The GTK layouts are compiled with the PC's own `blueprint-compiler` and
-`glib-compile-resources`. There FFmpeg, neatvnc, aml and opus are required (a missing one fails
-the configure instead of dropping the media helper's decoder or `beanjar-vnc`), the patched QEMU
-is required whatever the PC's render node (it is the target's), configured with the cross
-file's `cross_prefix` and its arm64 `pkg-config`, and its `--version` check runs the arm64
-binary under `qemu-aarch64` (qemu-user). Its default `publish_dir` is `build/publish-arm64`, never
-`build/`. Its programs and tests are not run on the PC.
+`glib-compile-resources`. There opus, GBM and the virtual camera's libraries are required (a
+missing one fails the configure instead of dropping `beanjar-vnc` or a part of it), and the
+prebuilt programs are the arm64 ones, linked through the cross file's arm64 `pkg-config`. Its
+default `publish_dir` is `build/publish-arm64`, never `build/`. Its programs and tests are not run
+on the PC.
+
+**The prebuilt programs.** QEMU, FFmpeg and neatvnc (with aml) are not built here: every host
+build takes beanjar-vendor's release tarballs for its architecture, pinned in
+`packaging/vendor.toml` (packaging/debian/README.md, "The prebuilt programs"). At `meson setup`,
+`meson/vendor.py` downloads them into `build/vendor/download` (once: a tarball with the pinned
+SHA-256 is kept), checks the hash and unpacks each into `build/vendor/<program>-<version>-<arch>`;
+the build fails if one cannot be had. The media helper and `beanjar-vnc` compile and link against
+those trees through their own pkg-config files (`vendor_deps` in `meson/meson.build`), which come
+before any system `-dev` package's, with RUNPATH `$ORIGIN/../<program>/lib` and
+`/usr/lib/beanjar/<program>/lib`; the publish step copies the trees to `build/qemu`,
+`build/ffmpeg` and `build/neatvnc`, where the first finds them and the launcher runs QEMU. Taking a
+new version is a new pin; the build reconfigures when `packaging/vendor.toml` changes.
 
 The Pi builds only the host side: the same without the guest build's lines. After that,
 `meson compile -C build/guest-h13-afro` (or `ninja -C build/guest-h13-afro`) is all a rebuild takes;
@@ -61,16 +103,15 @@ Meson reconfigures by itself when a `meson.build`, `meson.options` or wrap chang
 **The firmware target.** A firmware boots as a target (chip, release). For webOS, the SoC layer is built from
 `guest/layers/soc/<chip>`, and the release family from `guest/layers/webos/<release>`: the codename of the
 firmware's `etc/starfish-release` (`afro`, `beehive`, `dreadlocks`, `dreadlocks2`).
-`-Dsoc` and `-Dwebos` choose it; `auto` (their default) takes the firmware's, and a value given
-must agree with the firmware's (`-Dfirmware`, else the default firmware): `host/scripts/vm-launcher config TARGET`
-prints it, from the one table that knows it (`guest/targets/`, loaded by `host/core/beanjar/targets.py` as `MODELS`: model code → {release: chip}, the release being the codename the firmware's own rootfs names). The
+`-Dsoc` and `-Dwebos` choose it, and a guest build needs both: `host/scripts/vm-launcher config TARGET`
+prints the default firmware's target, from the one table that knows it (`guest/targets/`, loaded by `host/core/beanjar/targets.py` as `MODELS`: model code → {release: chip}, the release being the codename the firmware's own rootfs names). The
 target decides the glibc ceiling (afro: 2.14.1; beehive, dreadlocks and dreadlocks2: 2.19; goldilocks and goldilocks2: 2.24; jhericurl and kisscurl: 2.28; mullet: 2.31) and where the layers are published,
 `build/components/{common,soc/<chip>,release/<release>,gl,...}`, whose compatibility selectors the launcher resolves for a VM whose
 firmware is that target. The first five webOS targets are: `h13-afro` (WT1H, `build/guest-h13-afro`), `m14-beehive` (W15M,
-`build/guest-m14-beehive -Dsoc=m14 -Dwebos=beehive -Dfirmware=<W15M dir>`), `m2-dreadlocks` (W16R,
-`build/guest-m2-dreadlocks -Dsoc=m2 -Dwebos=dreadlocks -Dfirmware=<W16R dir>`), `m16p-dreadlocks2` (W17H,
-`build/guest-m16p-dreadlocks2 -Dsoc=m16p -Dwebos=dreadlocks2 -Dfirmware=<W17H dir>`) and `m3-goldilocks` (W18R,
-`build/guest-m3-goldilocks -Dsoc=m3 -Dwebos=goldilocks -Dfirmware=<W18R dir>`); the last three have no
+`build/guest-m14-beehive -Dsoc=m14 -Dwebos=beehive`), `m2-dreadlocks` (W16R,
+`build/guest-m2-dreadlocks -Dsoc=m2 -Dwebos=dreadlocks`), `m16p-dreadlocks2` (W17H,
+`build/guest-m16p-dreadlocks2 -Dsoc=m16p -Dwebos=dreadlocks2`) and `m3-goldilocks` (W18R,
+`build/guest-m3-goldilocks -Dsoc=m3 -Dwebos=goldilocks`); the last three have no
 media elements (`gst_plugin_dir` ''). `k5lp-goldilocks2` (W19P), `k6lp-jhericurl` (W20L, webOS 5: systemd) and `k7lp-kisscurl` (W21P, webOS 6, a global build) are the established Realtek targets. `k8lp-mullet` (W22P), `k8ap-mullet` (W22L), and `k8hp-mullet` (W22H), webOS 7,
 are explicit bring-up profiles. W22H also has `k8hp-number1` (webOS 23) and
 `k8hp-ombre` (webOS 24) upgrade profiles. The kernel, lgemu.ko, busybox and the
@@ -89,8 +130,8 @@ needs 1.4), which is Debian 13's, and the system Python with Mesa's modules (`py
 initramfs's boot splash is rendered with `rsvg-convert` (`librsvg2-bin`) and DejaVu Sans
 (`fonts-dejavu-core`).
 `scripts/build.sh [guest|host]` does the steps in one go: `meson setup` of a build directory
-that does not exist yet (the guest build of `FW`'s target, set up with that firmware's `-Dfirmware`,
-so a later `FW` does not change it), then `meson compile`;
+that does not exist yet (the guest build of `FW`'s target, `-Dsoc` and `-Dwebos`; the host build's
+firmware cache takes `-Dfirmware`, else `FW`'s), then `meson compile`;
 `host/scripts/vm-launcher start` runs `scripts/build.sh guest`
 before booting (not on the Pi, which does not build the guest, nor for a VM directory, `--dir`).
 
@@ -101,7 +142,7 @@ the launchers and any host sync use it: `build/Image`, `build/{lgemu,lg115x,msta
 `build/source-version.toml`; docs/dev/architecture/build-and-boot.md, "Host and guest compatibility"),
 `build/tests/{gl,gm}`, `build/tcg-perf/{perf-arm,io-perf}`, `build/devmode-tests/native-test`; from the host build `build/viewer/` (`beanjar-viewer`,
 `beanjar_ui/viewer/`, `beanjar-viewer.gresource`, `libbeanjar-viewer-core.so`, `viewer-headless`),
-`build/manager/beanjar.gresource` and, where QEMU is built (below), `build/qemu`. Files are replaced by a rename and trees by an atomic exchange (the previous tree
+`build/manager/beanjar.gresource`, and the prebuilt `build/qemu`, `build/ffmpeg` and `build/neatvnc`. Files are replaced by a rename and trees by an atomic exchange (the previous tree
 waits in `build/.publish-old/`), so a running QEMU or viewer keeps the files it has open.
 `-Dpublish_dir=DIR` publishes elsewhere. The mitmproxy venv cannot be moved, so the host build
 makes it in place, `build/mitmproxy-venv`, only when `host/helpers/network/requirements.txt` changes.
@@ -158,8 +199,8 @@ uses managed directories. Published guest artifacts remain under `build/`.
 Firmware is looked up by name in the host's firmware collections, `firmware_dirs` in
 `~/.config/beanjar/config.toml` (`beanjar host config set firmware_dirs=DIR[:DIR...]`; default
 `/srv/beanjar/firmware`). Keep temporary firmware experiments under `scratch/firmware/` (list it
-there to find them by name) or another scratch directory, and pass an explicit `FW=PATH` or
-`-Dfirmware=PATH` for other locations. The checkout root has no `firmware/` directory.
+there to find them by name) or another scratch directory, and pass an explicit `FW=PATH` (or the
+host build's `-Dfirmware=PATH`) for other locations. The checkout root has no `firmware/` directory.
 
 ## Regression runs
 
@@ -685,8 +726,9 @@ against the x86 checkout's `build/` and the tracked files.
 - The published test programs, but not the results beside them: `build/tests/{gl,gm}`,
   `build/tcg-perf/{perf-arm,io-perf}`,
   `build/devmode-tests/native-test`.
-- The host build's `build/viewer/`, `build/manager/beanjar.gresource`, `build/qemu` where it
-  is built (the patched QEMU, linked against Debian's libraries), and runtime sources: `host/core`, `host/ui`, `host/helpers`,
+- The host build's `build/viewer/`, `build/manager/beanjar.gresource`, the prebuilt
+  `build/qemu`, `build/ffmpeg` and `build/neatvnc` (beanjar-vendor's, with their licences), and
+  runtime sources: `host/core`, `host/ui`, `host/helpers`,
   `host/scripts/vm-launcher`, `guest/scripts/` and source-only guest layers.
   Development build and research tools are excluded from the distribution.
 - The tracked test fixtures, e.g. `tests/fakes/trust-rootfs.pak` (a SquashFS of two test
@@ -721,8 +763,8 @@ none of its files of 64 bytes or more is identical to a file of the WT1H `rootfs
 
 ## Debian packages
 
-`packaging/debian/build.py` assembles `beanjar`, `beanjar-ui`, `beanjar-vnc`, `beanjar-web` and
-`beanjar-guest` from what the
+`packaging/debian/build.py` assembles `beanjar`, `beanjar-ui`, `beanjar-vnc`, `beanjar-web`,
+`beanjar-qemu` and `beanjar-guest` from what the
 build lanes published, after the tree is committed and rebuilt (for the guest the script does the
 rebuild itself: it runs `meson compile` in every `build/guest-<target>` that the published
 `selections.json` name, so no target ships from before a change to a shared source such as a Mesa
@@ -731,18 +773,21 @@ patch; a target without a build directory or that fails to build stops the packa
 patches change, so "rebuilt" means current sources); their versions come from
 `packaging/VERSION` (packaging/debian/README.md, "Versions and compatibility"). The Pi builds only
 its host and packages it with `--host-only`, which reads no guest input and needs no git, then
-installs `beanjar`, `beanjar-ui` and `beanjar-vnc` with apt beside the PC-built `beanjar-guest` of the same `0.Y`
+installs `beanjar`, `beanjar-ui`, `beanjar-vnc` and `beanjar-qemu` with apt beside the PC-built `beanjar-guest` of the same `0.Y`
 (packaging/debian/README.md, "Updating the Pi"). The arm64 packages for other boards (and the
 Pi) are cross-built on the PC against Debian's own arm64 libraries (`build/host-arm64`, above),
 so their dependencies are Debian's, not Raspberry Pi OS's (whose FFmpeg has epoch 8). That pairing is apt's hint; at each start the
 launcher checks what the guest payload has: the target's components and the module parameters its
 `.ko` files declare (docs/dev/architecture/build-and-boot.md, "Host and guest compatibility").
+The host packages for amd64 and arm64, and `beanjar-guest` from every target, are also built by the
+Packages workflow on GitHub, on every push to `main` and pull request as a check, and on a manual
+run with the `.deb` files as the run's artifacts (packaging/debian/README.md, "Built on GitHub").
 
 ## Host packages
 
-Both machines run Debian 13 (trixie), and every host dependency but neatvnc 1.0 (below) is one of
-its packages: the build bundles none (the wraps in `subprojects/` are sources of the guest, plus QEMU, which is built only
-for its patches). A fresh machine is set up with the metapackages below, built from the control files in
+Both machines run Debian 13 (trixie), and every host dependency but the prebuilt QEMU, FFmpeg and
+neatvnc (above, "The prebuilt programs") is one of its packages: the build bundles nothing else
+(the wraps in `subprojects/` are sources of the guest, plus the virtual camera's usbipdcpp). A fresh machine is set up with the metapackages below, built from the control files in
 `packaging/debian/build-deps/` (the one list of host packages; `equivs` builds them). Because an
 installed package depends on them, `apt autoremove` cannot strip these dependencies. `meson setup`
 reports a missing program or library by name.
@@ -756,9 +801,10 @@ sudo apt install ./build/packages/beanjar-build-deps-host_*_all.deb
 
 - Build: Meson 1.7 and Ninja; `patch` applies the wraps' `diff_files`; `python3-venv` makes the
   mitmproxy venv (below).
-- The viewer: SDL2, GLib, EGL and GLES. The per-VM media helper uses FFmpeg 7.1 for video/audio
-  decoding and resampling (the Raspberry Pi build on the Pi). Without FFmpeg the helper drains
-  media and reports decoder-unavailable; the viewer shows video-window patterns.
+- The viewer: SDL2, GLib, EGL and GLES. The per-VM media helper uses the private FFmpeg 7.1 for
+  video/audio decoding and resampling; the role has the Debian libraries its `BUILDINFO` names
+  (the codec libraries, VA-API, VDPAU and the rest), which linking against it and running it need,
+  but no FFmpeg `-dev` package.
 - The GTK windows (the viewer's and the VM manager's, `host/ui`): GTK 4.18 and libadwaita
   1.7.6 for Python (the minimum is GTK 4.12 and libadwaita 1.7; without them `beanjar-viewer`
   runs headless only and the manager has its CLI only), and `blueprint-compiler` (0.16.0) for
@@ -775,21 +821,21 @@ sudo apt install ./build/packages/beanjar-build-deps-host_*_all.deb
   `ROOTFS=uncompressed` cache also needs `mksquashfs` and `unsquashfs` 4.6 or later
   (without the tools the `auto` firmware cache is skipped).
 
-`beanjar-vnc` needs neatvnc 1.0 and aml 1.0 (`libneatvnc-dev (>= 1.0)`, `libaml-dev (>= 1.0)`),
-which trixie does not have: build them with `scripts/neatvnc-local/build.sh` and install the local
-packages before the role's metapackage ([neatvnc-local](neatvnc-local.md)). Raspberry Pi OS has its
-own 1.0.
+`beanjar-vnc` is built on the private neatvnc 1.0 and aml 1.0; its pkg-config file names the
+libraries neatvnc links in `Requires.private`, so the role has their `-dev` packages (GnuTLS,
+nettle, GMP, libjpeg-turbo, zlib, libdrm, GBM, pixman), and libopus for its audio.
 
-Role `host` includes the patched QEMU's libraries, so every host builds it. A host that does not
-(`-Dqemu=disabled`, or its libraries missing) runs Debian's: `sudo apt install qemu-system-arm
-qemu-system-modules-opengl`. The `beanjar` package depends on it unless `beanjar-qemu` is installed.
+Role `host` has the prebuilt QEMU's runtime libraries (its `BUILDINFO`'s `Depends`), so every host
+runs the published `build/qemu`. Debian's own QEMU (`qemu-system-arm qemu-system-modules-opengl`)
+runs a VM only where `build/qemu` is not there; the `beanjar` package depends on it unless
+`beanjar-qemu` is installed.
 
 Role `host-arm64`, the x86_64 workstation, for the arm64 cross build (`build/host-arm64`):
 the aarch64 cross compiler and binutils, `pkgconf:arm64` (its `aarch64-linux-gnu-pkg-config`),
-the native tools QEMU's build runs (`flex`, `bison`, `libglib2.0-dev-bin`, `python3-pycotap`),
-the GTK and Blueprint tools for the layouts, `qemu-user` and `qemu-user-binfmt`, `dpkg-dev`
-(dpkg-shlibdeps), and the host build's libraries as `:arm64` -dev packages, installed beside the
-amd64 ones with Debian's multiarch. On Debian 13 all of them co-install with their amd64
+`glib-compile-resources` (`libglib2.0-dev-bin`) and the GTK and Blueprint tools for the layouts,
+`dpkg-dev` (dpkg-shlibdeps), and the host build's libraries as `:arm64` -dev packages, with the
+arm64 runtime libraries the private FFmpeg links, installed beside the amd64 ones with Debian's
+multiarch. On Debian 13 all of them co-install with their amd64
 versions (no removals; apt only moved a few amd64 libraries to the same security update as
 their arm64 twins):
 
@@ -815,13 +861,14 @@ sudo apt install ./build/packages/beanjar-build-deps-readers_*_all.deb
 
 - The guest: the webOS SDK in `/opt/arm-webos-linux-gnueabi_sdk-buildroot` for webOS and
   SimpleSmart, or the [lgtv SDK](https://github.com/openlgtv/buildroot-nc4) in
-  `/opt/arm-lgtv-linux-gnueabi_sdk-buildroot` for NetCast 4.5 (neither is a Debian package);
+  `/opt/arm-lgtv-linux-gnueabi_sdk-buildroot` for NetCast 4.5 (neither is a Debian package; both
+  are openlgtv/buildroot-nc4 release assets, whose pins `scripts/build-packages.sh` names);
   the arm64 cross compiler for the kernel, busybox and the input bridges, uapi headers
   for Mesa, Mesa's Python modules, `flex` and `bison` for Kconfig, `qemu-user` (devmode's tests),
   `glib-mkenums`.
-- QEMU (`host/tools/build/qemu/build.sh`): its libraries, with Debian's virglrenderer (1.1.0), libslirp (4.8.0),
-  libfdt, libusbredirparser (0.15, for `usb-redir`) and libusb (1.0.28, for `usb-host`), which forward a
-  real USB device to a VM's `qemu-xhci`; QEMU's configure makes its own venv from the system Meson and `python3-pycotap`.
+- QEMU (the prebuilt one): its runtime libraries, among them Debian's virglrenderer (1.1.0),
+  libslirp (4.8.0), libfdt, libusbredirparser (0.15, for `usb-redir`) and libusb (1.0.28, for
+  `usb-host`), which forward a real USB device to a VM's `qemu-xhci`.
 
 What is not a package, and why:
 
@@ -833,7 +880,10 @@ What is not a package, and why:
   ([inspect emulator traffic](../../user/inspect-emulator-traffic.md#the-password)). `beanjar mitm setup`
   installs the same pins for an installed beanjar. The venv's other packages are mitmproxy's own
   closure; they are not mixed with Debian's.
-- **QEMU** 10.0.2, for its patches (below).
+- **QEMU** 10.0.2, for its patches (below), **FFmpeg** 7.1.5, for the V4L2 Request API
+  hwaccels Debian's lacks, and **neatvnc** 1.0.4 with **aml** 1.0, which trixie does not have:
+  beanjar-vendor's prebuilt tarballs (above, "The prebuilt programs"). Their patches, build
+  scripts and the reasons for each are in [beanjar-vendor](https://github.com/mariotaku/beanjar-vendor).
 - Everything in the guest: the SDK, and the wraps built with it (busybox, Dropbear, OpenSSH,
   libffi, libdrm, Wayland, wayland-protocols, Mesa, GStreamer's headers, the kernel). They are
   32-bit ARM builds against the firmware's ABI, or arm64 for the guest kernel, not host
@@ -846,26 +896,10 @@ every frame to a D-Bus display listener whose connection closed (each `beanjar s
 viewer running leaves one), logging `Failed to call update` per frame per dead listener into
 `qemu.out` (a Pi VM reached 43 MB); patch 0004 drops such a listener. On the x86 WSL box Debian's
 QEMU does not render at all: it needs a render node for GL, which WSL does not have.
-So every host runs the patched QEMU. The launcher (`paths.Tree.qemu`) runs
-`QEMU` when it is set, else the vendored QEMU, `build/qemu` (`beanjar-qemu`'s when installed),
-for every VM, KVM or TCG, whenever it is there, else Debian's QEMU from `PATH` (with
-`qemu-system-modules-opengl`). The host build's `qemu` option (a feature) auto builds QEMU wherever its
-libraries (virglrenderer, epoxy, gbm, slirp, libfdt, pixman, GLib, libpng, zlib, libusbredirparser,
-libusb) and `pycotap`
-are found, and requires them where `host/scripts/vm-launcher config RENDERNODE`
-(`qemu.tcg_rendernode`, the launcher's own code: `RENDERNODE`, else the first
-`/dev/dri/renderD*`, else `surfaceless`) says `surfaceless`, since a TCG VM's virgl display there
-needs the patched QEMU; `-Dqemu=enabled` always requires it, `-Dqemu=disabled` never builds it. The decision is taken at `meson setup` (`RENDERNODE` in its environment
-counts, as at launch; `meson setup --reconfigure build/host` takes it again after a GPU driver or
-a library comes or goes) and printed in the summary (`Host`, `QEMU`). Where QEMU is
-not built, the configure checks `qemu-system-aarch64` from `PATH` for what the launcher uses (the
-`egl-headless` and `dbus` displays, `dbus` audio, `virtio-gpu-gl-pci`, `virtio-sound-pci`,
-`virtio-9p-pci`, `virtio-net-pci`, `virtio-blk-pci`) and warns, naming the packages above, when it
-is missing or lacks one; the summary shows the result (`System QEMU`). It is a warning because
-only running a VM needs QEMU. A `build/qemu` published by an earlier configure would stay (publishing never removes a tree)
-and the launcher prefers it, so where QEMU is not built every build removes that directory
-(`host/tools/build/qemu/remove-published.py`, a default build step); the configure summary notes a
-leftover tree (`build/qemu`).
+So every host runs the patched QEMU, beanjar-vendor's, which every host build publishes as
+`build/qemu`. The launcher (`paths.Tree.qemu`) runs `QEMU` when it is set, else that QEMU,
+`build/qemu` (`beanjar-qemu`'s when installed), for every VM, KVM or TCG, whenever it is there,
+else Debian's QEMU from `PATH` (with `qemu-system-modules-opengl`).
 
 On WSL, Mesa 25's software winsys takes llvmpipe unless
 `GALLIUM_DRIVER=d3d12`; the launcher (`host/core/beanjar/qemu.py`, for QEMU) and the viewer set it when `/dev/dxg`

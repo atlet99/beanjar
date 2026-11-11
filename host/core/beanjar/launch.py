@@ -28,9 +28,11 @@ beanjar.launch with host/core on PYTHONPATH).
                                    the modules' parameters) if missing or stale; start does it too
   host/scripts/vm-launcher reset-state [STATE [partition...]]   wipe a state directory (qemu.reset_state)
   host/scripts/vm-launcher firmware-cache [PAK...]    the checkout VM's ROOTFS=uncompressed images (fwcache.py)
+  host/scripts/vm-launcher firmware-facts TARGET [--build DIR] [--check]   write (or check) the target's
+                                   guest/targets/facts/TARGET.txt from its firmware (fwfacts.py)
   host/scripts/vm-launcher config FW|FW_NAME     print the firmware directory or name (paths.Tree.firmware)
   host/scripts/vm-launcher config FW --target CHIP-RELEASE   the target's firmware instead, not FW's (paths.Tree.target_firmware;
-                                   a guest build directory's without -Dfirmware)
+                                   what firmware-facts reads)
   host/scripts/vm-launcher config RENDERNODE     print the render node a TCG VM's GPU would use, or surfaceless
   host/scripts/vm-launcher config TARGET           print FW's (chip, release) as <chip>-<release>, e.g. h13-afro (paths.firmware_target)
   host/scripts/vm-launcher config PAKS           print the pak files FW's target needs, e.g. rootfs.pak (targets.pak_files)
@@ -121,6 +123,7 @@ from . import (
     console,
     core,
     fwcache,
+    fwfacts,
     keys,
     netns,
     nvm,
@@ -995,9 +998,10 @@ def parser():
     s = sub.add_parser("firmware-cache", help="the ROOTFS=uncompressed images")
     s.add_argument("paks", nargs="*")
     s = sub.add_parser(
-        "firmware-files", help="the entries directly in these directories of FW's rootfs image"
+        "firmware-facts",
+        help="write a target's firmware facts, what its guest build asks of its firmware (fwfacts.py)",
     )
-    s.add_argument("directories", nargs="+")
+    fwfacts.add_arguments(s)
     s = sub.add_parser(
         "config",
         help="print FW, FW_NAME, TARGET, PAKS, TARGETS, RELEASES, FIRMWARE_DIRS, RENDERNODE, IDENTITY or ADDRESS",
@@ -1040,7 +1044,11 @@ def main(argv_=None):
             print("migrated development VM: " + development.migrate(dict(os.environ)))
             print("original local/ and state files retained")
             return 0
-        if not getattr(a, "dir", None) and a.cmd not in ("config", "firmware-cache"):
+        if not getattr(a, "dir", None) and a.cmd not in (
+            "config",
+            "firmware-cache",
+            "firmware-facts",
+        ):
             original = dict(os.environ)
             resolved = (
                 development.configured_environment(original)
@@ -1120,13 +1128,11 @@ def main(argv_=None):
             return 0
         if a.cmd == "firmware-cache":
             return fwcache.main(a.paks)
-        if a.cmd == "firmware-files":
+        if a.cmd == "firmware-facts":
             try:
-                fw, _name = TREE.firmware(os.environ.get("FW"))
-                print("\n".join(paths.rootfs_entries(fw, a.directories)))
-            except ValueError as e:
+                return fwfacts.run(a)
+            except fwfacts.Error as e:
                 raise Error(str(e)) from None
-            return 0
         if a.cmd == "config" and a.target:
             target = targets.by_name(a.target)
             if a.var not in ("FW", "FW_NAME") or target is None:

@@ -365,7 +365,7 @@ the scene is composed straight into GBM buffers and nothing is read back (`host/
   there a CPU read of a GPU buffer (write-combined on panfrost) has nothing to gain over the read
   back. `--frames gbm` or `memory` forces either; without a GBM device or a dma-buf import it
   falls back to the read back with the reason in the log.
-- **neatvnc.** The V4L2 encoder needs [the local build](../guides/neatvnc-local.md)'s patches to
+- **neatvnc.** The V4L2 encoder needs [the private build](https://github.com/mariotaku/beanjar-vendor/blob/main/neatvnc/README.md)'s patches to
   give the right colours and quality.
 
 ### Unchanged frames
@@ -827,8 +827,8 @@ user name clients send is ignored. Classic VNC (DES) authentication is not offer
   The fingerprint a client shows therefore changes each time beanjar-vnc starts.
 - **Clients.** TigerVNC 1.13+ (`RA2`, `RA2_256`), RealVNC Viewer; see the user name above.
 
-beanjar-vnc needs neatvnc 1.0: the local trixie build (1.0.4, [neatvnc-local](../guides/neatvnc-local.md))
-and Raspberry Pi OS's both link nettle, hogweed and gmp (`HAVE_CRYPTO`) and export
+beanjar-vnc needs neatvnc 1.0: the private build (1.0.4, beanjar-vendor's, [its README](https://github.com/mariotaku/beanjar-vendor/blob/main/neatvnc/README.md))
+links nettle, hogweed and gmp (`HAVE_CRYPTO`) and export
 `nvnc_enable_auth` and `nvnc_set_rsa_creds`; the callback resolves an `nvnc_auth_creds` with
 `nvnc_auth_creds_accept` or `_reject`. Debian trixie's 0.9.1 sent the server's RSA-AES challenge
 without the ciphertext's leading zero bytes, so about one login in 128 to 256 (depending on the
@@ -864,8 +864,8 @@ does; Electron builds without the codec do not, and get Tight). With GBM frames 
 V4L2 encoder the web viewer's VNC mode then gets H.264. Its quality slider is noVNC's quality
 level, which neatvnc hands to the encoder as constant quality: at the viewer's default, 3, flat
 areas show faint vertical streaks that 9 does not have (the video socket's CBR stream does not
-show them either). The local neatvnc build therefore holds the encoder's QP at 18 or better
-(`docs/dev/guides/neatvnc-local.md`, patch 02), so the default gives the quality of level 6 while
+show them either). The private neatvnc build therefore holds the encoder's QP at 18 or better
+([beanjar-vendor's neatvnc](https://github.com/mariotaku/beanjar-vendor/blob/main/neatvnc/README.md), patch 02), so the default gives the quality of level 6 while
 Tight keeps the JPEG quality of level 3. On a 960x600 screenshot a JPEG is 30.5 kB at level 3
 (quality 34), 41.3 kB at 6 and 128.6 kB at 9.
 
@@ -1006,15 +1006,19 @@ as RGB ([Read backs](#read-backs)), `rgb_rows` the rows they read. `thumbnails`:
 
 ## Build and packaging
 
-`host/vnc/meson.build` builds it when `neatvnc` (>= 0.9), `aml` and `opus` are found
-(`libneatvnc-dev`, `libaml-dev`, `libopus-dev`, all in `beanjar-build-deps-host`), and publishes
-`build/vnc/beanjar-vnc`. Without them it warns and skips the program. `packaging/debian/build.py`
-makes `beanjar-vnc_<version>_<arch>.deb`, `/usr/bin/beanjar-vnc` with run path
-`/usr/lib/beanjar/viewer`, depending on `beanjar (= <version>)` and its own libraries
-(dpkg-shlibdeps: `libneatvnc0`, `libaml0t64`, `libopus0`, `libpixman-1-0`, `libegl1`,
-`libglib2.0-0t64`, and with video `libavcodec61`, `libavutil59`, `libswscale8`). libavcodec,
-libavutil and libswscale are optional ([video](#video)); `libswscale-dev` is in
-`beanjar-build-deps-host` beside the other two.
+`host/vnc/meson.build` builds it against the private neatvnc 1.0, aml 1.0 and FFmpeg (the
+prebuilt trees of `packaging/vendor.toml`, docs/dev/guides/build.md, "The prebuilt programs") when
+`opus` is found (`libopus-dev`, in `beanjar-build-deps-host`), and publishes
+`build/vnc/beanjar-vnc`, whose run path finds the libraries in `build/neatvnc` and `build/ffmpeg`.
+Without opus it warns and skips the program. It links libavcodec, libavutil and libswscale for
+[video](#video), and also libavfilter, which only libneatvnc uses: libneatvnc's own run path is
+its directory, so each FFmpeg library it needs must already be loaded from the private copy, or
+the dynamic linker would take Debian's. `packaging/debian/build.py` makes
+`beanjar-vnc_<version>_<arch>.deb`: `/usr/bin/beanjar-vnc` with run path `/usr/lib/beanjar/viewer`,
+`/usr/lib/beanjar/neatvnc/lib` and `/usr/lib/beanjar/ffmpeg/lib`, and libneatvnc and libaml in
+`/usr/lib/beanjar/neatvnc/lib`, depending on `beanjar (= <version>)`, which ships the FFmpeg, and
+on its own libraries (dpkg-shlibdeps: `libopus0`, `libpixman-1-0`, `libegl1`, `libglib2.0-0t64`,
+`libgbm1`, ...) and neatvnc's (its `BUILDINFO`: GnuTLS, nettle, GMP, libjpeg-turbo, ...).
 The host lane that packages must therefore have built it.
 
 ## Tests

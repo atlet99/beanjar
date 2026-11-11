@@ -6,12 +6,12 @@ Targets: Raspberry Pi (arm64) and x86_64 (amd64).
 
 | Package | Architecture | Contents |
 |---|---|---|
-| `beanjar` | arm64, amd64 | Manager library and CLI, the viewer's native core and headless entry point, native media helper and host helpers; recommends `beanjar-ui` |
+| `beanjar` | arm64, amd64 | Manager library and CLI, the viewer's native core and headless entry point, native media helper and host helpers, the private FFmpeg; recommends `beanjar-ui` |
 | `beanjar-ui` | all | GTK manager and viewer windows, desktop entry and icon |
-| `beanjar-vnc` | arm64, amd64 | VNC server for the TV picture, sound and H.264 video |
+| `beanjar-vnc` | arm64, amd64 | VNC server for the TV picture, sound and H.264 video, with its private neatvnc and aml |
 | `beanjar-web` | all | Web viewer |
 | `beanjar-guest` | all | Virtual-TV kernel, initramfs, modules, guest SSH tools and built layers for supported firmware families |
-| `beanjar-qemu` | amd64 initially | Patched QEMU for hosts requiring surfaceless graphics |
+| `beanjar-qemu` | arm64, amd64 | Patched QEMU |
 
 `beanjar` depends on a guest package of the same `0.Y` (packaging/debian/README.md), a hint
 for apt, plus Debian's host libraries and tools. At run time the launcher checks what the guest
@@ -19,8 +19,13 @@ payload has, not its version (build-and-boot.md, "Host and guest compatibility")
 `beanjar` depends on `beanjar-qemu` or, as the alternative, Debian's
 `qemu-system-arm` and `qemu-system-modules-opengl`. The runtime runs the patched
 QEMU whenever it is installed, for every accelerator and display, and Debian's
-otherwise; hosts such as WSL need the patched one for surfaceless graphics, the
-Pi uses Debian's.
+otherwise; hosts such as WSL need the patched one for surfaceless graphics, and
+every host for its D-Bus display fix.
+
+QEMU, FFmpeg and neatvnc with aml are third-party programs Beanjar patches or needs newer than
+Debian 13 has. They are not built with Beanjar: beanjar-vendor builds and releases them as
+tarballs for amd64 and arm64, `packaging/vendor.toml` pins the releases, and the packages are
+made from those trees (packaging/debian/README.md, "The prebuilt programs").
 
 The guest package is architecture-independent with respect to the host: both
 host architectures use the same virtual ARM TV payload.
@@ -34,7 +39,7 @@ dependencies for the target architecture into a user-local venv when requested.
 
 | Build lane | Host artifacts |
 |---|---|
-| Pi / arm64 | `beanjar_*_arm64.deb`, `beanjar-vnc_*_arm64.deb` |
+| arm64 | `beanjar_*_arm64.deb`, `beanjar-vnc_*_arm64.deb`, `beanjar-qemu_*_arm64.deb` |
 | x86_64 / amd64 | `beanjar_*_amd64.deb`, `beanjar-vnc_*_amd64.deb`, `beanjar-qemu_*_amd64.deb` |
 | Shared guest build | `beanjar-guest_*_all.deb`, identical input payload for both host lanes |
 | Either lane | `beanjar-ui_*_all.deb`, `beanjar-web_*_all.deb` |
@@ -54,7 +59,7 @@ application code.
 `host/helpers/` contains native host runtime support, including media/network
 helpers and firmware inspection/preparation. `guest/helpers/` contains guest
 architecture programs, including the ARM LLS probe invoked through qemu-arm.
-`host/tools/build/` holds host development build drivers. MStar mmap and Realtek RPC readers are runtime
+MStar mmap and Realtek RPC readers are runtime
 helpers because supported launches use their derived records.
 Guest kernel, initramfs and layers live under `guest/`, with guest SSH build
 utility sources in `guest/tools/ssh`. Host-only scripts live in `host/scripts/`,
@@ -75,6 +80,8 @@ remain under `scripts/`.
   ui/beanjar_ui/                  the GTK windows: manager and viewer
   web/beanjar_web/                the web viewer
   viewer/                         the viewer's native shared library
+  ffmpeg/lib/                     the private FFmpeg (beanjar)
+  neatvnc/lib/                    the private neatvnc and aml (beanjar-vnc)
   helpers/                        host Python runtime helpers and MITM addons
   installation.toml               version, commit, architecture; installed-layout marker
 
@@ -83,7 +90,8 @@ remain under `scripts/`.
   viewer-headless                 headless viewer helper
   media-helper                    native media helper
   mitmproxy-setup                  user-local venv installation helper
-  qemu-system-aarch64              optional patched QEMU
+  qemu-system-aarch64             patched QEMU (beanjar-qemu)
+  vhost-user-gpu                  its GPU process (beanjar-qemu)
 
 /usr/share/beanjar/
   ui/                             compiled manager and viewer GResources
@@ -101,7 +109,7 @@ remain under `scripts/`.
     boards/<soc>/board.cmdline     board inputs to RAM and EEPROM derivation
     binds.conf                    guest bind configuration
     installation.toml             guest version, commit and payload digest
-  qemu/                           data needed by the optional patched QEMU
+  qemu/                           data of the patched QEMU (beanjar-qemu)
   mitmproxy/
     requirements.txt              pinned dependency versions and hashes
     patches/                      any required, version-specific patch inputs
@@ -235,8 +243,9 @@ replica checkout tree or writable files below `/usr`.
 
 ## Dependencies and installation behavior
 
-Use Debian packages for GTK, libadwaita, SDL, FFmpeg, GL, networking and ordinary
-QEMU. Derive native library dependencies from the final ELF payloads. Include
+Use Debian packages for GTK, libadwaita, SDL, GL, networking and ordinary QEMU; FFmpeg,
+neatvnc and the patched QEMU are the prebuilt ones above. Derive native library dependencies
+from the final ELF payloads, and those of the prebuilt trees from their `BUILDINFO`. Include
 `python3-venv` for the user-local MITM setup.
 
 MITM lives in Beanjar's per-user data directory:
