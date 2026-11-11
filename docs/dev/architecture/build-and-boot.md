@@ -390,20 +390,36 @@ host answered (above 60 on a fast host), and the mode it chose was QEMU's EDID's
 75 Hz (QEMU generates its EDID at 75 Hz unless a display reports another refresh, and neither
 D-Bus front end does). Now:
 
-- **The mode is 60 Hz.** The launcher gives the GPU `edid=off`: the guest then has no EDID, and
-  the stock driver's preferred mode is its own CVT mode at the device's size and 60 Hz (the
-  other modes, `drm_add_modes_noedid`'s, are 60 Hz too). Nothing in the guest layers or the shims
-  reads the connector's EDID.
+- **The mode is 60 Hz.** The stock driver's preferred mode without an EDID is its own CVT mode
+  at the device's size and 60 Hz (the other modes, `drm_add_modes_noedid`'s, are 60 Hz too), so
+  the launcher gives virtio-gpu-gl `edid=off`. That is not enough with vhost-user-gpu ([the GPU
+  process](gpu-process.md)): there the EDID feature is the backend's, and on the Pi the guest got
+  QEMU's 75 Hz EDID with `vhost-user-gpu-pci,...,edid=off` on QEMU's command line. So `0022` also makes that CVT 60 Hz mode the preferred one when there is an
+  EDID; the EDID's modes stay, none preferred. In the layers, the shims and the stock firmwares
+  looked at (W22P 04.60.90's and W22O 04.40.93's rootfs) nothing reads the connector's EDID: the
+  only EDID strings there are the HDMI inputs' (`eim`, `libhdmi-conn-protocol`, `librim_qsp`), and
+  no library reads a DRM property blob but libdrm itself.
 - **Flips complete at its vblank** (`0022`): every KMS client is paced by it, legacy page flips
   (egl-kms, the starfish QPA) and atomic commits (Qt EGLFS Starfish, Weston, the native scanout)
   alike, and none completes more than 60 a second however fast the host answers. A flip still
-  waits for the host's answer to its flush first, so a slow host gives fewer.
+  waits for the host's answer to its flush first, so a slow host gives fewer. The UI is timed by
+  this 60 Hz vblank of its own whatever the panel's refresh.
 
-Measured 2026-11-12 on the x86 PC (TCG) on a W22P VM (`k8lp-mullet`) with a probe of our own
-(`DRM_IOCTL_WAIT_VBLANK` and a dumb-buffer page flip loop as DRM master, the compositor stopped):
-before, the connector's preferred mode was the EDID's 1920x1080 at 75 Hz; after, `1920x1080@60`,
-59.7 vblanks a second and 60.0 flips a second. The UI's own rate on TCG (28 frames a second while
-navigated, 23 idle with the home screen's animation) is the guest's CPU's, before and after.
+Measured 2026-11-12 with a probe of our own (`DRM_IOCTL_WAIT_VBLANK`, and a dumb-buffer page
+flip loop as DRM master with the compositor stopped), and the UI's frames as beanjar-vnc's core
+counts them (QEMU's updates) while the home screen's app row was navigated with RIGHT and LEFT
+every 0.25 s, 15 s:
+
+| | preferred mode | vblanks a second | flip loop, flips a second | UI navigated, frames a second |
+|---|---|---|---|---|
+| Pi 5, KVM, W22O 04.40.93 (`o22-mullet`, vhost-user-gpu), before | 1920x1080 at 75 | none (`WAIT_VBLANK`: not supported) | 157.1 | 63.7 |
+| the same, after | 1920x1080 at 60 | 60.1 | (not run) | 57.6, 57.2 |
+| Pi 5, KVM, W22P 04.60.90 (`k8lp-mullet`), after | 1920x1080 at 60 | | | 57.6 |
+| x86 PC, TCG, W22P (virtio-gpu-gl), before | 1920x1080 at 75 | | | 29.5 |
+| the same, after | 1920x1080 at 60 | 59.7 | 60.0 | 28.4 |
+| x86 PC, TCG, W22O, after | 1920x1080 at 60 | 60.2 | 60.1 | |
+
+On TCG the UI's rate is the guest's CPU's, before and after; on the Pi it went above 60 before.
 
 The panel the UI is shown on may be faster: the viewer and beanjar-vnc compose at the board's
 panel refresh, whatever it is (120, 144 Hz...), with the video at its own rate and the UI at 60

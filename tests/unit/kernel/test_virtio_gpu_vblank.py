@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """virtio-gpu's page flips complete at a vblank timer (kernel patch 0022): the CRTCs have DRM's
 vblank timer at their mode's refresh, the commit's event is armed at the flush rather than sent at
-the host's answer, and the timer starts and stops with the CRTC. The rate itself is measured in a
+the host's answer, and the timer starts and stops with the CRTC; with an EDID (QEMU's is 75 Hz,
+and vhost-user-gpu always has one) the preferred mode is still the scanout's size at 60 Hz. The rate itself is measured in a
 booted guest (docs/dev/architecture/build-and-boot.md, "The display's refresh")."""
 
 import re
@@ -38,3 +39,14 @@ def test_flips_complete_at_the_vblank_timer():
     disable = body(text, "virtio_gpu_crtc_atomic_disable")
     # off before the scanout goes, so a pending event is sent rather than left waiting
     assert disable.index("drm_crtc_vblank_off(crtc)") < disable.index("virtio_gpu_cmd_set_scanout")
+
+
+@pytest.mark.skipif(not DISPLAY.is_file(), reason=f"no unpacked kernel source: {DISPLAY}")
+def test_preferred_mode_is_60_hz_with_an_edid():
+    get_modes = re.search(
+        r"^static int virtio_gpu_conn_get_modes\(.*?^\}", DISPLAY.read_text(), re.M | re.S
+    ).group(0)
+    edid = get_modes[get_modes.index("drm_edid_connector_add_modes") :]
+    edid = edid[: edid.index("return count;")]
+    assert "mode->type &= ~DRM_MODE_TYPE_PREFERRED" in edid
+    assert "drm_cvt_mode(connector->dev, width, height, 60" in edid

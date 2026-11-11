@@ -1,4 +1,4 @@
-drm/virtio: page flips complete at a vblank timer at the mode's refresh
+drm/virtio: page flips complete at a vblank timer; the preferred mode at 60 Hz
 
 virtio-gpu has no vblank: an atomic commit's event was sent as soon as the
 plane update's resource flush came back from the host, so a guest compositor
@@ -8,6 +8,11 @@ have DRM's vblank timer (drm_vblank_helper, as vkms) at their mode's refresh:
 the event is armed at the flush and sent at the next vblank, after the host's
 answer as before, and blocking commits wait for it. Every client of KMS is
 paced by it, legacy page flips and atomic commits alike.
+
+The preferred mode is the scanout's size at 60 Hz (the driver's CVT mode, as
+without an EDID) also when there is an EDID: QEMU generates its EDID at 75 Hz,
+and vhost-user-gpu keeps an EDID whatever its edid= property says. The EDID's
+modes stay, none of them preferred.
 
 --- a/drivers/gpu/drm/virtio/virtgpu_display.c
 +++ b/drivers/gpu/drm/virtio/virtgpu_display.c
@@ -54,7 +59,41 @@ paced by it, legacy page flips and atomic commits alike.
  }
  
  static const struct drm_crtc_helper_funcs virtio_gpu_crtc_helper_funcs = {
-@@ -362,6 +370,11 @@
+@@ -164,12 +172,29 @@
+ 	struct drm_display_mode *mode = NULL;
+ 	int count, width, height;
+ 
+-	count = drm_edid_connector_add_modes(connector);
+-	if (count)
+-		return count;
+-
+ 	width  = le32_to_cpu(output->info.r.width);
+ 	height = le32_to_cpu(output->info.r.height);
++
++	count = drm_edid_connector_add_modes(connector);
++	if (count) {
++		/*
++		 * The preferred mode is the scanout's size at 60 Hz, as without
++		 * an EDID: the vblank timer runs at it. QEMU generates its EDID
++		 * at 75 Hz, and vhost-user-gpu keeps an EDID whatever edid= says.
++		 */
++		if (width && height) {
++			list_for_each_entry(mode, &connector->probed_modes, head)
++				mode->type &= ~DRM_MODE_TYPE_PREFERRED;
++			mode = drm_cvt_mode(connector->dev, width, height, 60,
++					    false, false, false);
++			if (mode) {
++				mode->type |= DRM_MODE_TYPE_PREFERRED;
++				drm_mode_probed_add(connector, mode);
++				count++;
++			}
++		}
++		return count;
++	}
+ 	count = drm_add_modes_noedid(connector, XRES_MAX, YRES_MAX);
+ 
+ 	if (width == 0 || height == 0) {
+@@ -362,6 +387,11 @@
  	for (i = 0 ; i < vgdev->num_scanouts; ++i)
  		vgdev_output_init(vgdev, i);
  
