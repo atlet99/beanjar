@@ -16,9 +16,15 @@ the tree is deleted and downloaded again, so a patch is never missing, stale or 
 
 STAMP is rewritten only when the key changes (custom targets use restat) and DEPFILE names the
 wrap and its patch files, so editing, adding or removing a patch re-runs this and what uses the tree.
+
+Each wrap is locked (subprojects/.<name>.lock, exclusively, like meson/shared.py) for the whole
+check, delete, download and key write, so builds of several targets at once wait for each other
+and then find the key current and do nothing. The key is written last: a tree without the current
+key is never taken for done.
 """
 
 import configparser
+import fcntl
 import hashlib
 import os
 import shutil
@@ -61,6 +67,8 @@ def main(meson, top, name, stamp, depfile):
             key.update(hashlib.sha256(fh.read()).digest())
     key = key.hexdigest()
 
+    lockfd = os.open(os.path.join(subprojects, f".{name}.lock"), os.O_RDWR | os.O_CREAT, 0o644)
+    fcntl.flock(lockfd, fcntl.LOCK_EX)  # released when this process exits
     tree = os.path.join(subprojects, w["directory"])
     keyfile = os.path.join(tree, ".wrap-key")
     try:

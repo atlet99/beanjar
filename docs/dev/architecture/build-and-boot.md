@@ -190,7 +190,9 @@ it records a key of the wrap and its patch files in the tree and, when they chan
 tree and has Meson download it again; its depfile names the wrap and the patches. Editing, adding
 or removing a patch therefore rebuilds what uses the tree at the next `meson compile`, from a
 pristine unpack: a tree is never patched in place, and edits made directly in it are lost at the
-next change. A tree is fetched only when something that is built needs it (the host build on the
+next change. Each wrap is locked exclusively while this runs (`subprojects/.<name>.lock`), so
+builds of several targets at once wait for each other and find the key current; the key is written
+last. A tree is fetched only when something that is built needs it (the host build on the
 Pi fetches none).
 
 One pinned input is not a source tarball: Homebrew Channel's release IPKs (ar archives, which
