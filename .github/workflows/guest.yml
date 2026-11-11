@@ -1,0 +1,85 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Build beanjar-guest (architecture all) with scripts/build-packages.sh guest, in a debian:trixie
+# container on amd64, where the x86_64 SDKs run, from every target's checked-in firmware facts, and
+# release it. Runs in the public repository only; in any other repository the jobs are skipped.
+# A tag guest-<version> releases the commit it points at: the tag must name the version the build
+# produced (packaging/identity.py, from this repository's history), and the release carries the .deb
+# and a SHA256SUMS. A manual run only checks that it builds and keeps the .deb as a run artifact.
+# The Packages workflow picks the release up (packaging/debian/README.md, "Built on GitHub").
+name: Guest
+
+on:
+  push:
+    tags: ["guest-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guest-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Every target in one job, one after the other: they share the downloaded wraps, the unpacked
+  # sources, Mesa builds of the same configuration and (ccache) the kernel, and each target's build
+  # directory is removed once it has published. On GitHub's runner the lane takes about 2.5 hours.
+  # Nothing is cached between runs: the SDKs (650 MB) download in under a minute, and the wraps (a
+  # few hundred MB) come with the first targets.
+  build:
+    if: github.repository == 'mariotaku/beanjar'
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    timeout-minutes: 240
+    steps:
+      - name: Install git
+        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build
+        run: scripts/build-packages.sh guest "$GITHUB_WORKSPACE/build/ci-packages"
+      - name: Check the tag and sum
+        working-directory: build/ci-packages/debs
+        run: |
+          set -- beanjar-guest_*_all.deb
+          [ $# = 1 ] || { echo "expected one beanjar-guest package, found: $*" >&2; exit 1; }
+          version=$(dpkg-deb -f "$1" Version)
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "guest-$version" ]; then
+            echo "tag $GITHUB_REF_NAME does not name the version built, $version: tag this commit guest-$version" >&2
+            exit 1
+          fi
+          sha256sum "$1" > SHA256SUMS
+          cat SHA256SUMS
+      - name: Upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: beanjar-debs-guest
+          path: |
+            build/ci-packages/debs/beanjar-guest_*_all.deb
+            build/ci-packages/debs/SHA256SUMS
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: github.repository == 'mariotaku/beanjar' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: beanjar-debs-guest
+          path: release
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: release
+        run: |
+          sha256sum -c SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" --verify-tag --repo "$GITHUB_REPOSITORY" \
+            --title "beanjar-guest ${GITHUB_REF_NAME#guest-}" \
+            --notes "beanjar-guest ${GITHUB_REF_NAME#guest-}, built from $GITHUB_SHA by the Guest workflow." \
+            beanjar-guest_*_all.deb SHA256SUMS

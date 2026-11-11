@@ -110,19 +110,41 @@ The Packages workflow (`.github/workflows/packages.yml`) builds `beanjar`, `bean
 `beanjar-vnc`, `beanjar-web` and `beanjar-qemu` for amd64 and arm64, each natively on GitHub's
 hosted runner of that architecture in a `debian:trixie` container, with
 `scripts/build-packages.sh host`: the prebuilt programs downloaded and checked, role `host`'s
-build dependencies, the host build without the mitmproxy venv, then `build.py --host-only`. A third job builds `beanjar-guest` on the amd64 runner with
-`scripts/build-packages.sh guest`: role `guest`'s build dependencies and ccache; the webOS and
-NetCast SDKs, openlgtv/buildroot-nc4 release assets pinned by SHA-256 in the script, unpacked in
-`/opt` where the cross files look; every target of `guest/targets` built in turn, from its
-checked-in firmware facts, into one publish directory (each build directory removed once it has
-published; ccache makes every target's kernel after the first a cache hit); then
-`build.py --guest-only`. The wraps download from their upstreams, checked by their hashes.
+build dependencies, the host build without the mitmproxy venv, then `build.py --host-only`.
+Pushes to `main` and pull requests run it as a check; a manual run (Actions, Packages, "Run
+workflow") also uploads the `.deb` files as the run's artifacts `beanjar-debs-amd64` (with the
+host's architecture-all packages) and `beanjar-debs-arm64`.
+
+`beanjar-guest` changes rarely and takes hours to build, so the Packages workflow does not build
+it. The Guest workflow (`.github/workflows/guest.yml`) does, in the public repository
+(mariotaku/beanjar) only, on a tag `guest-<version>` there, and releases it on that repository:
+the `.deb` and a `SHA256SUMS`. It runs `scripts/build-packages.sh guest` on the amd64 runner:
+role `guest`'s build dependencies and ccache; the webOS and NetCast SDKs, openlgtv/buildroot-nc4
+release assets pinned by SHA-256 in the script, unpacked in `/opt` where the cross files look;
+every target of `guest/targets` built in turn, from its checked-in firmware facts, into one
+publish directory (each build directory removed once it has published; ccache makes every
+target's kernel after the first a cache hit); then `build.py --guest-only`. The wraps download
+from their upstreams, checked by their hashes. The tag must name the version the build produced
+("Versions and compatibility", from the public repository's own history, which differs from the
+private one's), else the run fails and names the right tag; a manual run of the workflow only
+checks that the guest builds and keeps the `.deb` as a run artifact.
+
+To release a guest, push the tag on the public repository at the commit to release, for example
+`git tag guest-0.4.0 <commit> && git push <public remote> guest-0.4.0`; the version is the one
+`packaging/identity.py` gives that commit there (`0.4.0` at the commit that set
+`packaging/VERSION`, `0.4.0+gitN.g<12 hex>` after it). Release one whenever the host-guest
+contract's minor changes, since no host of the new `0.Y` has a guest until then, and otherwise when
+guest changes should reach users.
+
+A manual Packages run fetches the guest that pairs with its host (`packaging/guest_release.py`):
+of the public repository's `guest-<version>` releases, the newest of the host's `0.Y` (the range
+`beanjar` depends on, below), checked against the release's `SHA256SUMS`, uploaded as
+`beanjar-debs-guest`. Without one the run fails, naming the tag to push. Pushes and pull requests
+build only the host.
+
 The same script builds the packages locally as root in a throwaway trixie container, for example
 `docker run --rm -v "$PWD:/src" debian:trixie /src/scripts/build-packages.sh host` (or `guest`)
-from a clean clone with its full history (the version comes from git). Pushes to `main` and pull
-requests run both lanes as a check; a manual run (Actions, Packages, "Run workflow") also uploads
-the `.deb` files as the run's artifacts `beanjar-debs-amd64` (with the host's architecture-all
-packages), `beanjar-debs-arm64` and `beanjar-debs-guest`.
+from a clean clone with its full history (the version comes from git).
 
 ### Versions and compatibility
 

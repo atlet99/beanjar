@@ -1,12 +1,11 @@
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Build the Debian 13 packages with scripts/build-packages.sh, each lane in a debian:trixie
-# container: the host packages (beanjar, beanjar-ui, beanjar-vnc, beanjar-web, beanjar-qemu, with
-# the prebuilt programs of packaging/vendor.toml) natively for amd64 and arm64, and beanjar-guest
-# (architecture all) on amd64, where the x86_64 SDKs run, from every target's checked-in firmware
-# facts. Pushes to main and pull requests only check that they build;
-# a manual run uploads the .deb files as workflow artifacts (packaging/debian/README.md, "Built on
-# GitHub").
+# Build the Debian 13 host packages with scripts/build-packages.sh host, in a debian:trixie
+# container: beanjar, beanjar-ui, beanjar-vnc, beanjar-web, beanjar-qemu, with the prebuilt
+# programs of packaging/vendor.toml, natively for amd64 and arm64. Pushes to main and pull requests
+# only check that they build; a manual run uploads the .deb files as workflow artifacts, with the
+# released beanjar-guest of the host's contract beside them (packaging/guest_release.py; the Guest
+# workflow builds and releases it; packaging/debian/README.md, "Built on GitHub").
 name: Packages
 
 on:
@@ -59,26 +58,21 @@ jobs:
           path: ${{ matrix.upload }}
           if-no-files-found: error
 
-  # Every target in one job, one after the other: they share the downloaded wraps, the unpacked
-  # sources, Mesa builds of the same configuration and (ccache) the kernel, and each target's build
-  # directory is removed once it has published. Locally on four threads the lane took an hour,
-  # about 9 GB at its peak. Nothing is cached between runs, for little gain: the SDKs (650 MB)
-  # downloaded in under a minute, and the wraps (a few hundred MB) come with the first targets.
+  # beanjar-guest is not built here: the newest release of the host's contract on the public
+  # repository, checked against its SHA256SUMS
   guest:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    container: debian:trixie
-    timeout-minutes: 240
+    timeout-minutes: 15
     steps:
-      - name: Install git
-        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
-      - name: Build
-        run: scripts/build-packages.sh guest "$GITHUB_WORKSPACE/build/ci-packages"
+      - name: Fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I packaging/guest_release.py fetch --out build/ci-packages/debs
       - name: Upload
-        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: beanjar-debs-guest

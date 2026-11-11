@@ -2,8 +2,9 @@
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Build Beanjar's Debian packages from a clean, full-history checkout, one build lane at a time.
-# Run as root in a throwaway Debian 13 container (the Packages workflow,
-# .github/workflows/packages.yml): it installs packages into the system it runs in.
+# Run as root in a throwaway Debian 13 container (the Packages workflow, .github/workflows/packages.yml,
+# for host, and the Guest workflow, .github/workflows/guest.yml, for guest): it installs packages
+# into the system it runs in.
 #
 #   scripts/build-packages.sh host [OUT]    default OUT: build/ci-packages
 #   scripts/build-packages.sh guest [OUT]
@@ -24,7 +25,7 @@
 set -eu
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 lane=${1:-}
-case $lane in host|guest) ;; *) sed -n '8,9p' "$0" >&2; exit 1 ;; esac
+case $lane in host|guest) ;; *) sed -n '9,10p' "$0" >&2; exit 1 ;; esac
 OUT=$(mkdir -p "${2:-$TOP/build/ci-packages}" && cd "${2:-$TOP/build/ci-packages}" && pwd)
 export DEBIAN_FRONTEND=noninteractive
 

@@ -779,9 +779,12 @@ Pi) are cross-built on the PC against Debian's own arm64 libraries (`build/host-
 so their dependencies are Debian's, not Raspberry Pi OS's (whose FFmpeg has epoch 8). That pairing is apt's hint; at each start the
 launcher checks what the guest payload has: the target's components and the module parameters its
 `.ko` files declare (docs/dev/architecture/build-and-boot.md, "Host and guest compatibility").
-The host packages for amd64 and arm64, and `beanjar-guest` from every target, are also built by the
-Packages workflow on GitHub, on every push to `main` and pull request as a check, and on a manual
-run with the `.deb` files as the run's artifacts (packaging/debian/README.md, "Built on GitHub").
+The host packages for amd64 and arm64 are also built by the Packages workflow on GitHub, on every
+push to `main` and pull request as a check, and on a manual run with the `.deb` files as the run's
+artifacts, beside the released `beanjar-guest` of the host's `0.Y`. `beanjar-guest`, from every
+target, is built and released by the Guest workflow on a tag `guest-<version>` of the public
+repository, pushed at the commit to release: whenever the host-guest contract's minor changes, and
+otherwise when guest changes should reach users (packaging/debian/README.md, "Built on GitHub").
 
 ## Host packages
 
