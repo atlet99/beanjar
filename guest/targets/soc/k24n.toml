@@ -3,7 +3,7 @@
 # same exports and /dev, /sys and /proc names, and the same RPC answer table (rpc-table); its I2C
 # table, DILE_I2C's seven adapters, libdil_tu_plugin (2.1) and every fstab and jail pin are W24H's.
 # Its libdile_gpio (33.31.68) keeps K24's lines, USB ones and HDMI detects included, and adds the
-# LNB outputs GPIO_WR_LNB_14V_19V 29 and GPIO_WR_LNB_EN 2: K24's rtk row serves them all but the
-# HDMI detects (soc/k24.toml).
+# LNB outputs GPIO_WR_LNB_14V_19V 29 and GPIO_WR_LNB_EN 2: K24's rtk row serves them all
+# (soc/k24.toml).
 
 base = "k24"

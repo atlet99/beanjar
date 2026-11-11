@@ -13,11 +13,9 @@ base = "k8hpp"
 # gpio_usb_vbus and gpio_level: the USB ports' power switches and overcurrent inputs
 # (soc/k6lp.toml says how they were read): W24H's libdile_gpio (23.23.30, 33.31.68) and
 # nyxGpio.module (43.22.72), the same tables: USB1_CTRL 69, USB2_CTRL 86, USB1_OCD 71, USB2_OCD 87.
-# gpio_lines: the four HDMI*_DEV_DET inputs are 725, 729, 732 and 733, above 511, where QEMU virt's
-# PL061 takes gpiolib's dynamic base 512 (docs/dev/architecture/build-and-boot.md, GPIO): a chip
-# at base 0 reaching them would overlap it. The chip ends after the highest line below 512, 439
-# (IR_BLASTER_DET); exporting an HDMI detect fails (EINVAL), as every line does on chips without
-# a GPIO chip.
+# gpio_lines: the four HDMI*_DEV_DET inputs are 725, 729, 732 and 733, the highest line; the chip
+# ends after it. gpiolib's dynamic bases start at 1024 (kernel patch 0021), so QEMU virt's PL061
+# sits above it.
 [[modules]]
 name = "rtk"
 params = [
@@ -43,7 +41,7 @@ params = [
     "waits=cec0:0xc0386106",
     "v4l2_vsc=video30,video31",
     "pwms=pwm-I-0,pwm-I-1,pwm-I-2,pwm-I-3,pwm-M-0,pwm-M-1,pwm-M-2,pwm-M-3",
-    "gpio_lines=440",
+    "gpio_lines=734",
     "vt=vivtdev:1920:1080:60",
     "rpc_word=100:12070:2:0x11000",
     "tee=1",

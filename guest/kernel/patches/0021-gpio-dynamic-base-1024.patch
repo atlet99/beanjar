@@ -1,0 +1,25 @@
+gpio: dynamic bases from 1024
+
+LG's firmwares drive their SoC's GPIO lines through /sys/class/gpio by the
+numbers of their own pin tables, which the vendor module serves with a chip
+at base 0. The Realtek K24's HDMI detect inputs are lines 725 to 733, where
+QEMU virt's PL061, the only chip with a dynamic base, took 512: a chip at
+base 0 reaching them would overlap it and fail to register. Dynamic bases
+start above every line a stock firmware uses instead; the PL061 is reached
+through its DT node, never by number.
+
+--- a/drivers/gpio/gpiolib.c
++++ b/drivers/gpio/gpiolib.c
+@@ -77,9 +77,10 @@
+ /*
+  * At the end we want all GPIOs to be dynamically allocated from 0.
+  * However, some legacy drivers still perform fixed allocation.
+- * Until they are all fixed, leave 0-512 space for them.
++ * Until they are all fixed, leave 0-1024 space for them (LG's pin tables
++ * reach 733).
+  */
+-#define GPIO_DYNAMIC_BASE	512
++#define GPIO_DYNAMIC_BASE	1024
+ /*
+  * Define the maximum of the possible GPIO in the global numberspace.
+  * While the GPIO base and numbers are positive, we limit it with signed
