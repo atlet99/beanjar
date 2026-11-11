@@ -710,7 +710,7 @@ interfaces and initramfs. The commands and package requirements remain in this g
   first target of each Mesa key (about 105 s each) are most of what is left.
 - The Mesa stack (libffi, libdrm, Wayland, wayland-protocols, Mesa) is built by `mesa-stack.sh`,
   in `<shared_dir>/mesa/<key>/{work,stage}`. Its key
-  (`guest/layers/gl/mesa/meson.build`) hashes what a target can differ in: the cross file's compilers
+  (`guest/layers/gl/mesa/meson.build`, made by `meson/shared.py key` as the others are) hashes what a target can differ in: the cross file's compilers
   and flags with its paths left out, the Wayland it builds against (the firmware's own 1.20 or 1.22,
   else 1.26), whether Mesa links `libwayland-server-compat` (webOS 1 and 2), the EGL platforms and
   extra options (NetCast 4.5). What every target has alike (the
@@ -725,7 +725,8 @@ interfaces and initramfs. The commands and package requirements remain in this g
 - A key no target uses any more stays until its directory is removed, which costs one rebuild of
   each key still in use.
 - rootssh, devmode and hbchannel are made by their own scripts in `guest/layers/<name>/`
-  (`meson/layer-script.py` runs them). They hold no keys: they are the same for every VM, and each VM's SSH keys reach the
+  (`meson/layer-script.py` runs them and writes the layer's stamp, rewritten only when its tree
+  changes, and a depfile of the script's inputs). They hold no keys: they are the same for every VM, and each VM's SSH keys reach the
   guest through its per-VM layer.
 - `publish` runs every time but only stats files when nothing changed.
 

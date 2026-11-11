@@ -27,6 +27,7 @@ that another one changed DIR, or that it was removed; a DEST older than them is 
 rule with a depfile has no restat.
 """
 
+import argparse
 import fcntl
 import hashlib
 import os
@@ -34,52 +35,27 @@ import shutil
 import subprocess
 import sys
 
+from common import file_hash, lock, same, split_command, write_depfile
+
 
 def key(lines):
     return hashlib.sha256("".join(line + "\n" for line in lines).encode()).hexdigest()[:16]
 
 
 def parse(argv):
-    opts = {
-        "dir": None,
-        "after": [],
-        "input": [],
-        "tool": [],
-        "file": [],
-        "tree": [],
-        "depfile": None,
-    }
-    i = 0
-    while i < len(argv) and argv[i] != "--":
-        a = argv[i]
-        name = a[2:]
-        if a in ("--dir", "--depfile"):
-            opts[name] = argv[i + 1]
-            i += 2
-        elif a in ("--after", "--tool"):
-            opts[name].append(argv[i + 1])
-            i += 2
-        elif a == "--input":  # --input FILE..., up to the next option
-            i += 1
-            while i < len(argv) and not argv[i].startswith("--"):
-                opts[name].append(argv[i])
-                i += 1
-        elif a in ("--file", "--tree"):
-            opts[name].append((argv[i + 1], argv[i + 2]))
-            i += 3
-        else:
-            sys.exit(f"shared.py: unknown argument {a}")
-    command = argv[i + 1 :]
-    if not opts["dir"] or not command:
-        sys.exit(__doc__)
+    argv, command = split_command(argv)
+    p = argparse.ArgumentParser(prog="shared.py run", allow_abbrev=False)
+    p.add_argument("--dir", required=True)
+    p.add_argument("--after", action="append", default=[])
+    p.add_argument("--input", action="extend", nargs="+", default=[])
+    p.add_argument("--tool", action="append", default=[])
+    p.add_argument("--file", action="append", nargs=2, default=[])
+    p.add_argument("--tree", action="append", nargs=2, default=[])
+    p.add_argument("--depfile")
+    opts = p.parse_args(argv)
+    if not command:
+        p.error("no COMMAND after --")
     return opts, command
-
-
-def lock(directory, mode):
-    os.makedirs(directory, exist_ok=True)
-    fd = os.open(os.path.join(directory, ".lock"), os.O_RDWR | os.O_CREAT, 0o644)
-    fcntl.flock(fd, mode)
-    return fd
 
 
 def read(path):
@@ -93,64 +69,30 @@ def read(path):
 def digest(opts, command):
     h = hashlib.sha256()
     h.update(("\0".join(command) + "\0\0").encode())
-    for after in opts["after"]:
+    for after in opts.after:
         inputs = read(os.path.join(after, ".inputs"))
         if inputs is None:
             sys.exit(f"shared.py: {after} has not been built (or was removed): build again")
         h.update(f"after {after} {inputs}".encode())
-    for path in opts["input"]:
-        with open(path, "rb") as f:
-            h.update(f"input {path} ".encode() + hashlib.sha256(f.read()).digest())
-    for tool in opts["tool"]:
+    for path in opts.input:
+        h.update(f"input {path} ".encode() + file_hash(path))
+    for tool in opts.tool:
         out = subprocess.run([tool, "--version"], stdout=subprocess.PIPE, check=True).stdout
         h.update(f"tool {shutil.which(tool)} ".encode() + out)
     return h.hexdigest() + "\n"
 
 
-def same_tree(a, b):
-    """Whether directory trees a and b have the same names, types, modes, links and contents."""
-    if not os.path.isdir(b):
-        return False
-    for root, dirs, files in os.walk(a):
-        rel = os.path.relpath(root, a)
-        other = os.path.join(b, rel)
-        if sorted(dirs + files) != sorted(os.listdir(other)):
-            return False
-        for name in dirs + files:
-            p, q = os.path.join(root, name), os.path.join(other, name)
-            sp, sq = os.lstat(p), os.lstat(q)
-            if sp.st_mode != sq.st_mode:
-                return False
-            if os.path.islink(p):
-                if os.readlink(p) != os.readlink(q):
-                    return False
-            elif os.path.isfile(p) and not same_file(p, q):
-                return False
-    return True
-
-
-def same_file(a, b):
-    if not os.path.isfile(b) or os.path.getsize(a) != os.path.getsize(b):
-        return False
-    with open(a, "rb") as fa, open(b, "rb") as fb:
-        while True:
-            x, y = fa.read(1 << 20), fb.read(1 << 20)
-            if x != y:
-                return False
-            if not x:
-                return True
-
-
 def copy_file(src, dest):
-    if same_file(src, dest):
+    """DEST becomes a copy of file SRC (a link followed) through a rename, unless it is one."""
+    if same(os.path.realpath(src), dest):
         return
-    tmp = dest + ".tmp"
-    shutil.copy2(src, tmp)
-    os.replace(tmp, dest)
+    shutil.copy2(src, dest + ".tmp")
+    os.replace(dest + ".tmp", dest)
 
 
 def copy_tree(src, dest):
-    if same_tree(src, dest):
+    """DEST becomes a copy of tree SRC (links kept) through a rename, unless it is one."""
+    if same(src, dest):
         return
     tmp = dest + ".tmp"
     shutil.rmtree(tmp, ignore_errors=True)
@@ -160,14 +102,19 @@ def copy_tree(src, dest):
     os.replace(tmp, dest)
 
 
+def lock_dir(directory, mode):
+    os.makedirs(directory, exist_ok=True)
+    return lock(os.path.join(directory, ".lock"), mode)
+
+
 def run(opts, command):
-    directory = opts["dir"]
-    fds = [lock(after, fcntl.LOCK_SH) for after in opts["after"]]
-    fds.append(lock(directory, fcntl.LOCK_EX))
+    directory = opts.dir
+    fds = [lock_dir(after, fcntl.LOCK_SH) for after in opts.after]
+    fds.append(lock_dir(directory, fcntl.LOCK_EX))
     stamp = os.path.join(directory, ".inputs")
     want = digest(opts, command)
-    outputs = [src for src, _ in opts["file"] + opts["tree"]]
-    if read(stamp) != want or not all(os.path.lexists(src) for src in outputs):
+    copies = opts.file + opts.tree
+    if read(stamp) != want or not all(os.path.lexists(src) for src, _ in copies):
         if os.path.lexists(stamp):
             os.remove(stamp)
         r = subprocess.run(command)
@@ -176,24 +123,17 @@ def run(opts, command):
         with open(stamp + ".tmp", "w") as f:
             f.write(want)
         os.replace(stamp + ".tmp", stamp)
-    for src, dest in opts["file"]:
+    for src, dest in opts.file:
         copy_file(src, dest)
-    for src, dest in opts["tree"]:
+    for src, dest in opts.tree:
         copy_tree(src, dest)
-    if opts["depfile"]:
-        stamps = [stamp] + [os.path.join(after, ".inputs") for after in opts["after"]]
+    if opts.depfile:
+        stamps = [stamp] + [os.path.join(after, ".inputs") for after in opts.after]
         newest = max(os.stat(s).st_mtime_ns for s in stamps)
-        dests = [dest for _, dest in opts["file"] + opts["tree"]]
-        for dest in dests:
+        for _, dest in copies:
             if os.stat(dest).st_mtime_ns < newest:
                 os.utime(dest)
-        with open(opts["depfile"], "w") as f:
-            f.write(
-                dests[0].replace(" ", "\\ ")
-                + ": "
-                + " ".join(s.replace(" ", "\\ ") for s in stamps)
-                + "\n"
-            )
+        write_depfile(opts.depfile, copies[0][1], stamps)
     for fd in fds:
         os.close(fd)
 

@@ -1,17 +1,20 @@
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
 # What every module uses: the build's own scripts, and the unpacked source trees of the wraps.
+# The Python scripts are run with `python`; what they share (stamps, depfiles, locks, tree hashes)
+# is in common.py.
 python = find_program('python3')
 meson_cmd = find_program('meson')      # the Meson running this build (the system's)
 stage_py = files('stage.py')           # assemble a tree (layer, SSH binaries, test programs)
 publish_py = files('publish.py')       # copy results to publish_dir without disturbing a VM
 initramfs_py = files('initramfs.py')   # pack the initramfs with the kernel's gen_init_cpio
-layer_script = [python, files('layer-script.py')]   # layers made by their own build-layer.sh
+layer_script_py = files('layer-script.py')   # layers made by their own build-layer.sh
 kbuild = files('kbuild.sh')            # the kernel's and busybox's own Kbuild
 venv_sh = files('venv.sh')             # a venv from a hash-pinned requirements file
 # What a guest build makes once for every target that would make it the same, each in
-# <shared_dir>/<component>/<key> (shared.py: the key, the lock, the skip and the copy into the build
-# directory): the Mesa stack, the arm64 kernel and its modules, busybox and the SSH programs.
+# <shared_dir>/<component>/<key>: the Mesa stack, the arm64 kernel and its modules, busybox and the
+# SSH programs. shared.py makes every key; for all but the Mesa stack (mesa-stack.sh) it also
+# takes the lock, skips a build already done and copies the result into the build directory.
 shared_py = files('shared.py')
 shared_dir = top / (get_option('shared_dir') != '' ? get_option('shared_dir') : 'build')
 
@@ -36,7 +39,8 @@ foreach name : ['linux', 'busybox', 'gstreamer', 'gstreamer18', 'gstreamer112', 
     'stamp': custom_target('fetch-' + name,
       output: name + '.fetched',
       depfile: name + '.fetched.d',
-      command: [python, fetch_py, meson_cmd, top, name, '@OUTPUT@', '@DEPFILE@']),
+      command: [python, fetch_py, '--source-root', top, '--stamp', '@OUTPUT@', '--depfile', '@DEPFILE@',
+                name, '--', meson_cmd]),
   }}
 endforeach
 

@@ -41,9 +41,22 @@ def setup(tmp):
 def start(tmp, meson, build):
     build.mkdir(exist_ok=True)
     return subprocess.Popen(
-        [sys.executable, str(FETCH), str(meson), str(tmp), "pkg",
-         str(build / "stamp"), str(build / "depfile")],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        [
+            sys.executable,
+            str(FETCH),
+            "--source-root",
+            str(tmp),
+            "--stamp",
+            str(build / "stamp"),
+            "--depfile",
+            str(build / "depfile"),
+            "pkg",
+            "--",
+            str(meson),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
     )
 
 
@@ -57,7 +70,9 @@ def test_concurrent_runs_unpack_and_patch_once(tmp_path):
     assert (tree / "Makefile").is_file()
     assert (tree / "patched").read_text() == "patched\n"
     assert len((tmp_path / "downloads").read_text().split()) == 1
-    assert (tree / ".wrap-key").read_text().strip() == (tmp_path / "b0" / "stamp").read_text().strip()
+    assert (tree / ".wrap-key").read_text().strip() == (
+        tmp_path / "b0" / "stamp"
+    ).read_text().strip()
     assert (tmp_path / "b2" / "stamp").is_file()
 
 

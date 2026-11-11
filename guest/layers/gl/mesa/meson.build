@@ -105,13 +105,11 @@ mesa_env = {
 # The key: the cross file's values and the environment above, and whether Mesa links
 # libwayland-server-compat (built below from one source with this cross file, so the same for
 # every target that has it).
-mesa_key_text = 'wayland_server_compat=@0@\n'.format(wayland_server_compat)
+mesa_key_lines = ['wayland_server_compat=@0@'.format(wayland_server_compat)]
 foreach k, v : ini + mesa_env
-  mesa_key_text += k + '=' + v + '\n'
+  mesa_key_lines += k + '=' + v
 endforeach
-mesa_key = run_command(python, '-c',
-  'import hashlib, sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:16])',
-  mesa_key_text, check: true).stdout().strip()
+mesa_key = run_command(python, shared_py, 'key', mesa_key_lines, check: true).stdout().strip()
 mesa_root = shared_dir / 'mesa' / mesa_key
 mesa_stage = mesa_root / 'stage'
 mesa_work = mesa_root / 'work'

@@ -32,7 +32,7 @@ foreach hbchannel_version : hbchannel_versions
   layers += {hbchannel_name: custom_target('hbchannel-layer-' + hbchannel_version,
     output: 'hbchannel-' + hbchannel_version + '-layer.stamp',
     depfile: 'hbchannel-' + hbchannel_version + '-layer.d',
-    command: layer_script + ['--dest', layers_dir / hbchannel_name, '--stamp', '@OUTPUT@', '--depfile', '@DEPFILE@',
+    command: [python, layer_script_py, '--dest', layers_dir / hbchannel_name, '--stamp', '@OUTPUT@', '--depfile', '@DEPFILE@',
       '--dep', meson.current_source_dir() / 'build-layer.sh',
       '--dep', meson.current_source_dir() / 'versions' / hbchannel_version / 'release.env',
       '--dep', meson.current_source_dir() / 'versions' / hbchannel_version / 'releases',

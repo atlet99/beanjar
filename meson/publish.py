@@ -18,13 +18,15 @@ records the size/mtime/mode of every file of both sides after each publish, so a
 nothing changed only stats files.
 """
 
+import argparse
 import ctypes
-import filecmp
 import json
 import os
 import shutil
 import stat
 import sys
+
+from common import same
 
 RENAME_EXCHANGE = 2
 AT_FDCWD = -100
@@ -63,38 +65,27 @@ def snapshot(path):
     return out
 
 
-def same_tree(a, b):
-    sa, sb = snapshot(a), snapshot(b)
-    if sa is None or sb is None:
-        return False
-    if [(r, m, s, l) for r, m, s, _, l in sa] != [(r, m, s, l) for r, m, s, _, l in sb]:
-        return False
-    for r, m, *_ in sa:
-        if stat.S_ISREG(m):
-            pa = a if r == "." else os.path.join(a, r)
-            pb = b if r == "." else os.path.join(b, r)
-            if not filecmp.cmp(pa, pb, shallow=False):
-                return False
-    return True
+class Item(argparse.Action):
+    """A --file or --tree, kept in the order given: (kind, SRC, REL)."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        namespace.items.append((option_string[2:], *values))
 
 
 def main(argv):
-    dest = state_file = None
-    items = []
-    i = 0
-    while i < len(argv):
-        a = argv[i]
-        if a == "--dest":
-            dest = argv[i + 1]
-            i += 2
-        elif a == "--state":
-            state_file = argv[i + 1]
-            i += 2
-        elif a in ("--file", "--tree"):
-            items.append((a[2:], argv[i + 1], argv[i + 2]))
-            i += 3
-        else:
-            sys.exit(f"publish.py: unknown argument {a}")
+    p = argparse.ArgumentParser(
+        prog="publish.py",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        allow_abbrev=False,
+    )
+    p.add_argument("--dest", required=True)
+    p.add_argument("--state", required=True)
+    p.set_defaults(items=[])
+    p.add_argument("--file", nargs=2, metavar=("SRC", "REL"), action=Item)
+    p.add_argument("--tree", nargs=2, metavar=("SRC", "REL"), action=Item)
+    a = p.parse_args(argv)
+    dest, state_file, items = a.dest, a.state, a.items
     try:
         with open(state_file) as f:
             state = json.load(f)
@@ -110,7 +101,7 @@ def main(argv):
         if state.get(key) == snap:
             new_state[key] = snap
             continue
-        if not same_tree(src, dst):
+        if not same(src, dst):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             if kind == "file":
                 tmp = dst + ".publish-tmp"

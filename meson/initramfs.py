@@ -24,15 +24,23 @@ every timestamp is MTIME (default 0) and inode numbers are assigned in list orde
 inputs give the same bytes; nothing needs root. The cpio file is only replaced when it changes.
 """
 
+import argparse
 import os
 import re
 import subprocess
 import sys
 
+from common import write_depfile
+
 
 def parse(argv):
-    opts, vars_ = {"mtime": "0"}, {}
-    single = (
+    p = argparse.ArgumentParser(
+        prog="initramfs.py",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        allow_abbrev=False,
+    )
+    for name in (
         "--list",
         "--src",
         "--out-list",
@@ -40,23 +48,12 @@ def parse(argv):
         "--depfile",
         "--gen-init-cpio",
         "--gzip",
-        "--mtime",
-    )
-    i = 0
-    while i < len(argv):
-        a = argv[i]
-        if a in single:
-            opts[a[2:].replace("-", "_")] = argv[i + 1]
-            i += 2
-        elif a == "--var":
-            vars_[argv[i + 1]] = os.path.abspath(argv[i + 2])
-            i += 3
-        else:
-            sys.exit(f"initramfs.py: unknown argument {a}")
-    for k in single[:-1]:
-        if k[2:].replace("-", "_") not in opts:
-            sys.exit(f"initramfs.py: {k} is required")
-    return opts, vars_
+    ):
+        p.add_argument(name, required=True)
+    p.add_argument("--mtime", default="0")
+    p.add_argument("--var", nargs=2, metavar=("NAME", "PATH"), action="append", default=[])
+    opts = vars(p.parse_args(argv))
+    return opts, {name: os.path.abspath(path) for name, path in opts.pop("var")}
 
 
 def tree(words, deps):
@@ -155,9 +152,7 @@ def main():
             f.write(gz)
         os.replace(opts["cpio"] + ".tmp", opts["cpio"])
 
-    esc = lambda p: os.path.abspath(p).replace(" ", "\\ ")
-    with open(opts["depfile"], "w") as f:
-        f.write(opts["out_list"] + ": " + " ".join(esc(d) for d in deps) + "\n")
+    write_depfile(opts["depfile"], opts["out_list"], deps)
 
 
 if __name__ == "__main__":

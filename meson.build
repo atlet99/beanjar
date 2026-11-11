@@ -59,7 +59,7 @@ if not guest_lane
   endif
 endif
 
-# The build's scripts (python, stage_py, publish_py, layer_script, ...) and the unpacked source
+# The build's scripts (python, stage_py, publish_py, layer_script_py, ...) and the unpacked source
 # trees of subprojects/*.wrap (sources[name] = {'dir': tree, 'stamp': custom target}).
 subdir('meson')
 

@@ -29,7 +29,7 @@ rewritten when that changes, so the steps after it (the initramfs, publishing) r
 source tree is noticed too.
 """
 
-import hashlib
+import argparse
 import os
 import re
 import shutil
@@ -37,26 +37,41 @@ import stat
 import subprocess
 import sys
 
+from common import manifest, write_depfile, write_if_changed
+
+
+class Op(argparse.Action):
+    """An OP, kept in the order given: (name, [ARG...])."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        namespace.ops.append((option_string[2:], values))
+
 
 def parse(argv):
-    opts = {"strip": None, "readelf": None, "glibc_max": None}
-    ops = []
-    arity = {"--tree": 2, "--built-tree": 2, "--file": 3, "--link": 2, "--dir": 2}
-    i = 0
-    while i < len(argv):
-        a = argv[i]
-        if a in ("--out", "--stamp", "--depfile", "--strip", "--readelf", "--glibc-max"):
-            opts[a[2:].replace("-", "_")] = argv[i + 1]
-            i += 2
-        elif a in arity:
-            ops.append((a[2:], argv[i + 1 : i + 1 + arity[a]]))
-            i += 1 + arity[a]
-        else:
-            sys.exit(f"stage.py: unknown argument {a}")
-    for k in ("out", "stamp", "depfile"):
-        if k not in opts:
-            sys.exit(f"stage.py: --{k} is required")
-    return opts, ops
+    p = argparse.ArgumentParser(
+        prog="stage.py",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        allow_abbrev=False,
+    )
+    p.add_argument("--manifest", nargs=2, metavar=("DIR", "STAMP"))
+    for name in ("--out", "--stamp", "--depfile", "--strip", "--readelf", "--glibc-max"):
+        p.add_argument(name)
+    p.set_defaults(ops=[])
+    for name, metavar in (
+        ("--tree", ("SRC", "DEST")),
+        ("--built-tree", ("SRC", "DEST")),
+        ("--file", ("SRC", "DEST", "MODE")),
+        ("--link", ("TARGET", "DEST")),
+        ("--dir", ("DEST", "MODE")),
+    ):
+        p.add_argument(name, nargs=len(metavar), metavar=metavar, action=Op)
+    opts = p.parse_args(argv)
+    if not opts.manifest:
+        for k in ("out", "stamp", "depfile"):
+            if getattr(opts, k) is None:
+                p.error(f"--{k} is required")
+    return opts
 
 
 def is_elf(path):
@@ -83,43 +98,13 @@ def vkey(v):
     return tuple(int(x) for x in v.split("."))
 
 
-def manifest(root):
-    h = hashlib.sha256()
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames.sort()
-        for name in sorted(dirnames + filenames):
-            p = os.path.join(dirpath, name)
-            st = os.lstat(p)
-            rel = os.path.relpath(p, root)
-            h.update(f"{rel}\0{st.st_mode:o}\0".encode())
-            if stat.S_ISLNK(st.st_mode):
-                h.update(os.readlink(p).encode())
-            elif stat.S_ISREG(st.st_mode):
-                with open(p, "rb") as f:
-                    h.update(hashlib.sha256(f.read()).digest())
-            h.update(b"\n")
-    return h.hexdigest()
-
-
-def write_if_changed(path, text):
-    try:
-        with open(path) as f:
-            if f.read() == text:
-                return
-    except FileNotFoundError:
-        pass
-    with open(path + ".tmp", "w") as f:
-        f.write(text)
-    os.replace(path + ".tmp", path)
-
-
 def main():
-    if sys.argv[1:2] == ["--manifest"]:
-        # stage.py --manifest DIR STAMP: only (re)write STAMP from DIR's contents.
-        write_if_changed(sys.argv[3], manifest(sys.argv[2]) + "\n")
+    opts = parse(sys.argv[1:])
+    if opts.manifest:
+        # only (re)write STAMP from DIR's contents
+        write_if_changed(opts.manifest[1], manifest(opts.manifest[0]) + "\n")
         return
-    opts, ops = parse(sys.argv[1:])
-    out = opts["out"].rstrip("/")
+    out = opts.out.rstrip("/")
     tmp = out + ".tmp"
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
@@ -130,7 +115,7 @@ def main():
         os.makedirs(os.path.dirname(p), exist_ok=True)
         return p
 
-    for op, args in ops:
+    for op, args in opts.ops:
         if op in ("tree", "built-tree"):
             src, rel = args
             ignore = None
@@ -173,27 +158,25 @@ def main():
     elves = []
     for dirpath, dirnames, filenames in os.walk(tmp):
         elves += [os.path.join(dirpath, n) for n in filenames if is_elf(os.path.join(dirpath, n))]
-    if opts["strip"]:
+    if opts.strip:
         for p in elves:
             mode = os.stat(p).st_mode
             os.chmod(p, mode | stat.S_IWUSR)
-            subprocess.run([opts["strip"], "--strip-unneeded", p], check=True)
+            subprocess.run([opts.strip, "--strip-unneeded", p], check=True)
             os.chmod(p, mode)
-    if opts["glibc_max"]:
+    if opts.glibc_max:
         bad = []
         for p in elves:
-            r = subprocess.run(
-                [opts["readelf"], "-V", p], capture_output=True, text=True, check=True
-            )
+            r = subprocess.run([opts.readelf, "-V", p], capture_output=True, text=True, check=True)
             vs = re.findall(r"Name: GLIBC_([0-9.]+)", r.stdout)
             if vs:
                 v = max(vs, key=vkey)
-                if vkey(v) > vkey(opts["glibc_max"]):
+                if vkey(v) > vkey(opts.glibc_max):
                     bad.append(f"{os.path.relpath(p, tmp)} needs GLIBC_{v}")
         if bad:
             shutil.rmtree(tmp)
             sys.exit(
-                "newer than the firmware's glibc %s:\n  %s" % (opts["glibc_max"], "\n  ".join(bad))
+                "newer than the firmware's glibc %s:\n  %s" % (opts.glibc_max, "\n  ".join(bad))
             )
 
     old = out + ".old"
@@ -203,9 +186,8 @@ def main():
     os.rename(tmp, out)
     shutil.rmtree(old, ignore_errors=True)
 
-    write_if_changed(opts["stamp"], manifest(out) + "\n")
-    esc = lambda p: os.path.abspath(p).replace(" ", "\\ ")
-    write_if_changed(opts["depfile"], opts["stamp"] + ": " + " ".join(esc(d) for d in deps) + "\n")
+    write_if_changed(opts.stamp, manifest(out) + "\n")
+    write_depfile(opts.depfile, opts.stamp, deps)
 
 
 if __name__ == "__main__":
