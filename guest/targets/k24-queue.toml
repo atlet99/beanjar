@@ -1,0 +1,17 @@
+models = ["W24H"]
+bring_up = ["W24H"]
+tested = false
+
+# W24H queue-qilian (43.22.72) keeps ombre's super.pak images and fstab pins; its jails'
+# secure-store pins move down by two (p17, p18, p21, p24), as the other queue firmwares' do.
+[release]
+base = "queue"
+paks = [
+    { file = "rootfs", serial = "rootfs", mount = "/" },
+    { file = "bsppart", serial = "bsppart" },
+    { file = "otncabi", serial = "otncabi", mount = "/mnt/otncabi" },
+    { file = "otycabi", serial = "otycabi", mount = "/mnt/otycabi" },
+    { file = "fonts", serial = "fonts", mount = "/mnt/fonts" },
+    { file = "license", serial = "license", mount = "/mnt/license" },
+]
+partmap = "k24-ombre"

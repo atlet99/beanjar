@@ -1,0 +1,66 @@
+# The Realtek "K24" (W24H's SoC; its U-Boot passes chip=K24, "LGE K8 Board"): K8HPP's Realtek
+# platform with a Mali GPU (guest/layers/soc/k24). W24H's bsppart libkadaptor is the K8 chips'
+# KADP (the same /dev nodes, PLI and auth calls, the same RPC answer table: rpc-table), and its
+# libhal_ucom, libhal_sys and libhalgal are K8LPN2's builds. Its I2C table (libdile_i2c on ombre
+# and ponytail, nyxI2c on queue) keeps NVM 4/0xA0, the amplifiers 0/0x54 and 0x56 and
+# LIGHT_SENSOR_1/2 on 5, adding OLED, TCON and LED_DRV_BOARD (6/0x12) rows the emulator does not
+# map; DILE_I2C opens /dev/i2c-0 to -6 (cmp r4, #7), as K8HPP's: K8HPP's lgemu row. libdil_tu_plugin
+# wants frontend 2.1 (compare_dvbfrontend_version; property 0x68), K8LPN2's build on ponytail and
+# queue: webos_tv is K8LPN2's, with its carried European tuner values.
+
+base = "k8hpp"
+
+# gpio_usb_vbus and gpio_level: the USB ports' power switches and overcurrent inputs
+# (soc/k6lp.toml says how they were read): W24H's libdile_gpio (23.23.30, 33.31.68) and
+# nyxGpio.module (43.22.72), the same tables: USB1_CTRL 69, USB2_CTRL 86, USB1_OCD 71, USB2_OCD 87.
+# gpio_lines: the four HDMI*_DEV_DET inputs are 725, 729, 732 and 733, above 511, where QEMU virt's
+# PL061 takes gpiolib's dynamic base 512 (docs/dev/architecture/build-and-boot.md, GPIO): a chip
+# at base 0 reaching them would overlap it. The chip ends after the highest line below 512, 439
+# (IR_BLASTER_DET); exporting an HDMI detect fails (EINVAL), as every line does on chips without
+# a GPIO chip.
+[[modules]]
+name = "rtk"
+params = [
+    "rbus_phys=0x18000000",
+    "rbus_size=0x80000",
+    "pli_base=0x20000000",
+    "pli_max=0x60000000",
+    "pli_step=0x8000000",
+    "pli_rbus=0x10000000",
+    "pli_window=0x8000000",
+    "pli_uncached=0x8000000",
+    "pli_pad=0x10000",
+    "dcu1_base=0x20000000",
+    "dcu1_size=0x20000000",
+    "dcu2_base=0x40000000",
+    "dcu2_size=0x20000000",
+    "clock90k=0xb801b6b8,0xb801b6bc",
+    """nodes=rtkaudio,audio_hw,rtkvdec,rtkdemux,rtkdemod,rtkademod,vscdev,vfedev,vbedev,vpqdev,\
+        vpqmemc,vpqleddev,vodev,vivtdev,sys-misc,sys-intmicom,se0,gdma_hal_gal0,hdcp2dev,otp,\
+        mcp/core,mcp/cipher,mcp/dgst,mcp_core,mcp_cipher,mcp_dgst,rcp_core,venus_gpio,pwm0,\
+        rtd-logger,cec0,dolbyvisionEDR0,rtk_spi,rtk_rng,rtkdelivery,irtx-0,video28,video30,video31""",
+    "ucom_node=sys-intmicom",
+    "waits=cec0:0xc0386106",
+    "v4l2_vsc=video30,video31",
+    "pwms=pwm-I-0,pwm-I-1,pwm-I-2,pwm-I-3,pwm-M-0,pwm-M-1,pwm-M-2,pwm-M-3",
+    "gpio_lines=440",
+    "vt=vivtdev:1920:1080:60",
+    "rpc_word=100:12070:2:0x11000",
+    "tee=1",
+    "fb=1:512x2160",
+    "vsc_screen=3840,2160",
+    "gpio_level=71:1,87:1",
+    "gpio_usb_vbus=69,86",
+]
+derived = "rpc-table"
+
+[[modules]]
+name = "webos_tv"
+params = [
+    "platform=wfm",
+    "frontends=2",
+    "delsys=3+16+1+2+5+6+18,3+16+1+2+5+6+18",
+    "version=2.1.0",
+    "version_cmd=0x68",
+    "atv=2",
+]

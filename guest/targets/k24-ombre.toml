@@ -1,0 +1,18 @@
+models = ["W24H"]
+bring_up = ["W24H"]
+tested = false
+
+# W24H ombre-okapi (23.23.30) keeps its paks in a super.pak with W24P's images (no region
+# suffixes). Its fstab pins license at p31, platform-plugins p34 and uhdcp p52 (W24P: p30, p33,
+# p51); db8, cmn_data, apps and the jails' pins are W24P's: its own map.
+[release]
+base = "ombre"
+paks = [
+    { file = "rootfs", serial = "rootfs", mount = "/" },
+    { file = "bsppart", serial = "bsppart" },
+    { file = "otncabi", serial = "otncabi", mount = "/mnt/otncabi" },
+    { file = "otycabi", serial = "otycabi", mount = "/mnt/otycabi" },
+    { file = "fonts", serial = "fonts", mount = "/mnt/fonts" },
+    { file = "license", serial = "license", mount = "/mnt/license" },
+]
+partmap = "k24-ombre"

@@ -242,6 +242,9 @@ class BootConfTest(unittest.TestCase):
                 "k8lpn2-queue": "rtk",
                 "k25lp-ponytail": "rtk",
                 "k25lp-queue": "rtk",
+                "k24-ombre": "rtk",
+                "k24-ponytail": "rtk",
+                "k24-queue": "rtk",
             },
         )
         with tempfile.TemporaryDirectory() as d:
@@ -542,6 +545,7 @@ class BootConfTest(unittest.TestCase):
             "k8lpn-queue": base | {"ftdi_sio", "ch341", "cp210x"},
             "k8lpn2-queue": base | {"ftdi_sio", "ch341", "cp210x"},
             "k25lp-queue": base | {"ftdi_sio", "ch341", "cp210x"},
+            "k24-queue": base | {"ftdi_sio", "ch341", "cp210x"},
         }
         for target in targets.all_targets():
             name = targets.name(target)
@@ -1076,6 +1080,7 @@ class BootConfTest(unittest.TestCase):
             "k8lpn": "75UR8000AUA",
             "k8lpn2": "43UT8000AUA",
             "k25lp": "43UA7500ZUA",
+            "k24": "55QNED85TUA",
             "lm21an": "70UQ8000AUB",
             "o22": "OLED55C2PUA",
             "o22n": "OLED77C3PUA",
@@ -1178,6 +1183,9 @@ class BootConfTest(unittest.TestCase):
             [targets.name(p) for p in targets.all_targets()],
             [
                 "h13-afro",
+                "k24-ombre",
+                "k24-ponytail",
+                "k24-queue",
                 "k25lp-ponytail",
                 "k25lp-queue",
                 "k5lp-goldilocks2",
@@ -1301,6 +1309,9 @@ class BootConfTest(unittest.TestCase):
                 "k8lpn2-queue": 1536,
                 "k25lp-ponytail": 2048,
                 "k25lp-queue": 2048,
+                "k24-ombre": 2048,
+                "k24-ponytail": 2048,
+                "k24-queue": 2048,
                 "lm21ann-ombre": 1536,
                 "lm21ann-ponytail": 1536,
                 "lm21ann-queue": 1536,
