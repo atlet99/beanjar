@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /* The modern LX gst-inspect contract (W22O 04.40 and 13.30, W23O 13.40, W24G 33.20): W23O raises
  * drc-mode's default, W24G adds es-bypass; W22O ponytail (25) drops dts-seamless and adds the
- * write-only downmix and sound-system. */
+ * write-only downmix and sound-system. LX_DTS: the ponytail and queue builds that keep DTS (W24G
+ * 33.31 and 43.21) have W22O's of that release plus dts-seamless. */
 enum {
     P_APP_TYPE = 1,
     P_DECODED_SIZE,
@@ -16,7 +17,7 @@ enum {
     P_DOWNMIX,
 #endif
     P_DRC_MODE,
-#if LX_REL < 25
+#if LX_REL < 25 || defined(LX_DTS)
     P_DTS_SEAMLESS,
 #endif
     P_DUAL_MONO,
@@ -55,7 +56,7 @@ static const struct prop_def props[N_PROPS] = {
 #endif
     {"drc-mode", "drc-mode", G_TYPE_UINT, LX_REL >= 23 ? 2147483647 : 0, NULL, G_PARAM_READWRITE,
      NULL, 0, 0, FALSE},
-#if LX_REL < 25
+#if LX_REL < 25 || defined(LX_DTS)
     {"dts-seamless", "dts-seamless", G_TYPE_BOOLEAN, 0, NULL, G_PARAM_READWRITE, NULL, 0, 0, FALSE},
 #endif
     {"dual-mono", "dual-mono", G_TYPE_UINT, 1, NULL, G_PARAM_READWRITE, NULL, 0, 2, TRUE},

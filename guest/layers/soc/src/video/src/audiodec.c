@@ -13,7 +13,8 @@
  * The modern LX plugin (lgaudiodec) has one factory per codec, all with the same properties and
  * rank (W22O 43.21's gst-inspect). Those of the codecs the host decodes are here: AAC, AC-3 and
  * E-AC-3, Opus, Vorbis and FLAC; YouTube's VOD audio is Opus, its live audio AAC. The rest
- * (ADPCM, PCM, AC-4, AMR, MPEG-H, IAMF, WMA) are left out. */
+ * (ADPCM, PCM, AC-4, AMR, MPEG-H, IAMF, WMA) are left out. The builds that keep DTS (LX_DTS: W24G
+ * 33.31 and 43.21) have a thirteenth, dts_audiodec, which the host decodes too. */
 #include <gst/gst.h>
 #include <string.h>
 #include <syslog.h>
@@ -40,6 +41,10 @@ static const struct adec_factory {
      "audio/x-opus"},
     {"flac_audiodec", "GstLgFlacAudioDecFlac", "FLAC audio decoder",
      "LG's FLAC audio decoder element", "audio/x-flac"},
+#ifdef LX_DTS
+    {"dts_audiodec", "GstLgAudioDecDts", "DTS audio decoder", "LG's DTS audio decoder element",
+     "audio/x-dts; audio/x-private1-dts; audio/x-dtsx; audio/x-dtsh; audio/x-dtse; audio/x-dtsl"},
+#endif
 };
 #else
 #define SINK_CAPS                                                                                  \

@@ -69,7 +69,7 @@ gst_set += {
 }
 #   lx-o22, lx-o22n, lx-o22n2, lx-o22-ponytail, lx-o22-queue (W22O mullet and number1, W23O, W24G,
 #   W22O ponytail and queue: GStreamer 1.18 to 1.24, held to GLib 2.58; clear H.264, HEVC, MPEG-2,
-#   VP9 and AAC)
+#   VP9 and AAC); lx-o22-ponytail-dts, lx-o22-queue-dts (the other chips' ponytail and queue)
 #     <gst_plugin_dir>/libgstlxvideodec.so       "omx_lxvideodec", "lxvideodec"   src/lxvideodec.c
 #     <gst_plugin_dir>/libgstlxvideosink.so      "omx_lxvideosink", "lxvideosink" src/lxvideosink.c
 #     <gst_plugin_dir>/libgstlgaudiodec.so       "aac_audiodec"                   src/audiodec.c
@@ -95,6 +95,14 @@ gst_set += {
                       'plugins': modern_lx, 'files': modern_lx_files},
   'lx-o22-queue': {'wrap': 'gstreamer1162', 'glib': '2_58', 'args': ['-DO22N2_MEDIA', '-DLX_REL=26'],
                    'plugins': modern_lx, 'files': modern_lx_files},
+  # W22O's ponytail and queue audio builds with DTS kept (LX_DTS: dts-seamless, dts_audiodec), as
+  # W23O's, W24G's and W24O's of those releases are (gst-inspect of W24G 33.31 and 43.21, W23O 44.00)
+  'lx-o22-ponytail-dts': {'wrap': 'gstreamer1162', 'glib': '2_58',
+                          'args': ['-DO22N2_MEDIA', '-DLX_REL=25', '-DLX_DTS'],
+                          'plugins': modern_lx, 'files': modern_lx_files},
+  'lx-o22-queue-dts': {'wrap': 'gstreamer1162', 'glib': '2_58',
+                       'args': ['-DO22N2_MEDIA', '-DLX_REL=26', '-DLX_DTS'],
+                       'plugins': modern_lx, 'files': modern_lx_files},
 }
 mstar_lm21n_plugins = {'gstomx': mstar_plugins['gstomx'], 'gstmvsink': mstar_plugins['gstmvsink']}
 gst_set += {
