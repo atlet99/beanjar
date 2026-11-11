@@ -219,8 +219,8 @@ if guest_lane
   endforeach
   # Every question the modules asked, for host/scripts/vm-launcher firmware-facts --build; one the
   # facts file does not answer stops the setup here.
-  run_command(python, fwstub_py, 'questions', meson.project_build_root() / 'firmware-questions.txt',
-              fw_questions, check: true)
+  run_command(fwfacts, 'questions', meson.project_build_root() / 'firmware-questions.txt',
+              fw_questions, env: fwfacts_env, check: true)
   fw_unanswered = []
   foreach q : fw_questions
     w = q.split(' ')

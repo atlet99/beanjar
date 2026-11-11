@@ -12,7 +12,11 @@
 #   fw_questions what the modules asked ("KIND PATH"); each rule adds its own before reading the
 #                answer (a missing one reads as no), and the top-level meson.build stops the setup
 #                when the file does not answer one
-fwstub_py = files('../../meson/fwstub.py')
+#
+# fwfacts.py's own command line makes the stubs and writes the questions: fwfacts (the command) and
+# fwfacts_env (its package on the module path; -P keeps the working directory off it).
+fwfacts = [python, '-P', '-m', 'beanjar.fwfacts']
+fwfacts_env = {'PYTHONPATH': top / 'host/core'}
 fw_facts = meson.current_source_dir() / 'facts' / guest_target + '.txt'
 fw_path = {}
 fw_version = {}
@@ -36,6 +40,7 @@ foreach lib, soname : fw_lib
   fw_stubs += {lib: custom_target('fwstub-' + fs.name(lib),
     input: fw_facts,
     output: fs.name(lib),
-    command: [python, fwstub_py, 'stub', '@INPUT@', lib, '@OUTPUT@', '--'] + fw_stub_cc,
+    command: fwfacts + ['stub', '@INPUT@', lib, '@OUTPUT@', '--'] + fw_stub_cc,
+    env: fwfacts_env,
     depend_files: files('../../host/core/beanjar/fwfacts.py'))}
 endforeach

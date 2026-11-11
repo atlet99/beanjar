@@ -18,7 +18,7 @@ One fact per line, the lines sorted; '#' starts a comment line:
                             for data, its size
 
 Nothing else of the firmware: the build links against stub libraries generated from the lib and sym
-lines (stub_source, meson/fwstub.py), with the library's SONAME and only those symbols, so the
+lines (stub_source; `python3 -m beanjar.fwfacts stub`, build_main), with the library's SONAME and only those symbols, so the
 binaries it makes record the same DT_NEEDED entries and symbol versions as linking the firmware's
 own files did.
 
@@ -517,8 +517,12 @@ def run(a):
     return 0
 
 
-def stub_main(argv=None):
-    """meson/fwstub.py: stub FACTS LIB OUT -- CC...  |  questions OUT [QUESTION...]"""
+def build_main(argv=None):
+    """python3 -m beanjar.fwfacts: stub FACTS LIB OUT -- CC...  |  questions OUT [QUESTION...]
+
+    The guest build's command line (guest/targets/meson.build): the stub library of firmware library
+    LIB (a lib line's path) compiled with CC to OUT, or the build's questions ("KIND PATH") written
+    to OUT, rewritten only when they change."""
     import sys
 
     argv = sys.argv[1:] if argv is None else argv
@@ -538,7 +542,11 @@ def stub_main(argv=None):
                     f.write(text)
             return 0
     except (Error, OSError) as e:
-        print(f"fwstub: {e}", file=sys.stderr)
+        print(f"fwfacts: {e}", file=sys.stderr)
         return 1
-    print("usage: " + stub_main.__doc__.split(": ", 1)[1], file=sys.stderr)
+    print("usage: " + build_main.__doc__.split("\n")[0].split(": ", 1)[1], file=sys.stderr)
     return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(build_main())

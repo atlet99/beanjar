@@ -45,7 +45,7 @@ against, its SONAME (`lib usr/lib/libglib-2.0.so.0 libglib-2.0.so.0`) and the sy
 uses of it, with their default version where the library versions them, their type and a data
 symbol's size (`sym usr/lib/libgstreamer-1.0.so.0 _gst_debug_min object 4`). One fact per line,
 sorted; `host/core/beanjar/fwfacts.py` has the format. The build links against stub libraries made
-from the lib and sym lines (`guest/targets/meson.build`, `meson/fwstub.py`): each has the library's
+from the lib and sym lines (`guest/targets/meson.build` runs `python3 -m beanjar.fwfacts stub`): each has the library's
 SONAME and those symbols only, so a plugin or program records the same `NEEDED` entries, dynamic
 symbols and version needs as a link against the firmware's own file did.
 
