@@ -84,8 +84,6 @@ SocModule = namedtuple("SocModule", "name params derived", defaults=(None,))
 # board_src: the source directory, in the checkout, of the layer that carries board_cmdline (None:
 # the chip's soc layer, guest/layers/soc/<chip>/rootfs); the launcher reads it there (board_cmdline_src).
 # pointer_wakeup: the builtin M-RCU requires lginput2's cursor-on event before motion.
-# kernel_args: words for the guest kernel's own command line that this chip's userland needs, such as
-# virtio_gpu.modifiers=1 (guest/kernel/patches/0014: the planes' IN_FORMATS).
 # mic: the board's model (the one modelName= of the row's board.cmdline, which every target of the
 # row boots) has LG's built-in far-field microphone, a fact of that model's hardware (its service
 # manual), never another model's: lgemu.ko's mic=1, its capture card and the micom's answers about
@@ -122,9 +120,9 @@ SocModule = namedtuple("SocModule", "name params derived", defaults=(None,))
 # European one's (webos_tv's frontends= and delsys=).
 Soc = namedtuple(
     "Soc",
-    "board_cmdline modules continent inputs lgemu board_src pointer_wakeup kernel_args mic "
+    "board_cmdline modules continent inputs lgemu board_src pointer_wakeup mic "
     "broadcast_boards touch portrait light_bus thermal tof_bus broadcast_params",
-    defaults=(None, None, (), None, False, (), False, (), False, False, None, False, None, ()),
+    defaults=(None, None, (), None, False, False, (), False, False, None, False, None, ()),
 )
 # Prefer the US model: a chip whose global firmware (paks naming no standard) ships on US retail
 # models, the models DB's models of its OTA ID, boots a US model of that firmware by default
@@ -391,7 +389,6 @@ SOC_KEYS = {
     "touch": _bool,
     "portrait": _bool,
     "pointer_wakeup": _bool,
-    "kernel_args": _strs,
     "modules": lambda w, v: _list(w, v, _module),
     "broadcast_params": _broadcast_params,
 }

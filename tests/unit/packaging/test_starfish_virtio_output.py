@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""O22N2's Starfish EGLFS output helper, run under a root prefix: no mount, no firmware."""
+"""The Qt EGLFS Starfish output helper, run under a root prefix: no mount, no firmware."""
 
 from pathlib import Path
 import subprocess
@@ -9,7 +9,7 @@ import subprocess
 import pytest
 
 TOP = Path(__file__).resolve().parents[3]
-HELPER = TOP / "guest/layers/soc/o22n2/rootfs/usr/libexec/beanjar/starfish-virtio-output"
+HELPER = TOP / "guest/layers/soc/o22/starfish/usr/libexec/beanjar/starfish-virtio-output"
 # The lines the helper changes, as in W24G 33.20.23 and 33.31.68 (and O24's, O22N3's).
 PRODUCT = (
     b"export X=1\nexport WEBOS_COMPOSITOR_DISPLAYS=2\nexport QT_QPA_EGLFS_FB=/dev/fb0:/dev/fb1\n"

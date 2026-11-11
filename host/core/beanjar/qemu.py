@@ -909,9 +909,13 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
         append += f" webos.pmlog={env['PMLOG']}"
     if env.get("PMLOG_DEBUG"):
         append += " webos.pmlog_debug=" + re.sub(" +", ",", env["PMLOG_DEBUG"])
-    append += " " + " ".join(
-        list(targets.soc(p.target).kernel_args) + list(words) + env.get("KERNEL_ARGS", "").split()
-    )
+    # then the words the guest layers carry for their userland (share.kernel_args: the soc layer's
+    # Qt EGLFS Starfish setup's virtio_gpu.modifiers=1), the caller's and KERNEL_ARGS
+    try:
+        layer_words = share.kernel_args(p.guest_layers)
+    except share.Error as e:
+        raise Error(str(e)) from None
+    append += " " + " ".join(layer_words + list(words) + env.get("KERNEL_ARGS", "").split())
     # a release whose stock userland reads the kernel's own /proc/cmdline (Release.board_in_kernel:
     # SimpleSmart): the board's parameters first on it, as its bootloader puts them, with the VM's
     # MAC (macadr=, ethaddr=) and serial; then ours. (Its readers take the first 512 bytes.)

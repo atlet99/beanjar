@@ -227,6 +227,28 @@ class Layer(NamedTuple):
     skip: tuple = ()
 
 
+KERNEL_CMDLINE = os.path.join("usr", "share", "beanjar", "kernel.cmdline")
+
+
+def kernel_args(layers):
+    """The words the layers (Layers, highest first) ask for on the guest kernel's own command line,
+    lowest layer first: each one's usr/share/beanjar/kernel.cmdline ('#' starts a comment line),
+    which a layer carries for its own userland, such as the soc layer's Qt EGLFS Starfish setup
+    (guest/layers/soc/o22/meson.build). The guest build decides which layers have one, by the
+    firmware's facts; the launcher only reads it."""
+    words = []
+    for layer in reversed(layers):
+        try:
+            with open(os.path.join(layer.src, KERNEL_CMDLINE)) as f:
+                text = f.read()
+        except FileNotFoundError:
+            continue
+        except OSError as e:
+            raise Error(f"{layer.rel}/{KERNEL_CMDLINE}: {e}") from None
+        words += [w for line in text.splitlines() if not line.startswith("#") for w in line.split()]
+    return words
+
+
 def resolve_layers(tree, target, layers):
     """(layers, missing) for LAYERS (highest priority first; NAME@VERSION picks a versioned layer's
     version, plain NAME its default) and the firmware target's always-used layers: the Layers,

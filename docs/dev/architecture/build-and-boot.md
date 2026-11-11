@@ -321,9 +321,11 @@ card's one playback stream, one opener at a time; alsa-lib's name hints test dev
 without an output hint Chromium 68 and 79 (W20L, W21P) play WebAudio nowhere.
 `0014` virtio-gpu's `modifiers` parameter: with `virtio_gpu.modifiers=1` its planes list the
 linear modifier (an `IN_FORMATS` property, `DRM_CAP_ADDFB2_MODIFIERS`) and ADDFB2 accepts it, the
-scanout being linear with the client's stride; upstream leaves modifiers off. O22N2's stock Qt EGLFS
-Starfish integration reads `IN_FORMATS` without a check, so only that chip's kernel line carries it
-(`kernel_args` of `guest/targets/soc/o22n2.toml`); every other target sees no modifiers, as before.
+scanout being linear with the client's stride; upstream leaves modifiers off. LG's stock Qt EGLFS
+Starfish integration reads `IN_FORMATS` without a check, so only firmwares whose Qt compositor uses
+it get the word: the soc layer's Starfish setup (`guest/layers/soc/o22/meson.build`, chosen by the
+firmware's facts) carries it in `usr/share/beanjar/kernel.cmdline`, which the launcher reads from
+the guest layers (`share.kernel_args`); every other target sees no modifiers, as before.
 `0020` virtio-gpu's `tv_connector` parameter: with `virtio_gpu.tv_connector=1` the first
 scanout's connector is a TV connector (TV-1) instead of a Virtual one. Queue's stock Weston names its
 primary output and fb0 after it, and copies every connector into a second head named with index 2,

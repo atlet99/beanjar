@@ -1,11 +1,11 @@
 #!/bin/sh
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-# What O22N2's stock Qt EGLFS Starfish integration (ombre, ponytail) needs from the launcher's configuration
-# on virtio-gpu, which has one scanout plane per CRTC (and a cursor plane): product.env gives it two
-# displays, the panel (fb0) and a 512x2160 secondary popup (fb1) on its own plane of the same CRTC,
-# and it aborts ("Fail to choose plane for output fb1"). One display instead, the stock launcher's
-# own default. eglfs_starfish.env gives each output the format abgr8888, which virtio-gpu's primary
+# What LG's stock Qt EGLFS Starfish integration (O22-family Qt compositors from W23O ombre on) needs
+# from the launcher's configuration on virtio-gpu, which has one scanout plane per CRTC (and a
+# cursor plane): product.env gives it two displays, the panel (fb0) and a 512x2160 secondary popup
+# (fb1) on its own plane of the same CRTC, and it aborts ("Fail to choose plane for output fb1").
+# One display instead, the stock launcher's own default. eglfs_starfish.env gives each output the format abgr8888, which virtio-gpu's primary
 # plane cannot scan out (it lists XR24 only) and Mesa's GBM EGL has no config for (its ABGR8888
 # configs merge into the same-sized ARGB8888 ones): ombre's plugin falls back to the config's ARGB
 # by itself, ponytail's creates the ABGR surface and eglCreateWindowSurface fails (EGL_BAD_MATCH).

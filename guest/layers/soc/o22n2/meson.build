@@ -9,16 +9,10 @@ hal_stock += {
   'libhalgal': ['libhalgal.so.2', 'libhalgal.so.2.0.1',
                ['libhalgal.so', 'libhalgal.so.0'], 'bsppart'],
 }
-if 'spacebuns' in webos_reached
-  # The ombre Qt bootstrap and legacy media path do not apply to Weston13
-  # (spacebuns, and the releases after it).
-  gst_plugin_dir = ''
-  foreach board : ['board-atsc.cmdline', 'board-dvb.cmdline']
-    soc_layer_trees += ['--file', meson.current_source_dir() / 'rootfs/etc/emulator' / board,
-                       'etc/emulator' / board, '644']
-  endforeach
-else
 soc_layer_trees += ['--tree', meson.current_source_dir() / 'rootfs', '.']
+if 'spacebuns' in webos_reached
+  # The legacy media path does not apply to Weston13 (spacebuns, and the releases after it).
+  gst_plugin_dir = ''
+endif
 # The media elements are the release's (o22). Clear H.264/HEVC/AAC transport. The AAC-only plugin
 # intentionally omits other stock codec factories; this is not complete default media qualification.
-endif

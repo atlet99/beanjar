@@ -1,10 +1,8 @@
 # Current O22N2 kernel has O22-family code paths; native candidate decodes
 # OLED/1080p/120Hz. A0 and 2.5G are VM choices, not retail measurements.
-# Its frontend consumer requires 2.1.x through property 0x68. Its Qt EGLFS Starfish integration
-# (ombre) reads the primary plane's IN_FORMATS blob unchecked: virtio-gpu lists LINEAR.
+# Its frontend consumer requires 2.1.x through property 0x68.
 
 base = "o22n"
-kernel_args = ["virtio_gpu.modifiers=1"]
 
 [[modules]]
 name = "lg115x"

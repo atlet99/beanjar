@@ -1,0 +1,4 @@
+# Words for the guest kernel's command line, which the launcher reads from the layer before boot
+# (share.kernel_args): the planes' IN_FORMATS (guest/kernel/patches/0014) for the Qt EGLFS
+# Starfish integration, which reads that blob without a check.
+virtio_gpu.modifiers=1

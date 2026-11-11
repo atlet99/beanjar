@@ -671,6 +671,45 @@ class ArgvTest(unittest.TestCase):
                 self.assertEqual(targets.v4l2_capture(target), want)
                 self.assertEqual("name=webos.capture" in " ".join(p.argv), want)
 
+    def test_layer_kernel_words(self):
+        """The kernel words a guest layer carries (share.kernel_args: the soc layer's Qt EGLFS
+        Starfish setup) go on the kernel's command line, lowest layer first, before KERNEL_ARGS."""
+        with tempfile.TemporaryDirectory() as d:
+            layers = []
+            for name, text in (
+                ("gl", "# a comment\ngl.word=1\n"),
+                ("soc", "virtio_gpu.modifiers=1\n"),
+            ):
+                src = os.path.join(d, name)
+                os.makedirs(os.path.join(src, os.path.dirname(share.KERNEL_CMDLINE)))
+                with open(os.path.join(src, share.KERNEL_CMDLINE), "w") as f:
+                    f.write(text)
+                layers.append(share.Layer(name, src, name))
+            layers.append(share.Layer("common", os.path.join(d, "common"), "common"))
+            self.assertEqual(share.kernel_args(layers), ["virtio_gpu.modifiers=1", "gl.word=1"])
+            with (
+                mock.patch.object(paths, "firmware_target", return_value=("o22n", "ponytail")),
+                mock.patch.object(nvm, "board_ram", return_value=2048),
+                mock.patch.object(nvm, "board_graphic", return_value="1920x1080"),
+                mock.patch.object(share, "resolve_layers", return_value=(layers, [])),
+            ):
+                p = qemu.plan(
+                    dict(
+                        FW=self.fw,
+                        STATE="none",
+                        **net("direct"),
+                        SLOT="1",
+                        LAYERS="normal",
+                        KERNEL_ARGS="extra=1",
+                    ),
+                    accel="tcg",
+                    tree=paths.Tree(self.top),
+                    say=lambda _: None,
+                    dry=True,
+                )
+            append = p.argv[p.argv.index("-append") + 1].split()
+            self.assertEqual(append[-3:], ["virtio_gpu.modifiers=1", "gl.word=1", "extra=1"])
+
     def test_secondary_display_gpu_process(self):
         """Two outputs in the GPU's own process: auto no longer leaves them out, and the
         backend's device keeps max_outputs=2 and the second output's setup."""
@@ -742,10 +781,9 @@ class ArgvTest(unittest.TestCase):
                 self.assertEqual(
                     "name=webos.capture" in " ".join(p.argv), targets.v4l2_capture(target)
                 )
-                # the chip's kernel words: O22N2's planes list the linear modifier, no other chip's
-                self.assertEqual(
-                    "virtio_gpu.modifiers=1" in p.argv[p.argv.index("-append") + 1].split(),
-                    target[0] == "o22n2",
+                # kernel words come from the layers (share.kernel_args), none here: not the chip's
+                self.assertNotIn(
+                    "virtio_gpu.modifiers=1", p.argv[p.argv.index("-append") + 1].split()
                 )
                 # queue's primary output is a TV connector, no other target's
                 self.assertEqual(
