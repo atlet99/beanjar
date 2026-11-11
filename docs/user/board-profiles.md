@@ -58,6 +58,7 @@ board, where the European board gives `O22N2_DVB_EU`.
 | k8hpp | W23H | 86QNED80URA | 86UR80006LA | |
 | k8lpn | W23P | 75UR8000AUA | 43UR8050PSB (Australia) | |
 | k8lpn2 | W24P | 43UT8000AUA | 43UT80006LA | |
+| k25lp | W25P | 43UA7500ZUA | 43UA75006LA | |
 | lm21an | W22A | 70UQ8000AUB | 43UQ80006LB | |
 | o22 | W22O | OLED55C2PUA | OLED55C21LA, global C2 | OLED55C2PJA, from the paks |
 | o22n | W23O | OLED77C3PUA | OLED55C36LA | |

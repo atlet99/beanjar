@@ -240,6 +240,8 @@ class BootConfTest(unittest.TestCase):
                 "k8lpn-queue": "rtk",
                 "k8lpn2-ponytail": "rtk",
                 "k8lpn2-queue": "rtk",
+                "k25lp-ponytail": "rtk",
+                "k25lp-queue": "rtk",
             },
         )
         with tempfile.TemporaryDirectory() as d:
@@ -539,6 +541,7 @@ class BootConfTest(unittest.TestCase):
             "k8hpp-queue": base | {"ftdi_sio", "ch341", "cp210x"},
             "k8lpn-queue": base | {"ftdi_sio", "ch341", "cp210x"},
             "k8lpn2-queue": base | {"ftdi_sio", "ch341", "cp210x"},
+            "k25lp-queue": base | {"ftdi_sio", "ch341", "cp210x"},
         }
         for target in targets.all_targets():
             name = targets.name(target)
@@ -943,11 +946,12 @@ class BootConfTest(unittest.TestCase):
         self.assertEqual(devs, ["i2c_dev=nvm:7:0x50,light2:1:0x10,tof:1:0x41"])
 
     def test_thermalinfo(self):
-        """/proc/thermalinfo where the firmware has fancontroller (lm21*, k7, k8*, the O22 family o2*),
+        """/proc/thermalinfo where the firmware has fancontroller (lm21*, k7, k8*, k24*, k25*, the O22
+        family o2*),
         with the IDDQ files from webOS 23 (number1) on; not on older chips."""
         for target in targets.all_targets():
             words = targets.module_params(target).get("lgemu", ())
-            fan = target[0].startswith(("lm21", "k7", "k8", "o2"))
+            fan = target[0].startswith(("lm21", "k7", "k8", "k24", "k25", "o2"))
             iddq = fan and targets.WEBOS_ORDER.index(target[1]) >= targets.WEBOS_ORDER.index(
                 "number1"
             )
@@ -1071,6 +1075,7 @@ class BootConfTest(unittest.TestCase):
             "k8hpp": "86QNED80URA",
             "k8lpn": "75UR8000AUA",
             "k8lpn2": "43UT8000AUA",
+            "k25lp": "43UA7500ZUA",
             "lm21an": "70UQ8000AUB",
             "o22": "OLED55C2PUA",
             "o22n": "OLED77C3PUA",
@@ -1173,6 +1178,8 @@ class BootConfTest(unittest.TestCase):
             [targets.name(p) for p in targets.all_targets()],
             [
                 "h13-afro",
+                "k25lp-ponytail",
+                "k25lp-queue",
                 "k5lp-goldilocks2",
                 "k6hp-jhericurl",
                 "k6lp-jhericurl",
@@ -1292,6 +1299,8 @@ class BootConfTest(unittest.TestCase):
                 "k8lpn-queue": 1536,
                 "k8lpn2-ponytail": 1536,
                 "k8lpn2-queue": 1536,
+                "k25lp-ponytail": 2048,
+                "k25lp-queue": 2048,
                 "lm21ann-ombre": 1536,
                 "lm21ann-ponytail": 1536,
                 "lm21ann-queue": 1536,

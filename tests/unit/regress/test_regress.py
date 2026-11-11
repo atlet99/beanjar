@@ -82,6 +82,8 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(
             regress.bring_up_targets(),
             [
+                "k25lp-ponytail",
+                "k25lp-queue",
                 "k6hp-jhericurl",
                 "k8ap-mullet",
                 "k8hp-mullet",

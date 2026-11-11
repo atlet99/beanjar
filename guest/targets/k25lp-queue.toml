@@ -1,0 +1,17 @@
+models = ["W25P"]
+bring_up = ["W25P"]
+tested = false
+
+# W25P queue-qilian (43.22.74) keeps ponytail's super.pak images and fstab pins; its jails'
+# secure-store pins move down by two (p17, p18, p21, p24), as the other queue firmwares' do.
+[release]
+base = "queue"
+paks = [
+    { file = "rootfs", serial = "rootfs", mount = "/" },
+    { file = "bsppart", serial = "bsppart" },
+    { file = "otncabi", serial = "otncabi", mount = "/mnt/otncabi" },
+    { file = "otycabi", serial = "otycabi", mount = "/mnt/otycabi" },
+    { file = "fonts", serial = "fonts", mount = "/mnt/fonts" },
+    { file = "license", serial = "license", mount = "/mnt/license" },
+]
+partmap = "k8lpn2-ombre"
