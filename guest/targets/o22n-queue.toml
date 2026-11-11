@@ -1,0 +1,13 @@
+models = ["W23O"]
+bring_up = ["W23O"]
+tested = false
+lg_scaler = [3840, 2160]
+de_histogram = true
+
+# W23O queue-qilian (44.00.92) keeps ponytail's paks and fstab pins; its jails' secure-store pins
+# move down by two (p17, p18, p21, p24), as the other queue firmwares' do. Like W22O queue, its
+# nyxVscaler drives the LG scaler and its libpqeca (bsppart) reads the DE histogram proc.
+[release]
+base = "queue"
+nvm_disks = { nvram = "8M", eeprom = "32K" }
+partmap = "o22n-ponytail"

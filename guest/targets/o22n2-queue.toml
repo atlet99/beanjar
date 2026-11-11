@@ -1,0 +1,29 @@
+models = ["W24G"]
+bring_up = ["W24G"]
+tested = false
+lg_scaler = [3840, 2160]
+de_histogram = true
+
+# W24G queue-qilian (43.21.73) keeps ombre's super.pak images and fstab pins: ombre's paks and
+# map. Its jails' secure-store pins move down by two (p17, p18, p21, p24), as the other queue
+# firmwares' do. Like W22O queue, its nyxVscaler drives the LG scaler and its libpqeca (bsppart)
+# reads the DE histogram proc; its 6.12 kernel adds the ch341 and cp210x modules.
+[release]
+base = "queue"
+peripherals = [
+    "usbhid", "uhid", "joydev", "input-leds", "hid-axff", "hid-dr", "hid-logitech",
+    "hid-microsoft", "hid-pl", "hid-sony", "hid-playstation", "hid-zpff", "xpad", "uvcvideo",
+    "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii", "nls_utf8",
+    "nls_iso8859-1", "nls_cp949", "exfat", "snd-usb-audio", "cdc-acm", "pl2303", "option",
+    "sierra", "lgfs", "ftdi_sio", "ch341", "cp210x",
+]
+paks = [
+    { file = "rootfs", serial = "rootfs", mount = "/" },
+    { file = "bsppart", serial = "bsppart" },
+    { file = "otncabi", serial = "otncabi", mount = "/mnt/otncabi" },
+    { file = "otycabi", serial = "otycabi", mount = "/mnt/otycabi" },
+    { file = "fonts", serial = "fonts", mount = "/mnt/fonts" },
+    { file = "license", serial = "license", mount = "/mnt/license" },
+]
+nvm_disks = { nvram = "8M", eeprom = "32K" }
+partmap = "o22n2-ombre"

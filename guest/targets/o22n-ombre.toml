@@ -1,0 +1,19 @@
+models = ["W23O"]
+bring_up = ["W23O"]
+tested = false
+lg_scaler = [3840, 2160]
+v4l2_capture = true
+
+# W23O ombre-okapi (23.25.55) keeps number1's paks and every fstab and jail pin: number1's rows.
+# Its libpqeca (bsppart) reads back /dev/video60, as O22N2 ombre's does (v4l2_capture).
+[release]
+base = "ombre"
+peripherals = [
+    "usbhid", "uhid", "joydev", "input-leds", "hid-axff", "hid-dr", "hid-logitech",
+    "hid-microsoft", "hid-pl", "hid-sony", "hid-playstation", "hid-zpff", "xpad", "uvcvideo",
+    "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii", "nls_utf8",
+    "nls_iso8859-1", "nls_cp949", "exfat", "snd-usb-audio", "cdc-acm", "ftdi_sio", "pl2303",
+    "option", "sierra", "lgfs",
+]
+nvm_disks = { nvram = "8M", eeprom = "32K" }
+partmap = "o22n-number1"
