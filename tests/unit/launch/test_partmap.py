@@ -240,7 +240,8 @@ class PartmapTest(unittest.TestCase):
 
     def test_untested_stock_pins(self):
         """An untested target's stock fstab pins (data/stock-fstab/<target>.fstab, read from its
-        firmware when the target was added) name the partitions of its VM's map."""
+        firmware when the target was added) name the partitions of its VM's map, or the disks
+        that back them (Release.partitions: LM21's data partition is the cmn_data disk)."""
         d = os.path.join(HERE, "data", "stock-fstab")
         for target in targets.all_targets():
             path = os.path.join(d, targets.name(target) + ".fstab")
@@ -266,9 +267,9 @@ class PartmapTest(unittest.TestCase):
                         device, mount_point, *_ = line.split()
                         index = int(device.removeprefix("/dev/mmcblk0p"))
                         name = os.path.basename(mount_point)
-                        self.assertEqual(
-                            entries[index].name, "apps" if name == "appstore" else name, line
-                        )
+                        part = entries[index].name
+                        disk = dict(targets.release(target).partitions or {}).get(part, part)
+                        self.assertIn("apps" if name == "appstore" else name, (part, disk), line)
 
     def test_o22n2_stock_pins(self):
         """The measured stock fstab pins survive the VM's raw-image allocation."""

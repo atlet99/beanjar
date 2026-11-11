@@ -1,0 +1,10 @@
+# W23A 33.31.66.01: stock read-only and writable fstab entries.
+/dev/mmcblk0p14 /mnt/lg/ciplus/cert squashfs ro 0 0
+/dev/mmcblk0p29 /mnt/otncabi squashfs ro 0 0
+/dev/mmcblk0p30 /mnt/otycabi squashfs ro 0 0
+/dev/mmcblk0p31 /mnt/fonts squashfs ro 0 0
+/dev/mmcblk0p33 /mnt/license squashfs ro 0 0
+/dev/mmcblk0p45 /mnt/lg/uhdcp ext4 rw,relatime,data=ordered,nosuid 0 0
+/dev/mmcblk0p52 /mnt/lg/db8 ext4 rw,relatime,data=ordered,nosuid 0 0
+/dev/mmcblk0p53 /mnt/lg/cmn_data ext4 rw,relatime,data=ordered,nosuid 0 0
+/dev/mmcblk0p54 /mnt/lg/appstore ext4 rw,relatime,data=ordered,nosuid 0 0

@@ -1,0 +1,42 @@
+models = ["W23A"]
+bring_up = ["W23A"]
+tested = false
+lg_scaler = [3840, 2160]
+
+# W23A queue-qilian (43.22.80) keeps ponytail's paks and fstab pins; its jails' secure-store pins
+# move down by two (p17, p18, p21, p24), as the other queue firmwares' do. Its kernel stays 5.4
+# (cap_last_cap 37, not queue's 6.12 40), and adds the ftdi_sio, ch341 and cp210x modules.
+[release]
+base = "queue"
+cap_last_cap = 37
+peripherals = [
+    "usbhid", "uhid", "joydev", "input-leds", "hid-axff", "hid-dr", "hid-logitech",
+    "hid-microsoft", "hid-pl", "hid-sony", "hid-playstation", "hid-zpff", "xpad", "uvcvideo",
+    "usb-storage", "sd_mod", "vfat", "ntfs3", "fuse", "nls_cp437", "nls_ascii", "nls_utf8",
+    "nls_iso8859-1", "nls_cp949", "exfat", "snd-usb-audio", "cdc-acm", "ipw", "pl2303", "option",
+    "sierra", "lgfs", "ftdi_sio", "ch341", "cp210x",
+]
+state_disks = { db8 = "112M", cmn_data = "750M", appstore = "2138M", uhdcp = "5M" }
+nvm_disks = { nvram = "8M", eeprom = "32K" }
+partmap = "lm21ann-ponytail"
+
+[release.partitions]
+partinfo = "partinfo"
+mapbak = "partinfo"
+authcxt = "authcxt"
+nvram = "nvram"
+sestore = "sestore"
+sedata = "sedata"
+rootfs = "rootfs"
+otncabi = "otncabi"
+otycabi = "otycabi"
+fonts = "fonts"
+db8 = "db8"
+apps = "appstore"
+bsppart = "bsppart"
+license = "license"
+wossestore = "wossestore"
+uhdcp = "uhdcp"
+dbboot = "dbboot"
+efs = "efs"
+data = "cmn_data"
