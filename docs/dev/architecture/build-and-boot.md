@@ -45,7 +45,8 @@ and `guest/layers/gl/test`. SimpleSmart instead enters `guest/layers/simplesmart
 On the host build it enters `host/viewer`, `host/helpers/kvm`, `host/helpers/media-helper`,
 `host/ui` (the GTK windows' layouts),
 `host/scripts` (the firmware cache), `host/helpers/network` (the mitmproxy venv) and the unit tests
-`tests/{netstub,securestore,input,viewer,manager}`. `meson/meson.build` holds the helpers: the build's scripts,
+`tests/{netstub,securestore,input,viewer,manager}`. `meson/meson.build` holds the helpers: the build's scripts
+(the Python ones share `meson/common.py`: stamps written only when they change, depfiles, locks, tree hashes),
 the source trees of the wraps and, in the host build, the prebuilt programs (`vendor`, `vendor_deps`). Layer directories without a `meson.build` (normal)
 are used as they are; a `guest/layers/<name>` with one is only the source of a generated layer, and the
 launcher never takes it for the layer itself.
@@ -181,11 +182,14 @@ into `subprojects/<directory>` (one tree for every build directory), and applies
 patches. Patches are `diff_files` of the wraps, listed in order; `subprojects/packagefiles/*` are
 links to `guest/kernel/patches` and `guest/layers/gl/patches/{mesa,wayland}`, so a new patch
 is a new file there plus a line in the wrap. The trees of packages that do not build with Meson
-(Linux, busybox, Dropbear, OpenSSH, libffi, GStreamer) get `patch_directory = source-only`, a
-`meson.build` that only marks them as unpacked for Meson (it is never configured).
+(Linux, busybox, Dropbear, OpenSSH, libffi, GStreamer, usbipdcpp) get `patch_directory = source-only`, a
+`meson.build` that only marks them as unpacked for Meson (it is never configured; Meson refuses a
+subproject tree without one).
 
-`meson subprojects download` leaves a tree that exists alone, and Meson only warns about a changed
-wrap for subprojects it configures. So each tree has a `fetch-<name>` target (`meson/fetch.py`):
+`meson subprojects download` leaves a tree that exists alone, Meson only warns about a changed
+wrap for subprojects it configures, `meson subprojects update --reset` fails on a missing tree, and
+nothing in Meson locks a download against another build doing the same
+([study](../../research/meson-native-build-helpers.md)). So each tree has a `fetch-<name>` target (`meson/fetch.py`):
 it records a key of the wrap and its patch files in the tree and, when they change, deletes the
 tree and has Meson download it again; its depfile names the wrap and the patches. Editing, adding
 or removing a patch therefore rebuilds what uses the tree at the next `meson compile`, from a
@@ -203,9 +207,16 @@ refuses it if the hash differs.
 None of them is configured as a Meson subproject. They are built by their own build systems from
 custom targets, for these reasons:
 
-- **Linux, busybox:** Kbuild, and arm64 (below).
+- **Linux, busybox:** Kbuild, and arm64 (below); Meson's `external_project` needs a configure
+  script, and these start from `make defconfig`.
 - **Dropbear, OpenSSH, libffi:** autotools; `guest/tools/ssh/build-ssh.sh` and
-  `guest/layers/gl/mesa/mesa-stack.sh` build them out of tree.
+  `guest/layers/gl/mesa/mesa-stack.sh` build them out of tree. `external_project` would configure
+  at setup time, allow one build per source tree (Dropbear is built twice), assume another host
+  triple, always install and not strip.
+- **usbipdcpp** (the host's virtual camera): CMake, run by
+  `host/helpers/virtcam/build-usbipdcpp.sh`. Meson's CMake module compiles a CMake project's
+  targets with Meson's own arguments, which gives other libraries than its `Release` build
+  (different flags and `RUNPATH`, the build machine's `-I/usr/include` in the arm64 cross build).
 - **Wayland, libdrm, Mesa:** a cross build of Wayland needs a native `wayland-scanner` of exactly
   its own version, which a subproject of a cross build cannot build; on webOS 1 and 2 Mesa must link
   `libwayland-server-compat` ahead of Wayland's server library (a Meson target of ours, which
