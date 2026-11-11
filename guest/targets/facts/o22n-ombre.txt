@@ -42,7 +42,7 @@ sym usr/lib/libglib-2.0.so.0 g_strcmp0 func
 sym usr/lib/libglib-2.0.so.0 g_strlcpy func
 sym usr/lib/libglib-2.0.so.0 g_timeout_add_seconds func
 sym usr/lib/libgobject-2.0.so.0 g_cclosure_marshal_VOID__BOOLEAN func
-sym usr/lib/libgobject-2.0.so.0 g_cclosure_marshal_VOID__UINT func
+sym usr/lib/libgobject-2.0.so.0 g_cclosure_marshal_VOID__POINTER func
 sym usr/lib/libgobject-2.0.so.0 g_cclosure_marshal_VOID__VOID func
 sym usr/lib/libgobject-2.0.so.0 g_cclosure_marshal_generic func
 sym usr/lib/libgobject-2.0.so.0 g_object_class_install_property func

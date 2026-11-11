@@ -21,13 +21,18 @@ hal_stock = {
 # The media elements under the stock modern LX names: the stock ones need /dev/vo and an AIMC
 # audio device, so the sink failed to start and the AAC decoder crashed on a NULL AIMC handle.
 gst_plugin_dir = 'usr/lib/gstreamer-1.0'
+# From ombre on, the stock elements follow the release, not the chip (their build ids): every
+# O22-family ombre has W24G ombre's (W22O's and W23O's are builds of the same source), every ponytail
+# W22O ponytail's video elements and every queue W22O queue's (gst-inspect of those); a later
+# release takes queue's (webos_reached: the release order, docs/dev/architecture/build-and-boot.md).
+# Before ombre each chip has its own (o22n).
 gst_elements = 'lx-o22'
-# W22O ponytail and queue ship newer stock elements (gst-inspect);
-# a later release takes queue's (webos_reached: the release order, docs/dev/architecture/build-and-boot.md)
 if 'queue' in webos_reached
   gst_elements = 'lx-o22-queue'
 elif 'ponytail' in webos_reached
   gst_elements = 'lx-o22-ponytail'
+elif 'ombre' in webos_reached
+  gst_elements = 'lx-o22n2'
 endif
 # libsestore (guest/layers/soc/meson.build adds it wherever nyx's secure store reads it): queue's
 # libsecretagent reads the model secret through nyx (nyxCrypto, nyxSecureStore), which asks
