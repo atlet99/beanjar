@@ -702,10 +702,12 @@ interfaces and initramfs. The commands and package requirements remain in this g
   `--version`, and for a module the kernel's and `lgemu`'s inputs). A changed input runs make again
   in the same directory, incrementally, once; the other build directories then find it done. A
   depfile on the directory's `.inputs` lets a build directory notice a result another one changed,
-  or a removed directory. In the guest package lane (`scripts/build-packages.sh guest`) this made an
-  ordinary target's build directory about 8 s instead of 82 s on 4 CPUs: before, each one
-  configured and built Dropbear twice and OpenSSH (39 s), ran Kbuild over the kernel and its nine
-  modules (29 s, compiler hits from ccache) and built busybox (10 s), one after another.
+  or a removed directory. In the guest package lane (`scripts/build-packages.sh guest`, 4 CPUs,
+  2026-11-11) this made an ordinary target's build directory 6 to 7 s instead of 82 s: before, each
+  one configured and built Dropbear twice and OpenSSH (39 s), ran Kbuild over the kernel and its
+  nine modules (29 s, compiler hits from ccache) and built busybox (10 s), one after another. The 33
+  targets took 18 min instead of 57: the first target (the kernel without ccache, 8 min) and the
+  first target of each Mesa key (about 105 s each) are most of what is left.
 - The Mesa stack (libffi, libdrm, Wayland, wayland-protocols, Mesa) is built by `mesa-stack.sh`,
   in `<shared_dir>/mesa/<key>/{work,stage}`. Its key
   (`guest/layers/gl/mesa/meson.build`) hashes what a target can differ in: the cross file's compilers
