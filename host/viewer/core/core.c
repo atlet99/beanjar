@@ -119,6 +119,7 @@ struct wv {
      * (option output-hz, else the panel's; 0: unpaced), pace their times */
     int panel_hz, output_hz;
     struct pace pace;
+    unsigned long pictures; /* pictures of the output drawn (wv_render, wv_frame*) */
     /* wv_planes: the WV_PLANE_* this front end hides; whole: drawing for the guest's capture or a
      * bus Screenshot, which show every plane */
     int hidden, whole;
@@ -612,8 +613,10 @@ static void draw(struct wv *v, int dw, int dh, int primary)
         glDisable(GL_BLEND);
     }
     v->dirty = 0;
-    if (primary) /* a picture of the output: the next one is paced from it */
+    if (primary) { /* a picture of the output: the next one is paced from it */
         pace_mark(&v->pace, g_get_monotonic_time());
+        v->pictures++;
+    }
 }
 static void turn_drop(struct wv *v)
 {
@@ -2060,6 +2063,7 @@ long wv_counter(struct wv *v, const char *name)
         {"reply_max_us", (long)v->reply_max_us},
         {"panel_hz", v->panel_hz},
         {"output_hz", v->output_hz},
+        {"pictures", (long)v->pictures},
     };
     for (size_t i = 0; i < G_N_ELEMENTS(counters); i++)
         if (!strcmp(name, counters[i].name))
@@ -2326,9 +2330,10 @@ int wv_finish(struct wv *v, const char *extra)
     }
     fprintf(stderr,
             "frames=%u fenced=%u imports=%u maps=%u skipped=%u cursor_draws=%u input_calls=%u"
-            " input_errors=%u ir_sent=%u ir_errors=%u%s\n",
+            " input_errors=%u ir_sent=%u ir_errors=%u pictures=%lu output_hz=%d%s\n",
             v->frames, v->fenced, v->imports, v->maps, v->skipped, v->cursor_draws, v->input.calls,
-            v->input.errors, v->ir.sent, v->ir.errors, extra ? extra : "");
+            v->input.errors, v->ir.sent, v->ir.errors, v->pictures, v->output_hz,
+            extra ? extra : "");
     int failed = !v->frames || v->input.errors || v->input.pending;
     current(v);
     audio_close(&v->audio);

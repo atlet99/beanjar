@@ -625,6 +625,24 @@ frames they can. The stats line has `fps=` (the rate now) and `frame_main_us=`,
 `frame_encode_us=` (the last window's means in us; 0 and -1 before one, and -1 for the encoding of
 a window with nothing encoded).
 
+Measured 2026-11-12 at 1280x720 with one video client (`beanjar vnc video-pipe`, `bitrate=20000`)
+and the same clips as the [viewer's](viewer.md#output-rate), 20 s from two stats lines, the media
+from the `present` reports around them (about 25 s):
+
+| | panel | clip | encoder, frames | rate | main loop, encoding (ms a frame) | frames, units a second | received, shown |
+|---|---|---|---|---|---|---|---|
+| x86 PC, TCG, W22O | 120 Hz | 120 fps | NVENC, memory | 120 kept | 3.5, 4.9 | 110.1, 109.3 | 2905, 2774 |
+| the same | 120 Hz | 60 fps | NVENC, memory | 120 kept | 3.6, 5.1 | 63.2, 60.5 | 1481, 1477 |
+| Pi 5, KVM, W22O | 120 Hz | 120 fps | x264, memory | 120 to 60 | 15.6, 9.0 | 47.7, 47.7 | 2986, 1154 |
+| the same | 120 Hz | 120 fps | x264, `--frames gbm` | 120 to 60 | 17.8, 7.7 | 42.7, 42.7 | 2994, 1032 |
+| the same | 120 Hz | 60 fps | x264, memory | 60 | | 54.0, 54.0 | 1496, 1291 |
+| Pi 5, KVM, W22P | 60 Hz | 120 fps | x264, memory | 60 | | 39.0, 38.9 | 2869, 934 |
+| the same | 60 Hz | 60 fps | x264, memory | 60 | | 55.1, 55.0 | 1495, 1336 |
+
+The PC keeps 120 (its TCG guest delivers about 114 pictures a second); the Pi 5, which has no
+H.264 encoder, does not: its main loop alone needs about 16 ms a frame with the guest's virgl on
+the same V3D, so it falls back to 60 and makes 40 to 55 frames a second.
+
 ## Idle without clients
 
 With no RFB client (TCP, WebSocket, `--unix` or `--local`) and no video client, beanjar-vnc does no

@@ -90,7 +90,10 @@ window show the diagnostic checkerboard (60 guest pixels per square, light grey 
 which marks "video here, not decoded". Either way the window counts as drawn without a picture
 (`video_draws` and `video_pictures` in the viewer's exit line), and VIDEO capture refuses it. Guest PCM delivered through QEMU's
 D-Bus audio and host-decoded media audio are distinct paths; see [audio](viewer-audio.md).
-The shared viewer core serves the GTK window and headless checks.
+The shared viewer core serves the GTK window and headless checks. It composes at the board's
+panel refresh (60, 120, 144 Hz...: [output rate](viewer.md#output-rate)) while the guest's UI
+draws at most 60 frames a second, so a clip faster than 60 fps shows at its own rate up to the
+panel's, each picture chosen by its pts at the poll before the draw.
 
 ## Validation and scope
 

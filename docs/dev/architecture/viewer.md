@@ -140,6 +140,22 @@ two, and on a 144 Hz panel each picture lasts the pictures its time covers.
 - **beanjar-vnc** paces its own frames by the same rule and lowers its rate when the host cannot
   keep it ([vnc.md](vnc.md#frame-rate)); it sets `output-hz` 0.
 
+Measured 2026-11-12 with viewer-headless (30 s, `--no-audio`) on a looping 1280x720 H.264 clip
+with its frame number burned in (`<video>` in a 960x540 window, the test app of
+`tests/regress/video/app`), pictures from the exit line's `pictures=`, the media's from its
+`present` report:
+
+| | panel | clip | pictures a second | received | shown | picked, not shown | late drops |
+|---|---|---|---|---|---|---|---|
+| Pi 5, KVM, W22O (`o22-mullet`) | 120 Hz | 120 fps | 116.8 | 3598 | 3494 | 94 | 7 |
+| the same | 120 Hz | 60 fps | 67.8 (the UI's bar too) | 1799 | 1792 | 4 | 0 |
+| Pi 5, KVM, W22P (`k8lp-mullet`) | 60 Hz | 120 fps | 60.0 | 3597 | 1793 | 1791 | 10 |
+| x86 PC, TCG, W22O | 120 Hz | 120 fps | 105.9 | 3536 | 3163 | 348 | 22 |
+
+On a 60 Hz panel a 120 fps clip shows every other picture, as on such a TV. The PC's TCG guest
+delivers fewer pictures on time and its D3D12 draws are slower: the misses there are the host's.
+The GTK window was not measured at a real display's refresh (Xvfb has no vblank).
+
 ## Components
 
 ```
