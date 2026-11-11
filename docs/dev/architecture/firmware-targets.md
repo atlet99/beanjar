@@ -26,7 +26,7 @@ wrong types, missing required keys, a `base` or partition map that does not exis
 
 | File | What it holds | Python name |
 |---|---|---|
-| `<chip>-<release>.toml` | one target: its model codes, those still in bring-up, its own flags, and its own rows where its firmware line differs | `MODELS`, `BRING_UP`, `TARGETS`, `TARGET_SOCS`, `TARGET_RELEASES` |
+| `<chip>-<release>.toml` | one target: its model codes, those still in bring-up, whether it was ever booted (`tested`), its own flags, and its own rows where its firmware line differs | `MODELS`, `BRING_UP`, `TARGETS`, `TARGET_SOCS`, `TARGET_RELEASES` |
 | `soc/<chip>.toml` | the SoC: board command line and broadcast boards, SoC module parameters, lgemu devices, the model's hardware facts | `SOCS`, `Soc` |
 | `release/<release>.toml` | the release: paks and mounts, state and NVM disks, the EEPROM layout, init system, platform and version, always-used layers, peripheral modules | `RELEASES`, `Release` |
 | `partmap/<name>.toml` | a partition map assembled for releases whose own is stale, named for the first row that uses it | `PartmapLayout` |
@@ -62,6 +62,16 @@ base = "queue"
 nvm_disks = { nvram = "8M", eeprom = "32K" }
 partmap = "o22-ponytail"
 ```
+
+A target that has never booted says `tested = false`; without the key a target is tested, and
+`tested = true` is refused as redundant. An untested target is built and shipped in
+`beanjar-guest` like any other, and the host learns of the flag from the target table the
+`beanjar` package ships, the same table that says the target exists. `scripts/regress` leaves an
+untested target out of its default set and runs it only when named with `--target`, as it does a
+target whose models are all in `bring_up`. Creating or starting a VM of an untested target, from
+the CLI or the manager, prints `warning: <chip>-<release>: not tested yet: may not boot` and goes
+on; the manager's New VM marks such a firmware of the collections with "(not tested yet: may not
+boot)". Remove the line once the target passes `scripts/regress --headless`.
 
 To add a target, add `<chip>-<release>.toml` with its `models`; add `soc/<chip>.toml` or
 `release/<release>.toml` for a new chip or release, preferably as a `base` of the closest one

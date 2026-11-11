@@ -137,3 +137,41 @@ def test_bring_up_disagrees(malformed):
 def test_target_soc_row(malformed):
     path = malformed.edit("m2-simplesmart.toml", "board_src = ", "board_srcs = ")
     malformed.refused(path, "soc", "unknown key 'board_srcs'")
+
+
+def test_tested_by_default():
+    """A target file without tested is tested: no warning for it."""
+    t = targets.TARGETS[("h13", "afro")]
+    assert t.tested
+    assert targets.tested(("h13", "afro"))
+    assert targets.untested_warning(("h13", "afro")) is None
+
+
+def test_untested_target(malformed):
+    malformed.edit(
+        "k8hpp-number1.toml", 'models = ["W23H"]\n', 'models = ["W23H"]\ntested = false\n'
+    )
+    table = targets.load(malformed.dir)
+    assert not table["TARGETS"][("k8hpp", "number1")].tested
+    assert all(t.tested for p, t in table["TARGETS"].items() if p != ("k8hpp", "number1"))
+
+
+def test_untested_warning():
+    untested = targets.TARGETS[("k8hpp", "number1")]._replace(tested=False)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setitem(targets.TARGETS, ("k8hpp", "number1"), untested)
+        assert targets.untested_targets() == ["k8hpp-number1"]
+        assert (
+            targets.untested_warning(("k8hpp", "number1"))
+            == "k8hpp-number1: not tested yet: may not boot"
+        )
+
+
+def test_tested_true_refused(malformed):
+    path = malformed.edit("h13-afro.toml", "models = [", "tested = true\nmodels = [")
+    malformed.refused(path, "tested", "only tested = false")
+
+
+def test_tested_wrong_type(malformed):
+    path = malformed.edit("h13-afro.toml", "models = [", 'tested = "no"\nmodels = [')
+    malformed.refused(path, "tested", "expected true or false")

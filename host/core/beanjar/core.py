@@ -1119,6 +1119,13 @@ class Library:
                     "link",
                 )
             vmidentity.parse_lan_parent(parent)  # still there, and not wireless
+        # a target that has never booted (targets.untested_warning) starts, with a warning
+        try:
+            warning = targets.untested_warning(vm.target())
+        except Error:
+            warning = None
+        if warning:
+            (out or print)(f"warning: {warning}")
         with capacity.admission_lock(self):
             capacity.admit(vm)
             why = capacity.listen_conflict(vm)

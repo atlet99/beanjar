@@ -208,7 +208,7 @@ host build's `-Dfirmware=PATH`) for other locations. The checkout root has no `f
 machine against a VM host over ssh (`--host HOST` or `REGRESS_HOST`; it has no built-in default; the checkout there is `DEST`, default `beanjar`, in its home; `REGRESS_SYNC` names the executable that copies this checkout to it; `--local` boots here instead):
 
 ```sh
-scripts/regress --host pi        # build each target's guest, sync, then every target on the host `pi` (not those in bring-up, `targets.BRING_UP`: name them with --target)
+scripts/regress --host pi        # build each target's guest, sync, then every target on the host `pi` (not those in bring-up, `targets.BRING_UP`, nor untested targets, `tested = false`: name them with --target)
 scripts/regress -n               # dry run: print every command, run nothing
 scripts/regress --target m2-dreadlocks --no-build --no-sync --keep-going --timeout 600
 scripts/regress --tv --viewer    # graphics: each VM also in the viewer on the VM host's desktop

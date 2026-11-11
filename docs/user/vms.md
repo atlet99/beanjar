@@ -27,6 +27,9 @@ beanjar stop tv1
 - `create` defaults to the firmware model's RAM, 4 CPUs, the `normal` and `gl` layers, the NAT
   network through the traffic inspector, and the D-Bus display with sound. `--mem`, `--smp`,
   `--layers`, `--link`, `--mode`, `--display` and `--audio` change them.
+- A firmware whose target has never booted (an untested target, see the
+  [support table](../../README.md#supported-firmware)) is accepted with a warning, "not tested yet:
+  may not boot", when the VM is created and each time it starts; New VM marks it the same way.
 - `start` returns at the guest's initramfs shell, and the TV boots on to Home in the background.
   Several VMs run at once as far as the host's memory allows (`beanjar host config set
   max_running=N` caps them).

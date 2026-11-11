@@ -262,6 +262,13 @@ def cap_memory(lib, tree, target, fw_dir, cfg, out):
         )
 
 
+def warn_untested(target, out):
+    """A warning, not a refusal, for a target that has never booted (targets.untested_warning)."""
+    warning = targets.untested_warning(target)
+    if warning:
+        out(f"warning: {warning}")
+
+
 def create(lib, name, fw=None, epk=None, place=True, out=None, **settings):
     """The new VM (a core.VM): fw used in place (place) or imported, or epk extracted. out(line)
     gets the progress, line by line (default: stdout)."""
@@ -277,6 +284,7 @@ def create(lib, name, fw=None, epk=None, place=True, out=None, **settings):
             compat.components(tree, target, name)
         except compat.Error as e:
             raise Error(str(e)) from None
+        warn_untested(target, out)
     vm = VM(lib, name)
     scratch = None
     old = {}
@@ -309,6 +317,7 @@ def create(lib, name, fw=None, epk=None, place=True, out=None, **settings):
             except compat.Error as e:
                 raise Error(str(e)) from None
             out(f"firmware target: {target[0]}-{target[1]}")
+            warn_untested(target, out)
             os.mkdir(own)
             firmware.place(src, own, target, "move", out)
             shutil.rmtree(work)

@@ -25,6 +25,10 @@ the bring-up checklist and a screenshot. It does not imply every TV feature work
 | W20L 04.63.25.01 | K6LP / Realtek | 5.6.1 (jhericurl-jimna) | `k6lp-jhericurl` | Passed; board 32LX6900PJA |
 | W21P 03.70.25.01 | RTD2875 (K7LP) / Realtek | 6.6.0 (kisscurl-kolovesi) | `k7lp-kisscurl` | Passed; board 43UP77009LB |
 
+Targets that have never booted are in the table too, marked untested (`tested = false` in their
+`guest/targets/` file): a VM of one is created and started with a warning, "not tested yet: may
+not boot", and the regression runner runs it only when named.
+
 The [regression runner](docs/dev/guides/build.md#regression-runs) tests the webOS targets sequentially with
 graphics or in parallel headless lanes. It checks Quick Start+ standby and resume where
 supported. The latest graphics batch passed all eight rows; standby passed on W16R, W17H,

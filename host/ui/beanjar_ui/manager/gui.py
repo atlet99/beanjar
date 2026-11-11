@@ -162,6 +162,16 @@ def fw_label(fw):
     return fw
 
 
+def untested_suffix(fw_dir):
+    """ " (not tested yet: may not boot)" after a firmware whose target has never booted
+    (targets.tested), "" otherwise or if its target cannot be told."""
+    try:
+        target = paths.firmware_target(fw_dir)
+    except ValueError:
+        return ""
+    return "" if targets.tested(target) else f" ({targets.UNTESTED})"
+
+
 def fmt_mem(mib):
     return f"{mib // 1024} GiB" if mib >= 1024 and mib % 1024 == 0 else f"{mib} MiB"
 
@@ -1444,7 +1454,9 @@ class Manager:
         has one, or a directory used in place (fw: vm.toml's, selected)."""
         form.own_fw = None
         if new:
-            sources = [(fw_label(n), "place", d) for n, d in newvm.collection()]
+            sources = [
+                (fw_label(n) + untested_suffix(d), "place", d) for n, d in newvm.collection()
+            ]
             sources += [("Firmware File (.epk)…", "epk", None), ("Directory…", "dir", None)]
         else:
             sources = []

@@ -155,7 +155,8 @@ launcher's TCG factor, qemu.TIME_SCALE, as the guest's bootd timers are; under K
   build/regress/<run>/summary.txt     the table printed at the end (and summary.json), the mode
                                       (graphics or headless) on each target's row
 The targets are targets.MODELS' (`host/scripts/vm-launcher config TARGETS`); a target whose model is in targets.BRING_UP is still being
-brought up and is left out without --target (named, it runs); a target's firmware is the one in the host's
+brought up and is left out without --target (named, it runs), and so is a target that has never booted (its
+file's tested = false: targets.untested_targets, warned about when named); a target's firmware is the one in the host's
 firmware collections (beanjar host config's firmware_dirs) that resolves to it (paths.firmware_target: its model code and the
 release its rootfs names; the default firmware first; --fw NAME picks one where there are several). Exits 1 if any target failed, 2 on a usage error.
 """
@@ -323,6 +324,12 @@ def bring_up_targets():
     return [targets.name(p) for p in targets.all_targets() if targets.in_bring_up(p)]
 
 
+def named_only_targets():
+    """The targets run only when named with --target: those in bring-up and those never booted
+    (targets.untested_targets)."""
+    return sorted(set(bring_up_targets()) | set(targets.untested_targets()))
+
+
 def all_targets():
     """The supported targets' names, as `host/scripts/vm-launcher config TARGETS` prints them."""
     return [targets.name(p) for p in targets.all_targets()]
@@ -382,7 +389,8 @@ def find_firmwares(dirs):
 
 
 def select(want, fws, found, default_fw=paths.FW_NAME):
-    """[(target, firmware name)] in TARGETS order: the targets wanted (all but those in bring-up without --target), each with its
+    """[(target, firmware name)] in TARGETS order: the targets wanted (all but those in bring-up or untested without
+    --target: named_only_targets), each with its
     firmware (--fw, else the default firmware, else the only one found that is not a bring-up model's, unless the
     whole target is in bring-up, or of several the one that boots the chip's default board: paths.default_candidates).
     found: find_firmwares(). Usage on anything unclear."""
@@ -403,7 +411,7 @@ def select(want, fws, found, default_fw=paths.FW_NAME):
         chosen[target] = fw
     out = []
     for p in known:
-        if want and p not in want or not want and p in bring_up_targets():
+        if want and p not in want or not want and p in named_only_targets():
             continue
         if p not in chosen:
             # a bring-up model's firmware on a target that is not in bring-up (W21Z on W21P's target) only with --fw
@@ -433,7 +441,8 @@ def parser():
         action="append",
         default=[],
         help="a target to run (repeatable, or comma-separated; "
-        "default: every target but those in bring-up, targets.BRING_UP)",
+        "default: every target but those in bring-up, targets.BRING_UP, and the untested ones, "
+        "a target file's tested = false)",
     )
     p.add_argument(
         "--fw", action="append", default=[], help="the firmware (name) of its target (repeatable)"
@@ -2254,6 +2263,10 @@ def main(argv=None):
         + f" on {a.host or 'this machine'}"
         + (" (dry run)" if a.dry_run else "")
     )
+    for p, _fw in sel:
+        warning = targets.untested_warning(targets.by_name(p))
+        if warning:
+            say(f"warning: {warning}")
     skipped = {}
     if "gl" in a.vm_env["LAYERS"].split(","):
         for target, fw in sel:

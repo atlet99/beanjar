@@ -38,6 +38,10 @@ from . import memory, paths
 # records the target in its manifest.toml. BRING_UP: the models whose target is still being brought up
 # (a target file's bring_up): scripts/regress leaves it out of its default set and runs it only when
 # named with --target. Remove the model there once its target passes regress --headless.
+# A target file's tested = false: the target has never booted (made from its firmware's facts alone,
+# docs/research/target-combinations.md). It is built and packaged like any other, but regress leaves
+# it out of its default set and runs it only when named, and creating or starting a VM of it says
+# UNTESTED (untested_warning). Remove the line once the target passes regress --headless.
 
 # LG's platforms, as LG names them: a VM's platform (vm.toml's platform, the viewer's title) is its
 # target's release's (Release.platform), and so is the version it is shown with (Release.version: LG's
@@ -216,7 +220,10 @@ TVSERVICE = ("tvservice-dvb", "/mnt/lg/tvservice/lgapp/tvservice")
 # videooutputd sets the regions in 1920x1080; None elsewhere. de_histogram: the stock
 # libpqeca (kadpd's histogram thread) reads /proc/lg/de/v4l2_capture_read and crashes in fscanf
 # when it is missing: lg115x.ko's stopped-histogram entry (de_histogram_proc). v4l2_capture: lg115x.ko's V4L2 capture (v4l2_capture=1).
-Target = namedtuple("Target", "models bring_up lg_scaler de_histogram v4l2_capture")
+# tested: False for a target that has never booted (its file's tested = false; absent: True).
+Target = namedtuple(
+    "Target", "models bring_up lg_scaler de_histogram v4l2_capture tested", defaults=(True,)
+)
 
 INIT_SYSTEMS = ("upstart", "systemd", "sysvinit")
 # The broadcast standards. A firmware is built for one, and its paks say which (tvservice-dvb.pak,
@@ -602,6 +609,7 @@ TARGET_KEYS = {
     "lg_scaler": _ints(2),
     "de_histogram": _bool,
     "v4l2_capture": _bool,
+    "tested": _bool,
     "soc": lambda w, v: _table(w, v, SOC_KEYS),
     "release": lambda w, v: _table(w, v, RELEASE_KEYS),
 }
@@ -694,6 +702,8 @@ def load(directory):
             )
         if not t["models"]:
             raise Error(f"{where}: models: none")
+        if t.get("tested") is True:
+            raise Error(f"{where}: tested: only tested = false is said (absent: tested)")
         for m in t.get("bring_up", ()):
             if m not in t["models"]:
                 raise Error(f"{where}: bring_up: {m} is not one of its models")
@@ -714,6 +724,7 @@ def load(directory):
             t.get("lg_scaler"),
             t.get("de_histogram", False),
             t.get("v4l2_capture", False),
+            t.get("tested", True),
         )
     for n in sorted(set(layouts) - used):
         raise Error(f"{rel('partmap', n + '.toml')}: no release names it")
@@ -780,6 +791,25 @@ def in_bring_up(target):
     chip, rel = target
     models = [m for m, rs in MODELS.items() if rs.get(rel) == chip]
     return bool(models) and all(m in BRING_UP for m in models)
+
+
+# What creating or starting a VM of an untested target says (untested_warning): a warning, never a refusal.
+UNTESTED = "not tested yet: may not boot"
+
+
+def tested(target):
+    """False for a target that has never booted (its file's tested = false), True otherwise."""
+    return TARGETS[tuple(target)].tested
+
+
+def untested_targets():
+    """The names of the targets that have never booted (tested), sorted."""
+    return [name(p) for p in all_targets() if not tested(p)]
+
+
+def untested_warning(target):
+    """ "<chip>-<release>: not tested yet: may not boot" for an untested target, None otherwise."""
+    return None if tested(target) else f"{name(target)}: {UNTESTED}"
 
 
 def supported(target):

@@ -124,6 +124,18 @@ class SelectTest(unittest.TestCase):
             _, sel = regress.parse(["--target", "k6lp-jhericurl"], found=FOUND, env={})
             self.assertEqual(sel, [("k6lp-jhericurl", W20L)])
 
+    def test_untested_target_only_when_named(self):
+        # a target file's tested = false: out of the default set, run only when named (with a warning)
+        key = ("k6lp", "jhericurl")
+        untested = regress.targets.TARGETS[key]._replace(tested=False)
+        with mock.patch.dict(regress.targets.TARGETS, {key: untested}):
+            self.assertIn("k6lp-jhericurl", regress.named_only_targets())
+            _, sel = regress.parse([], found=FOUND, env={})
+            self.assertNotIn("k6lp-jhericurl", [p for p, _ in sel])
+            self.assertIn("h13-afro", [p for p, _ in sel])
+            _, sel = regress.parse(["--target", "k6lp-jhericurl"], found=FOUND, env={})
+            self.assertEqual(sel, [("k6lp-jhericurl", W20L)])
+
     def test_bring_up_firmware_of_a_supported_target_only_by_fw(self):
         # W21Z boots on W21P's target but is in bring-up: the target's default is W21P, W21Z only with --fw
         w21z = "03.20.25.01-HE_PJT_W21Z_AFADATAA"
