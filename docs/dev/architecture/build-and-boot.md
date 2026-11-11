@@ -333,6 +333,9 @@ so the copies need names of their own. The launcher sets it for queue's two outp
 `0021` starts gpiolib's dynamic bases at 1024 instead of 512 (below, `GPIOLIB`): the vendor
 module's chip at base 0 serves the firmware's own line numbers, K24's up to 733, and the PL061,
 the one chip with a dynamic base, must sit above them.
+`0022` gives virtio-gpu's CRTCs DRM's vblank timer (`drm_vblank_helper`, as vkms has): a commit's
+event is armed at the flush and sent at the next vblank of the CRTC's mode, after the host's
+answer as before, and blocking commits wait for it ([The display's refresh](#the-displays-refresh)).
 
 **How it was derived** (2026-09-28): `allnoconfig` with the options below forced
 (`make allnoconfig KCONFIG_ALLCONFIG=<list>`), booted and compared with the arm64 `defconfig`
@@ -377,6 +380,35 @@ bridge/VLAN, wireless and Bluetooth (no such devices), zram (`swapon.conf` finds
 device, as with the defconfig kernel), ACPI and EFI (QEMU loads the Image directly with a device
 tree), SVE/SME/pointer authentication/MTE/BTI (the 32-bit userland cannot use them), seccomp,
 audit and LSMs, NUMA, CPU frequency scaling (CPU hotplug comes with `SUSPEND`, above), debug info.
+
+### The display's refresh
+
+A TV's display engine completes a page flip at the panel's vblank, and webOS draws its UI at
+60 frames a second. virtio-gpu has no vblank: without `0022` a commit's event went out as soon as
+the plane update's resource flush came back from the host, so the compositor drew as fast as the
+host answered (above 60 on a fast host), and the mode it chose was QEMU's EDID's, 1920x1080 at
+75 Hz (QEMU generates its EDID at 75 Hz unless a display reports another refresh, and neither
+D-Bus front end does). Now:
+
+- **The mode is 60 Hz.** The launcher gives the GPU `edid=off`: the guest then has no EDID, and
+  the stock driver's preferred mode is its own CVT mode at the device's size and 60 Hz (the
+  other modes, `drm_add_modes_noedid`'s, are 60 Hz too). Nothing in the guest layers or the shims
+  reads the connector's EDID.
+- **Flips complete at its vblank** (`0022`): every KMS client is paced by it, legacy page flips
+  (egl-kms, the starfish QPA) and atomic commits (Qt EGLFS Starfish, Weston, the native scanout)
+  alike, and none completes more than 60 a second however fast the host answers. A flip still
+  waits for the host's answer to its flush first, so a slow host gives fewer.
+
+Measured 2026-11-12 on the x86 PC (TCG) on a W22P VM (`k8lp-mullet`) with a probe of our own
+(`DRM_IOCTL_WAIT_VBLANK` and a dumb-buffer page flip loop as DRM master, the compositor stopped):
+before, the connector's preferred mode was the EDID's 1920x1080 at 75 Hz; after, `1920x1080@60`,
+59.7 vblanks a second and 60.0 flips a second. The UI's own rate on TCG (28 frames a second while
+navigated, 23 idle with the home screen's animation) is the guest's CPU's, before and after.
+
+The panel the UI is shown on may be faster: the viewer and beanjar-vnc compose at the board's
+panel refresh, whatever it is (120, 144 Hz...), with the video at its own rate and the UI at 60
+on its own vblank
+([viewer](viewer.md#output-rate), [beanjar-vnc](vnc.md#frame-rate)).
 
 ### Peripheral modules
 

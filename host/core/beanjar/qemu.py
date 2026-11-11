@@ -943,9 +943,12 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
         )
     except (targets.Error, OSError) as e:
         raise Error(str(e)) from None
+    # edid=off: no EDID (QEMU's is 75 Hz), so the driver's preferred mode is its own CVT mode at
+    # 60 Hz, the rate of the UI's vblank (kernel patch 0022; docs/dev/architecture/build-and-boot.md,
+    # "The display's refresh")
     gpu = [
         "-device",
-        f"virtio-gpu-gl-pci,xres={gpu_res.rsplit('x', 1)[0]},yres={gpu_res.split('x', 1)[-1]}",
+        f"virtio-gpu-gl-pci,xres={gpu_res.rsplit('x', 1)[0]},yres={gpu_res.split('x', 1)[-1]},edid=off",
     ]
     if targets.soc(p.target).touch:
         gpu[1] += f",id={GPU_ID}"

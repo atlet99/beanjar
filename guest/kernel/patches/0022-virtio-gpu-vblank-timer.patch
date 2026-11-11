@@ -1,0 +1,68 @@
+drm/virtio: page flips complete at a vblank timer at the mode's refresh
+
+virtio-gpu has no vblank: an atomic commit's event was sent as soon as the
+plane update's resource flush came back from the host, so a guest compositor
+drew as fast as the host answered, above the mode's refresh on a fast host.
+A TV's display engine completes a flip at the panel's vblank. The CRTCs now
+have DRM's vblank timer (drm_vblank_helper, as vkms) at their mode's refresh:
+the event is armed at the flush and sent at the next vblank, after the host's
+answer as before, and blocking commits wait for it. Every client of KMS is
+paced by it, legacy page flips and atomic commits alike.
+
+--- a/drivers/gpu/drm/virtio/virtgpu_display.c
++++ b/drivers/gpu/drm/virtio/virtgpu_display.c
+@@ -32,6 +32,8 @@
+ #include <drm/drm_gem_framebuffer_helper.h>
+ #include <drm/drm_probe_helper.h>
+ #include <drm/drm_simple_kms_helper.h>
++#include <drm/drm_vblank.h>
++#include <drm/drm_vblank_helper.h>
+ 
+ #include "virtgpu_drv.h"
+ 
+@@ -55,6 +57,7 @@
+ 	.reset                  = drm_atomic_helper_crtc_reset,
+ 	.atomic_duplicate_state = drm_atomic_helper_crtc_duplicate_state,
+ 	.atomic_destroy_state   = drm_atomic_helper_crtc_destroy_state,
++	DRM_CRTC_VBLANK_TIMER_FUNCS,
+ };
+ 
+ static const struct drm_framebuffer_funcs virtio_gpu_fb_funcs = {
+@@ -99,6 +102,7 @@
+ static void virtio_gpu_crtc_atomic_enable(struct drm_crtc *crtc,
+ 					  struct drm_atomic_state *state)
+ {
++	drm_crtc_vblank_on(crtc);
+ }
+ 
+ static void virtio_gpu_crtc_atomic_disable(struct drm_crtc *crtc,
+@@ -108,6 +112,7 @@
+ 	struct virtio_gpu_device *vgdev = dev->dev_private;
+ 	struct virtio_gpu_output *output = drm_crtc_to_virtio_gpu_output(crtc);
+ 
++	drm_crtc_vblank_off(crtc);
+ 	virtio_gpu_cmd_set_scanout(vgdev, output->index, 0, 0, 0, 0, 0);
+ 	virtio_gpu_notify(vgdev);
+ }
+@@ -133,6 +138,9 @@
+ 	 */
+ 	if (drm_atomic_crtc_needs_modeset(crtc_state))
+ 		output->needs_modeset = true;
++
++	/* the page flip's event at the mode's next vblank (the timer), not at the host's answer */
++	drm_crtc_vblank_atomic_flush(crtc, state);
+ }
+ 
+ static const struct drm_crtc_helper_funcs virtio_gpu_crtc_helper_funcs = {
+@@ -362,6 +370,11 @@
+ 	for (i = 0 ; i < vgdev->num_scanouts; ++i)
+ 		vgdev_output_init(vgdev, i);
+ 
++	/* a vblank timer per CRTC at its mode's refresh (DRM_CRTC_VBLANK_TIMER_FUNCS) */
++	ret = drm_vblank_init(vgdev->ddev, vgdev->num_scanouts);
++	if (ret)
++		return ret;
++
+ 	drm_mode_config_reset(vgdev->ddev);
+ 	return 0;
+ }
