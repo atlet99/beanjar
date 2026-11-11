@@ -5,3 +5,6 @@
 # G5: nothing shows the far-field microphone (mic stays false).
 
 base = "o24"
+# Its only queue firmware is the Japanese ARIB build (W25O 44.00.67), whose model_id.json says
+# ARIB: it boots the Japanese OLED55G5PJB (board-arib.cmdline), from that firmware's own generators.
+broadcast_boards = { atsc = "/etc/emulator/board-atsc.cmdline", dvb = "/etc/emulator/board-dvb.cmdline", arib = "/etc/emulator/board-arib.cmdline" }

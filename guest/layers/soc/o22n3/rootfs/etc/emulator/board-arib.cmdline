@@ -1,0 +1,22 @@
+# OLED55C5PJA, the Japanese 55-inch C5: the models DB lists it for W25G's ARIB firmware
+# (HE_DTV_W25G_AFABJAAA, the only W25G queue build), which boots it by its model_id.json region
+# (targets.Soc.broadcast_boards). From that firmware's own generators (queue 43.21.96,
+# host/tools/research/model-config.py): hw-option-gen decodes the line as O22N3, countryType JP,
+# 2.5G OLED, UHD panel, 1920x1080 graphics and 120 Hz panel and SoC output; nyx-option-gen ARIB.
+# hwopt: the US board's line with the country digit 0 (JP). countryGrp 18: nyxDeviceInfo's group
+# of the line, configd's JP RMM group (JPN). ToolOpt: LLS's factory default record of this line
+# with the C5/55" panelInch and toolType. 2.5G and O22 A0 are VM choices; identity placeholders
+# are replaced per VM.
+ethaddr=02:00:00:12:34:56
+devtmpfs.mount=1
+countryGrp=18
+modelopt=000000000
+hwopt=000200010105102000
+ToolOpt=2187599:1310739:1706066:2113:4056627:1647762187
+modelName=OLED55C5PJA
+debugMode=3
+serialNum=000RAXX00001
+chip=O22A0
+tvregion=ARIB
+emmc_size=0x1d2000000
+cmdEnd

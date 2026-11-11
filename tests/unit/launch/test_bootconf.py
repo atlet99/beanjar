@@ -538,6 +538,8 @@ class BootConfTest(unittest.TestCase):
             "o24-queue": base | {"ftdi_sio", "ch341", "cp210x"},
             "o24n-ponytail": base | {"ftdi_sio"},
             "o22n3-ponytail": base | {"ftdi_sio"},
+            "o24n-queue": base | {"ftdi_sio", "ch341", "cp210x"},
+            "o22n3-queue": base | {"ftdi_sio", "ch341", "cp210x"},
             "k8hp-number1": base,
             "k8hp-ombre": base,
             "k8hp-ponytail": base,
@@ -1254,10 +1256,12 @@ class BootConfTest(unittest.TestCase):
                 "o22n2-queue",
                 "o22n2-spacebuns",
                 "o22n3-ponytail",
+                "o22n3-queue",
                 "o24-ombre",
                 "o24-ponytail",
                 "o24-queue",
                 "o24n-ponytail",
+                "o24n-queue",
             ],
         )
         self.assertEqual(targets.of_firmware("W24G", "spacebuns"), ("o22n2", "spacebuns"))
@@ -1343,6 +1347,8 @@ class BootConfTest(unittest.TestCase):
                 "o24-queue": 2560,
                 "o24n-ponytail": 2560,
                 "o22n3-ponytail": 2560,
+                "o24n-queue": 2560,
+                "o22n3-queue": 2560,
             },
         )
 

@@ -6,3 +6,6 @@
 # shows the far-field microphone (mic stays false).
 
 base = "o22n2"
+# Its only queue firmware is the Japanese ARIB build (W25G 43.21.96), whose model_id.json says
+# ARIB: it boots the Japanese OLED55C5PJA (board-arib.cmdline), from that firmware's own generators.
+broadcast_boards = { atsc = "/etc/emulator/board-atsc.cmdline", dvb = "/etc/emulator/board-dvb.cmdline", arib = "/etc/emulator/board-arib.cmdline" }

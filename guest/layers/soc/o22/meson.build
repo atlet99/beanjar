@@ -36,7 +36,8 @@ elif 'ombre' in webos_reached
 endif
 # W22O's ponytail and queue audio builds dropped DTS; W23O's, W24G's and W24O's of those releases
 # keep it (dts-seamless and dts_audiodec, gst-inspect of W24G 33.31 and 43.21 and W23O 44.00). O22N3's
-# and O24N's ponytail audio builds are W22O's.
+# and O24N's ponytail audio builds are W22O's; their Japanese queue builds (43.21.96, 44.00.67) have
+# W22O queue's twelve decoder factories, no dts_audiodec.
 if soc in ['o22n', 'o22n2', 'o24'] and gst_elements in ['lx-o22-ponytail', 'lx-o22-queue']
   gst_elements += '-dts'
 endif
