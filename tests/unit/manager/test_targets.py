@@ -148,19 +148,23 @@ def test_tested_by_default():
 
 
 def test_untested_target(malformed):
+    """tested = false makes that target untested and no other."""
     malformed.edit(
         "k8hpp-number1.toml", 'models = ["W23H"]\n', 'models = ["W23H"]\ntested = false\n'
     )
     table = targets.load(malformed.dir)
     assert not table["TARGETS"][("k8hpp", "number1")].tested
-    assert all(t.tested for p, t in table["TARGETS"].items() if p != ("k8hpp", "number1"))
+    for p, t in table["TARGETS"].items():
+        if p != ("k8hpp", "number1"):
+            assert t.tested == targets.TARGETS[p].tested, targets.name(p)
 
 
 def test_untested_warning():
     untested = targets.TARGETS[("k8hpp", "number1")]._replace(tested=False)
     with pytest.MonkeyPatch.context() as mp:
         mp.setitem(targets.TARGETS, ("k8hpp", "number1"), untested)
-        assert targets.untested_targets() == ["k8hpp-number1"]
+        assert "k8hpp-number1" in targets.untested_targets()
+        assert "h13-afro" not in targets.untested_targets()
         assert (
             targets.untested_warning(("k8hpp", "number1"))
             == "k8hpp-number1: not tested yet: may not boot"

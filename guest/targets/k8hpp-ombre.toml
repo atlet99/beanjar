@@ -1,0 +1,9 @@
+models = ["W23H"]
+bring_up = ["W23H"]
+tested = false
+
+# W23H ombre-okapi (23.25.55) keeps number1's paks and every fstab and jail pin (appstore at p62):
+# number1's partition map.
+[release]
+base = "ombre"
+partmap = "k8hpp-number1"

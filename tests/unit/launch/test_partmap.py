@@ -238,6 +238,38 @@ class PartmapTest(unittest.TestCase):
                 self.assertEqual(entries[index].name, "apps" if name == "appstore" else name)
         self.assertNotIn("platform-plugins", dict(partmap.nodes(m, target)).values())
 
+    def test_untested_stock_pins(self):
+        """An untested target's stock fstab pins (data/stock-fstab/<target>.fstab, read from its
+        firmware when the target was added) name the partitions of its VM's map."""
+        d = os.path.join(HERE, "data", "stock-fstab")
+        for target in targets.all_targets():
+            path = os.path.join(d, targets.name(target) + ".fstab")
+            if targets.tested(target):
+                continue
+            with self.subTest(target=targets.name(target)):
+                self.assertTrue(os.path.isfile(path), path)
+                layout = targets.release(target).partmap
+                tmp = os.path.join(self.tmp, targets.name(target))
+                os.makedirs(tmp)
+                for part in layout.parts:
+                    if not isinstance(part.size, int) and part.size[0] == "pak":
+                        with open(os.path.join(tmp, part.size[1] + ".pak"), "wb") as f:
+                            f.truncate(4096)
+                with mock.patch.object(
+                    partmap, "file_table", return_value=partmap.encode(fake_map())
+                ):
+                    entries = dict(partmap.partitions(partmap.decode(partmap.table(tmp, target))))
+                with open(path) as f:
+                    for line in f:
+                        if line.startswith("#") or not line.strip():
+                            continue
+                        device, mount_point, *_ = line.split()
+                        index = int(device.removeprefix("/dev/mmcblk0p"))
+                        name = os.path.basename(mount_point)
+                        self.assertEqual(
+                            entries[index].name, "apps" if name == "appstore" else name, line
+                        )
+
     def test_o22n2_stock_pins(self):
         """The measured stock fstab pins survive the VM's raw-image allocation."""
         self.o22n2_stock_pins("ombre")

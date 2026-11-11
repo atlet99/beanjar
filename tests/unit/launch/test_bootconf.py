@@ -232,6 +232,9 @@ class BootConfTest(unittest.TestCase):
                 "k8hpp-number1": "rtk",
                 "k8lpn-number1": "rtk",
                 "k8lpn2-ombre": "rtk",
+                "k8hpp-ombre": "rtk",
+                "k8hpp-ponytail": "rtk",
+                "k8hpp-queue": "rtk",
             },
         )
         with tempfile.TemporaryDirectory() as d:
@@ -514,6 +517,7 @@ class BootConfTest(unittest.TestCase):
             "k8hp-ombre": base,
             "k8hp-ponytail": base,
             "k8hp-queue": base | {"ftdi_sio", "ch341", "cp210x"},
+            "k8hpp-queue": base | {"ftdi_sio", "ch341", "cp210x"},
         }
         for target in targets.all_targets():
             name = targets.name(target)
@@ -1156,6 +1160,9 @@ class BootConfTest(unittest.TestCase):
                 "k8hp-ponytail",
                 "k8hp-queue",
                 "k8hpp-number1",
+                "k8hpp-ombre",
+                "k8hpp-ponytail",
+                "k8hpp-queue",
                 "k8lp-mullet",
                 "k8lpn-number1",
                 "k8lpn2-ombre",
@@ -1234,6 +1241,9 @@ class BootConfTest(unittest.TestCase):
                 "o22n-number1": 2560,
                 "o22n2-ombre": 2560,
                 "o22n2-spacebuns": 2560,
+                "k8hpp-ombre": 2048,
+                "k8hpp-ponytail": 2048,
+                "k8hpp-queue": 2048,
             },
         )
 
