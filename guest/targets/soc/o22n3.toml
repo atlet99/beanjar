@@ -1,0 +1,8 @@
+# O22N3 (W25G) is O22 to its firmware: its lxboot prints the O22 family, its kernels print
+# O22(LG1213) and map chip=O22.. to BASE id 0x26, and its ponytail bsppart libraries are W24G
+# ponytail's builds (libhal_ucom among them): O22N2's row and module parameters. Its libdile_i2c
+# keeps NVM 7/0xa0, LIGHT_SENSOR 1 and TMF882X_SENSOR_N 1 (adding SNSR_MM3286, which the emulator
+# does not map) and libdil_tu_plugin is O22N2's ponytail build. Its own board, the C5: nothing
+# shows the far-field microphone (mic stays false).
+
+base = "o22n2"

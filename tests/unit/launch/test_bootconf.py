@@ -531,6 +531,7 @@ class BootConfTest(unittest.TestCase):
             "o24-ponytail": base | {"ftdi_sio"},
             "o24-queue": base | {"ftdi_sio", "ch341", "cp210x"},
             "o24n-ponytail": base | {"ftdi_sio"},
+            "o22n3-ponytail": base | {"ftdi_sio"},
             "k8hp-number1": base,
             "k8hp-ombre": base,
             "k8hp-ponytail": base,
@@ -1074,6 +1075,7 @@ class BootConfTest(unittest.TestCase):
             "o22": "OLED55C2PUA",
             "o22n": "OLED77C3PUA",
             "o22n2": "OLED55C4PUA",
+            "o22n3": "OLED55C5PUA",
             "o24n": "OLED55G5WUA",
             "o24": "OLED55G4SUB",
         }
@@ -1220,6 +1222,7 @@ class BootConfTest(unittest.TestCase):
                 "o22n2-ponytail",
                 "o22n2-queue",
                 "o22n2-spacebuns",
+                "o22n3-ponytail",
                 "o24-ombre",
                 "o24-ponytail",
                 "o24-queue",
@@ -1302,6 +1305,7 @@ class BootConfTest(unittest.TestCase):
                 "o24-ponytail": 2560,
                 "o24-queue": 2560,
                 "o24n-ponytail": 2560,
+                "o22n3-ponytail": 2560,
             },
         )
 
