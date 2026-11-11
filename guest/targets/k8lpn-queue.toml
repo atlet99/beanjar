@@ -1,0 +1,9 @@
+models = ["W23P"]
+bring_up = ["W23P"]
+tested = false
+
+# W23P queue-qilian (43.22.76) keeps ponytail's paks and fstab pins; its jails' secure-store pins
+# move down by two (p17, p18, p21, p24), as W22O and W23H queue's do.
+[release]
+base = "queue"
+partmap = "mullet"

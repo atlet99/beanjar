@@ -235,6 +235,11 @@ class BootConfTest(unittest.TestCase):
                 "k8hpp-ombre": "rtk",
                 "k8hpp-ponytail": "rtk",
                 "k8hpp-queue": "rtk",
+                "k8lpn-ombre": "rtk",
+                "k8lpn-ponytail": "rtk",
+                "k8lpn-queue": "rtk",
+                "k8lpn2-ponytail": "rtk",
+                "k8lpn2-queue": "rtk",
             },
         )
         with tempfile.TemporaryDirectory() as d:
@@ -518,6 +523,8 @@ class BootConfTest(unittest.TestCase):
             "k8hp-ponytail": base,
             "k8hp-queue": base | {"ftdi_sio", "ch341", "cp210x"},
             "k8hpp-queue": base | {"ftdi_sio", "ch341", "cp210x"},
+            "k8lpn-queue": base | {"ftdi_sio", "ch341", "cp210x"},
+            "k8lpn2-queue": base | {"ftdi_sio", "ch341", "cp210x"},
         }
         for target in targets.all_targets():
             name = targets.name(target)
@@ -1165,7 +1172,12 @@ class BootConfTest(unittest.TestCase):
                 "k8hpp-queue",
                 "k8lp-mullet",
                 "k8lpn-number1",
+                "k8lpn-ombre",
+                "k8lpn-ponytail",
+                "k8lpn-queue",
                 "k8lpn2-ombre",
+                "k8lpn2-ponytail",
+                "k8lpn2-queue",
                 "lm14-netcast45",
                 "lm21a-kisscurl",
                 "lm21an-mullet",
@@ -1244,6 +1256,11 @@ class BootConfTest(unittest.TestCase):
                 "k8hpp-ombre": 2048,
                 "k8hpp-ponytail": 2048,
                 "k8hpp-queue": 2048,
+                "k8lpn-ombre": 1536,
+                "k8lpn-ponytail": 1536,
+                "k8lpn-queue": 1536,
+                "k8lpn2-ponytail": 1536,
+                "k8lpn2-queue": 1536,
             },
         )
 

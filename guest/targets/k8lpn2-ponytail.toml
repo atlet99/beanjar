@@ -1,0 +1,17 @@
+models = ["W24P"]
+bring_up = ["W24P"]
+tested = false
+
+# W24P ponytail-papikonda (33.31.61) keeps ombre's super.pak images (fonts without a suffix) and
+# every fstab and jail pin: ombre's paks and partition map.
+[release]
+base = "ponytail"
+paks = [
+    { file = "rootfs", serial = "rootfs", mount = "/" },
+    { file = "bsppart", serial = "bsppart" },
+    { file = "otncabi", serial = "otncabi", mount = "/mnt/otncabi" },
+    { file = "otycabi", serial = "otycabi", mount = "/mnt/otycabi" },
+    { file = "fonts", serial = "fonts", mount = "/mnt/fonts" },
+    { file = "license", serial = "license", mount = "/mnt/license" },
+]
+partmap = "k8lpn2-ombre"
