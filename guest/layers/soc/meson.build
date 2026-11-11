@@ -53,8 +53,17 @@ if fw_path.get(sestore_stock, false) and (fw_path.get(ssg_getter, false) or fw_s
 endif
 
 # A chip's table names the shims its stock libraries may need; one whose stock file the rootfs does
-# not have is not built (a 'bsppart' one is bsppart's, not listed here). libhalgal serves HAL_GAL from
-# the libdile_gal shim's engine, so it needs that shim too.
+# not have is not built (a 'bsppart' one is bsppart's, not listed here).
+#
+# libhalgal serves HAL_GAL from the software GAL engine (src/libdile_gal). With the stock libdile_gal
+# in the rootfs it uses the libdile_gal shim's engine, shared with the DILE callers. Without one, it
+# carries the engine itself only where the stock HAL needs hardware the emulator does not have:
+# where bsppart's libkadaptor, which the stock libhalgal NEEDs, defines RHAL_SE_Init, Realtek's
+# SE 2D engine. Its KADP_GAL_Init runs RHAL_SE_Init, whose se_open maps /dev/se0 and asserts
+# (se_drv.c:167) when it cannot; rtk.ko's se0 has no mmap. A firmware whose libkadaptor has no SE
+# engine keeps the stock HAL (docs/research/queue-boundary.md, "Software GAL for NYX").
+halgal_se = 'bsppart:bsp/usr/lib/libkadaptor.so:RHAL_SE_Init'
+halgal_own_engine = false
 shims = {}
 foreach name, sonames : hal_stock    # [soname, stock file, aliases(, 'bsppart': not in the rootfs)]
   stock = 'usr/lib/' + sonames[1]
@@ -65,10 +74,19 @@ foreach name, sonames : hal_stock    # [soname, stock file, aliases(, 'bsppart':
   if name == 'libhalgal' and gal_stock != ''
     fw_questions += 'path ' + gal_stock
   endif
+  if name == 'libhalgal' and not fw_path.get(gal_stock, false)
+    fw_questions += 'defines ' + halgal_se
+  endif
   if sonames.length() < 4 and not fw_path.get(stock, false)
     message('soc ' + soc + ': no ' + stock + ' in the firmware, no ' + name + ' shim')
   elif name == 'libhalgal' and not fw_path.get(gal_stock, false)
-    message('soc ' + soc + ': no libdile_gal shim, no libhalgal shim')
+    if fw_defines.get(halgal_se, false)
+      message('soc ' + soc + ': no libdile_gal, the stock HAL reaches the SE engine: libhalgal carries the software engine')
+      halgal_own_engine = true
+      shims += {name: sonames}
+    else
+      message('soc ' + soc + ': no libdile_gal, the stock HAL needs no SE engine: no libhalgal shim')
+    endif
   else
     shims += {name: sonames}
   endif

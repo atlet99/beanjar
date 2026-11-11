@@ -6,6 +6,8 @@
 #
 #   fw_path      {rootfs path: bool}: whether the firmware's rootfs image has it (the shim rules)
 #   fw_version   {rootfs path: version suffix}: of the file a library name resolves to, none without
+#   fw_defines   {IMAGE:PATH:NAME: bool}: whether a stock library of the rootfs or bsppart image
+#                defines a symbol (a rule's question about what a stock library reaches)
 #   fw_stubs     {rootfs path: custom target}: a firmware library's link-time stub, with its SONAME
 #                and the symbols the guest code uses of it, so a link against it records what a
 #                link against the firmware's own file did
@@ -21,6 +23,7 @@ fw_facts = meson.current_source_dir() / 'facts' / guest_target + '.txt'
 fw_path = {}
 fw_version = {}
 fw_lib = {}
+fw_defines = {}
 fw_questions = []
 if fs.is_file(fw_facts)
   foreach line : fs.read(fw_facts).split('\n')
@@ -31,6 +34,8 @@ if fs.is_file(fw_facts)
       fw_version += {w[1]: w[2]}
     elif w[0] == 'lib'
       fw_lib += {w[1]: w[2]}
+    elif w[0] == 'defines'
+      fw_defines += {w[1]: w[2] == 'yes'}
     endif
   endforeach
 endif

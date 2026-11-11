@@ -16,6 +16,11 @@ One fact per line, the lines sorted; '#' starts a comment line:
                             a symbol of library PATH that the guest code uses: its default version
                             where the library versions it, its type (func, object, tls, notype) and,
                             for data, its size
+  defines IMAGE:PATH:NAME yes|no
+                            whether the library PATH of the firmware's IMAGE (rootfs or bsppart: the
+                            image's own path, bsp/usr/lib/... in bsppart) defines the dynamic symbol
+                            NAME; no where it has no such file (a rule's question about a stock
+                            library the build does not link, e.g. what the HAL below a shim reaches)
 
 Nothing else of the firmware: the build links against stub libraries generated from the lib and sym
 lines (stub_source; `python3 -m beanjar.fwfacts stub`, build_main), with the library's SONAME and only those symbols, so the
@@ -39,7 +44,8 @@ import subprocess
 
 FACTS_DIR = ("guest", "targets", "facts")
 QUESTIONS = "firmware-questions.txt"
-KINDS = ("lib", "path", "sym", "version")
+KINDS = ("defines", "lib", "path", "sym", "version")
+IMAGES = ("rootfs", "bsppart")
 TYPES = {"FUNC": "func", "OBJECT": "object", "TLS": "tls", "NOTYPE": "notype"}
 SIZED = ("object", "tls")
 ASM_TYPES = {"func": "function", "object": "object", "tls": "tls_object"}
@@ -54,9 +60,9 @@ class Error(Exception):
 
 def parse(text, where="facts"):
     """{'path': {PATH: bool}, 'version': {PATH: str}, 'lib': {PATH: SONAME},
-    'sym': {PATH: {NAME: (version or None, type, size or None)}}} of a facts file's text. Error naming
-    the line for anything else."""
-    facts = {"path": {}, "version": {}, "lib": {}, "sym": {}}
+    'sym': {PATH: {NAME: (version or None, type, size or None)}}, 'defines': {IMAGE:PATH:NAME: bool}}
+    of a facts file's text. Error naming the line for anything else."""
+    facts = {"path": {}, "version": {}, "lib": {}, "sym": {}, "defines": {}}
     for n, line in enumerate(text.splitlines(), 1):
         if not line.strip() or line.startswith("#"):
             continue
@@ -64,6 +70,8 @@ def parse(text, where="facts"):
         bad = Error(f"{where}:{n}: not a fact: {line!r}")
         if w[0] == "path" and len(w) == 3 and w[2] in ("yes", "no"):
             facts["path"][w[1]] = w[2] == "yes"
+        elif w[0] == "defines" and len(w) == 3 and w[2] in ("yes", "no") and _defines_q(w[1]):
+            facts["defines"][w[1]] = w[2] == "yes"
         elif w[0] == "version" and len(w) == 3:
             facts["version"][w[1]] = w[2]
         elif w[0] == "lib" and len(w) == 3:
@@ -89,6 +97,7 @@ def parse(text, where="facts"):
 def lines(facts):
     """The fact lines of facts (parse's form), sorted."""
     out = [f"path {p} {'yes' if v else 'no'}" for p, v in facts["path"].items()]
+    out += [f"defines {q} {'yes' if v else 'no'}" for q, v in facts["defines"].items()]
     out += [f"version {p} {v}" for p, v in facts["version"].items()]
     out += [f"lib {p} {s}" for p, s in facts["lib"].items()]
     for lib, syms in facts["sym"].items():
@@ -111,15 +120,21 @@ def format_facts(target, facts, firmware_name=None):
     return "\n".join(head + lines(facts)) + "\n"
 
 
+def _defines_q(q):
+    """Whether q is a defines question's IMAGE:PATH:NAME."""
+    w = q.split(":")
+    return len(w) == 3 and w[0] in IMAGES and all(w[1:])
+
+
 def parse_questions(text):
-    """{'path': [...], 'version': [...], 'lib': [...]} of a build's firmware-questions.txt (one
-    "KIND PATH" per line)."""
-    q = {"path": set(), "version": set(), "lib": set()}
+    """{'path': [...], 'version': [...], 'lib': [...], 'defines': [...]} of a build's
+    firmware-questions.txt (one "KIND PATH" per line; a defines question's PATH is IMAGE:PATH:NAME)."""
+    q = {"path": set(), "version": set(), "lib": set(), "defines": set()}
     for line in text.splitlines():
         w = line.split()
         if not w:
             continue
-        if len(w) != 2 or w[0] not in q:
+        if len(w) != 2 or w[0] not in q or (w[0] == "defines" and not _defines_q(w[1])):
             raise Error(f"{QUESTIONS}: not a question: {line!r}")
         q[w[0]].add(w[1])
     return {k: sorted(v) for k, v in q.items()}
@@ -128,7 +143,10 @@ def parse_questions(text):
 def unanswered(facts, questions):
     """The questions (parse_questions' form) facts does not answer, as "KIND PATH" strings."""
     return [
-        f"{k} {p}" for k in ("path", "version", "lib") for p in questions[k] if p not in facts[k]
+        f"{k} {p}"
+        for k in ("path", "version", "lib", "defines")
+        for p in questions.get(k, ())
+        if p not in facts[k]
     ]
 
 
@@ -384,11 +402,51 @@ def answer_version(root, path):
     return name[len(base) + 1 :]
 
 
+def image_file(fw_dir, image, path):
+    """The bytes of path in fw_dir's stock image (rootfs or bsppart: <image>.pak, or super.pak's
+    logical image), its symlinks followed by unsquashfs; None where the image has no such file.
+    Error without the image."""
+    from . import superpak
+
+    try:
+        logical = superpak.images(fw_dir)
+    except ValueError as e:
+        raise Error(str(e)) from None
+    if image in logical:
+        src, offset, _size = logical[image]
+    else:
+        src, offset = os.path.join(fw_dir, image + ".pak"), 0
+    if not os.path.isfile(src):
+        raise Error(f"{fw_dir}: no {image}.pak or super.pak {image}")
+    r = subprocess.run(
+        ["unsquashfs", "-cat", "-no-wildcards", "-o", str(offset), src, path.lstrip("/")],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    return r.stdout if r.returncode == 0 and r.stdout else None
+
+
+def answer_defines(fw_dir, q):
+    """A defines question's answer: whether the library of q (IMAGE:PATH:NAME) defines NAME."""
+    import tempfile
+
+    image, path, name = q.split(":")
+    data = image_file(fw_dir, image, path)
+    if data is None:
+        return False
+    with tempfile.NamedTemporaryFile(suffix=".so") as f:
+        f.write(data)
+        f.flush()
+        return name in exports(_readelf(["--dyn-syms", f.name]))
+
+
 def answer(fw_dir, questions, symbols, entries=None):
     """The facts (parse's form) of the firmware in fw_dir for questions (parse_questions' form) and
     symbols ({lib: names}). entries: the rootfs image's entries in the questions' directories
     (default: paths.rootfs_entries, read from the image as the build always did)."""
-    facts = {"path": {}, "version": {}, "lib": {}, "sym": {}}
+    facts = {"path": {}, "version": {}, "lib": {}, "sym": {}, "defines": {}}
+    for q in questions.get("defines", ()):
+        facts["defines"][q] = answer_defines(fw_dir, q)
     if questions["path"]:
         if entries is None:
             from . import paths
@@ -436,7 +494,7 @@ def generate(top, target, fw_dir, build_dir=None, facts_file=None, firmware_name
         with open(qfile) as f:
             questions = parse_questions(f.read())
     elif old is not None:
-        questions = {k: sorted(old[k]) for k in ("path", "version", "lib")}
+        questions = {k: sorted(old[k]) for k in ("path", "version", "lib", "defines")}
     else:
         raise Error(
             f"no {facts_file} and no {QUESTIONS} to answer: meson setup the target's guest build "

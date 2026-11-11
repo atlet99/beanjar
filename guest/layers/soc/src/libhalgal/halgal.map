@@ -1,0 +1,7 @@
+/* SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ * libhalgal with its own engine: the HAL entry points only; the engine's DILE_GAL_* stay inside. */
+{
+  global: HAL_GAL_*;
+  local: *;
+};

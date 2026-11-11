@@ -104,7 +104,7 @@ if guest_lane
   guest_target = soc + '-' + webos
   # What the shim rules and links ask of the target's firmware (guest/targets/meson.build): fw_path
   # (a rootfs path: whether the firmware's rootfs image has it), fw_version, fw_stubs (a firmware
-  # library: its link-time stub), from guest/targets/facts/<target>.txt. Each rule adds its question
+  # library: its link-time stub), fw_defines (whether a stock library defines a symbol), from guest/targets/facts/<target>.txt. Each rule adds its question
   # to fw_questions; an unanswered one stops the setup once every module is read.
   subdir('guest/targets')
   # What the shim rules decide by (guest/layers/soc/meson.build, docs/dev/architecture/build-and-boot.md
@@ -224,7 +224,7 @@ if guest_lane
   fw_unanswered = []
   foreach q : fw_questions
     w = q.split(' ')
-    if w[1] not in {'path': fw_path, 'version': fw_version, 'lib': fw_stubs}[w[0]] and q not in fw_unanswered
+    if w[1] not in {'path': fw_path, 'version': fw_version, 'lib': fw_stubs, 'defines': fw_defines}[w[0]] and q not in fw_unanswered
       fw_unanswered += q
     endif
   endforeach

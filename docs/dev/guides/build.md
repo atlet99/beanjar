@@ -40,7 +40,9 @@ target's firmware facts (below), so a clone without any firmware builds every ta
 `guest/targets/<chip>-<release>.toml`, answers the questions the guest build asks of the target's
 firmware, and nothing else: whether its rootfs image has a path a shim rule decides by
 (`path usr/lib/nyx/modules/nyxDrm.module no`), the version suffix of a library a rule checks
-(`version usr/lib/libwayland-client.so.0 20.0`), and for each firmware library the guest code links
+(`version usr/lib/libwayland-client.so.0 20.0`), whether a stock library of the rootfs or bsppart
+image defines a symbol, read from the image itself
+(`defines bsppart:bsp/usr/lib/libkadaptor.so:RHAL_SE_Init yes`), and for each firmware library the guest code links
 against, its SONAME (`lib usr/lib/libglib-2.0.so.0 libglib-2.0.so.0`) and the symbols the guest code
 uses of it, with their default version where the library versions them, their type and a data
 symbol's size (`sym usr/lib/libgstreamer-1.0.so.0 _gst_debug_min object 4`). One fact per line,

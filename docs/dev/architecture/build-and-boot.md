@@ -95,7 +95,7 @@ source-layer inheritance.
 Which shims a target's soc layer gets is decided by what its firmware contains, not by the release's
 name, so a release newer than the last one studied gets the shims its consumers need without a
 new rule. The build reads no firmware: each rule asks whether the target's rootfs image has a path
-(`fw_path`), answered by the target's checked-in firmware facts, `guest/targets/facts/<chip>-<release>.txt`
+(`fw_path`) or whether a stock library defines a symbol (`fw_defines`), answered by the target's checked-in firmware facts, `guest/targets/facts/<chip>-<release>.txt`
 ([Firmware facts](../guides/build.md#commands); `guest/targets/meson.build`). `host/scripts/vm-launcher
 firmware-facts` writes the answers from the image's own listing (`paths.rootfs_entries`, which runs
 `unsquashfs -ls` on `rootfs.pak` or `super.pak`'s logical rootfs), never from an extracted `rootfs/`,
@@ -103,7 +103,11 @@ so a partial extraction cannot change a selection. `guest/layers/soc/meson.build
 
 - A chip's `hal_stock` names the shims its stock libraries may need. One whose stock file is not
   in the rootfs is not built (a configure message names it); a `bsppart` entry is not checked.
-  `libhalgal` is served from the `libdile_gal` shim's engine and is dropped without it.
+  `libhalgal` is served from the `libdile_gal` shim's engine where the rootfs has the stock
+  `libdile_gal`. Without one, it carries its own copy of the engine only where bsppart's
+  `libkadaptor.so` defines `RHAL_SE_Init` (the fact `defines bsppart:bsp/usr/lib/libkadaptor.so:RHAL_SE_Init`):
+  the Realtek KADP whose `KADP_GAL_Init` opens the SE 2D engine the emulator lacks. Elsewhere the
+  stock HAL stays.
 - `libsestore`: the stock `libsestore.so.0.1.0` and a direct reader, the gateway's
   `ssl-cert-getter.js` (its TLS key) or `nyxSecureStore.module` (nyx crypto's model secret).
   On a chip whose table sets `sestore_model_items_nyx` (O22 and its successors), a nyx

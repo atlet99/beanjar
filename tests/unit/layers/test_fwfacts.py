@@ -20,6 +20,7 @@ sys.path.insert(0, str(TOP / "host/core"))
 from beanjar import fwfacts  # noqa: E402
 
 FACTS = """# demo
+defines bsppart:bsp/usr/lib/libdemo.so:demo_f yes
 lib usr/lib/libdemo.so.1 libdemo.so.1
 path usr/lib/nyx/modules/nyxDrm.module no
 path usr/lib/libsestore.so.0.1.0 yes
@@ -62,6 +63,7 @@ class Format(unittest.TestCase):
         )
         self.assertEqual(f["version"], {"usr/lib/libwayland-client.so.0": "20.0"})
         self.assertEqual(f["lib"], {"usr/lib/libdemo.so.1": "libdemo.so.1"})
+        self.assertEqual(f["defines"], {"bsppart:bsp/usr/lib/libdemo.so:demo_f": True})
         self.assertEqual(
             f["sym"]["usr/lib/libdemo.so.1"],
             {"demo_f": ("DEMO_2", "func", None), "demo_var": (None, "object", 8)},
@@ -77,6 +79,9 @@ class Format(unittest.TestCase):
             "path usr/lib/x maybe",
             "sym usr/lib/libdemo.so.1 x object",  # data without its size
             "sym usr/lib/libdemo.so.1 x func 4",
+            "defines usr/lib/libdemo.so:demo_f yes",  # no image
+            "defines kernel:usr/lib/libdemo.so:demo_f yes",  # not an image it reads
+            "defines bsppart:bsp/usr/lib/libdemo.so:demo_f maybe",
             "whatever",
         ):
             with self.assertRaisesRegex(fwfacts.Error, "facts:1: not a fact"):
@@ -87,14 +92,26 @@ class Format(unittest.TestCase):
     def test_questions(self):
         q = fwfacts.parse_questions(
             "lib usr/lib/libdemo.so.1\npath a/b\npath a/b\nversion usr/lib/w.so.0\n"
+            "defines rootfs:usr/lib/x.so:f\n"
         )
         self.assertEqual(
-            q, {"path": ["a/b"], "version": ["usr/lib/w.so.0"], "lib": ["usr/lib/libdemo.so.1"]}
+            q,
+            {
+                "path": ["a/b"],
+                "version": ["usr/lib/w.so.0"],
+                "lib": ["usr/lib/libdemo.so.1"],
+                "defines": ["rootfs:usr/lib/x.so:f"],
+            },
         )
         f = fwfacts.parse(FACTS)
-        self.assertEqual(fwfacts.unanswered(f, q), ["path a/b", "version usr/lib/w.so.0"])
+        self.assertEqual(
+            fwfacts.unanswered(f, q),
+            ["path a/b", "version usr/lib/w.so.0", "defines rootfs:usr/lib/x.so:f"],
+        )
         with self.assertRaises(fwfacts.Error):
             fwfacts.parse_questions("sym x\n")
+        with self.assertRaises(fwfacts.Error):
+            fwfacts.parse_questions("defines usr/lib/x.so\n")
 
 
 class Reading(unittest.TestCase):
@@ -271,6 +288,42 @@ class Firmware(unittest.TestCase):
         self.assertEqual(f["path"], {"usr/lib/a": True, "usr/lib/b": False})
         q = {"path": [], "version": [], "lib": ["usr/lib/libmissing.so.1"]}
         with self.assertRaisesRegex(fwfacts.Error, "no usr/lib/libmissing.so.1"):
+            fwfacts.answer(str(self.t / "fw"), q, {})
+
+    @unittest.skipUnless(shutil.which("mksquashfs"), "no mksquashfs")
+    def test_defines(self):
+        """A defines question is answered from the image itself (bsppart.pak here), through the
+        library's symlinks; a library the image has not is a no."""
+        bsp = self.t / "bsp-tree/bsp/usr/lib"
+        bsp.mkdir(parents=True)
+        shutil.copy(self.t / "fw/rootfs/usr/lib/libdemo.so.1.2.3", bsp)
+        os.symlink("libdemo.so.1.2.3", bsp / "libdemo.so")
+        subprocess.run(
+            ["mksquashfs", str(self.t / "bsp-tree"), str(self.t / "fw/bsppart.pak"), "-quiet"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+        q = {
+            "path": [],
+            "version": [],
+            "lib": [],
+            "defines": [
+                "bsppart:bsp/usr/lib/libdemo.so:demo_f",
+                "bsppart:bsp/usr/lib/libdemo.so:demo_absent",
+                "bsppart:bsp/usr/lib/libnone.so:demo_f",
+            ],
+        }
+        f = fwfacts.answer(str(self.t / "fw"), q, {})
+        self.assertEqual(
+            f["defines"],
+            {
+                "bsppart:bsp/usr/lib/libdemo.so:demo_f": True,
+                "bsppart:bsp/usr/lib/libdemo.so:demo_absent": False,
+                "bsppart:bsp/usr/lib/libnone.so:demo_f": False,
+            },
+        )
+        q["defines"] = ["rootfs:usr/lib/libdemo.so:demo_f"]
+        with self.assertRaisesRegex(fwfacts.Error, "no rootfs.pak or super.pak rootfs"):
             fwfacts.answer(str(self.t / "fw"), q, {})
 
     def test_no_questions(self):

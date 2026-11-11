@@ -1,5 +1,6 @@
 # o22n2-spacebuns: what the guest build asks of its firmware (beanjar/fwfacts.py).
 # Generated: host/scripts/vm-launcher firmware-facts o22n2-spacebuns (from 02.68.80.01-HE_DTV_W24G_AFABATAA)
+defines bsppart:bsp/usr/lib/libkadaptor.so:RHAL_SE_Init no
 lib usr/lib/libglib-2.0.so.0 libglib-2.0.so.0
 lib usr/lib/libluna-service2.so.3 libluna-service2.so.3
 path usr/lib/libaibsp.so.1.0.0 yes
