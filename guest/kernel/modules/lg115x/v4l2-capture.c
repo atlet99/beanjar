@@ -49,7 +49,7 @@
 
 static bool v4l2_capture;
 module_param(v4l2_capture, bool, 0444);
-MODULE_PARM_DESC(v4l2_capture, "enable O22N2 video60 readback from the active viewer");
+MODULE_PARM_DESC(v4l2_capture, "enable video60 readback from the active viewer (webos.capture)");
 static atomic_long_t allocated = ATOMIC_LONG_INIT(0);
 static struct lgemu_cdev cdev;
 static struct lx_seen seen = LX_SEEN_INIT(seen);

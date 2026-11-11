@@ -641,6 +641,36 @@ class ArgvTest(unittest.TestCase):
             with self.subTest(accel=accel):
                 self.check_secondary_display_plan(accel)
 
+    def test_capture_port(self):
+        """webos.capture, the port lg115x.ko's video60 reads the viewer through, is on every
+        target whose file sets v4l2_capture (the O22 family's ombre), and on no other."""
+        for target in (
+            ("o22", "ombre"),
+            ("o22n", "ombre"),
+            ("o22n2", "ombre"),
+            ("o24", "ombre"),
+            ("o22n2", "spacebuns"),
+            ("o22", "ponytail"),
+            ("lm21u", "ombre"),
+        ):
+            with (
+                self.subTest(target=target),
+                mock.patch.object(paths, "firmware_target", return_value=target),
+                mock.patch.object(nvm, "board_ram", return_value=2048),
+                mock.patch.object(nvm, "board_graphic", return_value="1920x1080"),
+                mock.patch.object(share, "resolve_layers", return_value=([], [])),
+            ):
+                p = qemu.plan(
+                    dict(FW=self.fw, STATE="none", **net("direct"), SLOT="1", LAYERS="normal"),
+                    accel="tcg",
+                    tree=paths.Tree(self.top),
+                    say=lambda _: None,
+                    dry=True,
+                )
+                want = target[1] == "ombre" and target[0] != "lm21u"
+                self.assertEqual(targets.v4l2_capture(target), want)
+                self.assertEqual("name=webos.capture" in " ".join(p.argv), want)
+
     def test_secondary_display_gpu_process(self):
         """Two outputs in the GPU's own process: auto no longer leaves them out, and the
         backend's device keeps max_outputs=2 and the second output's setup."""
@@ -710,7 +740,7 @@ class ArgvTest(unittest.TestCase):
                     dry=True,
                 )
                 self.assertEqual(
-                    "name=webos.capture" in " ".join(p.argv), target == ("o22n2", "ombre")
+                    "name=webos.capture" in " ".join(p.argv), targets.v4l2_capture(target)
                 )
                 # the chip's kernel words: O22N2's planes list the linear modifier, no other chip's
                 self.assertEqual(

@@ -828,6 +828,12 @@ def of_firmware(model, release):
     return (chip, release) if chip else None
 
 
+def v4l2_capture(target):
+    """True for a target whose lg115x.ko serves the V4L2 capture (its file's v4l2_capture): the
+    module's video60 and the launcher's webos.capture port that feeds it."""
+    return _target(target).v4l2_capture
+
+
 def soc(target):
     return TARGET_SOCS.get(tuple(target)) or SOCS[target[0]]
 
@@ -1367,7 +1373,7 @@ def module_params(target, derived=None, vm=None, broadcast=None):
     out = {
         m.name: board_module_params(target, m.name, broadcast)
         + (("de_histogram_proc=1",) if _target(target).de_histogram and m.name == "lg115x" else ())
-        + (("v4l2_capture=1",) if _target(target).v4l2_capture and m.name == "lg115x" else ())
+        + (("v4l2_capture=1",) if v4l2_capture(target) and m.name == "lg115x" else ())
         + tuple(derived.get(m.name, ()))
         + tuple(vm.get(m.name, ()))
         for m in s.modules

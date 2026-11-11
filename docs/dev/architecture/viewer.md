@@ -188,8 +188,8 @@ viewer-headless (C, SDL offscreen): core/headless.c (+ SDL scancode names for --
   each, for that window and its session; beanjar-vnc's are shared by its clients
   ([vnc.md](vnc.md#planes)).
 - **Guest capture.** `capture.c` connects to `capture.sock` next to the display
-  socket (`--capture-socket` overrides it). O22N2 ombre exposes `webos.capture`
-  for its video60 driver. Requests render the real TV scene on the GL owner
+  socket (`--capture-socket` overrides it). A target with `v4l2_capture` exposes
+  `webos.capture` for its video60 driver. Requests render the real TV scene on the GL owner
   thread and return bounded RGBA pixels, excluding GTK controls. The guest
   converts these to its mapped capture format. Disconnects and timeouts fail
   capture; no screenshot file or retained-frame fallback is used.
