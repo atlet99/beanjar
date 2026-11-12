@@ -318,6 +318,8 @@ def main():
             traceback.print_exc()
             app.quit()
             return
+        # the Summary's picture: a fake VM has no screen (no headless viewer left behind)
+        m.pictures.command = lambda _name, _words: ["false"]
         m.win.present()
         GLib.timeout_add(300, lambda: (run_script(), False)[1])
 
