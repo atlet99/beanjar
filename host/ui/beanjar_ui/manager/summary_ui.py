@@ -131,6 +131,9 @@ class Summary(Gtk.Box):
                 )
                 button.add_css_class("flat")
                 row.append(button)
+                # centred with the button (a taller line than the text), not on the first line
+                self.fields[key].set_valign(Gtk.Align.CENTER)
+                row.get_first_child().set_valign(Gtk.Align.CENTER)
             files.append(row)
         self.runtime.set_child(files)
         self.append(self.runtime)
@@ -255,17 +258,21 @@ class Summary(Gtk.Box):
             self.get_clipboard().set(value)
             self.manager.say(f"{title} copied")
 
-    def update(self, values, state="", platform="", firmware="", layers=(), reason=None, tags=()):
+    def update(
+        self, values, state="", platform="", firmware="", layers=(), reason=None, tags=(), full=None
+    ):
         """Show values (key: text), the state line and the chips; reason: why the VM runs
-        (VM.reason: text, set, user, by), None if it has none."""
-        self.values = values
+        (VM.reason: text, set, user, by), None if it has none; full: the values whose tooltip
+        and copy are not the text shown (key: text, e.g. a path shown with ~)."""
+        full = full or {}
+        self.values = {**values, **full}
         self.state.set_text(state)
         self.platform.set_text(platform)
         self.firmware.set_text(firmware)
         self.firmware.set_tooltip_text(values.get("fw") or None)
         for key, label in self.fields.items():
             label.set_text(values.get(key) or "—")
-            label.set_tooltip_text(values.get(key) or None)
+            label.set_tooltip_text(full.get(key) or values.get(key) or None)
         link = values.get("link", "nat")
         self.network_rows["address"].get_parent().set_visible(link == "nat")
         self.network_rows["lan_address"].get_parent().set_visible(link == "lan")

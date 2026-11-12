@@ -1033,7 +1033,7 @@ class Manager:
             else vmsettings.flow_bytes_label(c.get("mitm_flow_bytes"))
         )
         displayed.update(
-            directory=home_path(vm.dir),  # ~ shortened; the tooltip has it too (Summary.update)
+            directory=home_path(vm.dir),  # ~ shortened; the tooltip has the full path
             logs=home_path(vm.logs_dir),
             link=link,
             firmware_path=home_path(fw_dir),
@@ -1051,6 +1051,7 @@ class Manager:
             layers=c.get("layers", []),
             reason=vm.reason() if st != OFF else None,
             tags=c.get("tags", []),
+            full=dict(directory=vm.dir, logs=vm.logs_dir, firmware_path=fw_dir),
         )
         self._set_console(vm.console_log)
 
