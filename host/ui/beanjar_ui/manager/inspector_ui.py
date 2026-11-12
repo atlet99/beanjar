@@ -1,12 +1,14 @@
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""The selected VM's traffic inspector, a group of its Summary: its own mitmweb (each VM with mode
-mitm has one, on its own port and with its own password; the CA it signs with is the library's),
-with its status and Open in Browser (logged in) in its heading, its URL with Copy URL beside it, and
-Copy Password, and with link lan
-the VM's leased LAN address. The full mitmweb UI opens in the system browser. With link lan the URL
-is the LAN one, for other machines; this host cannot reach its own macvlan children, so its
-browser opens the inspector at the VM's own address, shown as "On this host"."""
+"""The selected VM's traffic inspector, a card of its Summary: its own mitmweb (each VM with mode
+mitm has one, on its own port and with its own password; the CA it signs with is the library's).
+One heading row: its status and URL, Copy URL and Open in Browser (logged in); under it one folded
+"Connection details and credentials" with the password (Copy Password), with link lan the VM's
+leased LAN address and "On this host", mitmproxy's installation (Install…) and the proxy's last
+lines. While the VM is off the card is one line: "Starts with the VM (MITM)". The full mitmweb UI
+opens in the system browser. With link lan the URL is the LAN one, for other machines; this host
+cannot reach its own macvlan children, so its browser opens the inspector at the VM's own address,
+shown as "On this host"."""
 
 import os
 import threading
@@ -20,6 +22,32 @@ DESCRIPTION = (
     "This VM's own mitmweb, on its own port and with its own password, while it runs. "
     "The CA certificate it signs with is the library's, shared by all of its VMs."
 )
+OFF_TEXT = "Starts with the VM (MITM)"
+
+
+def detail_row(title, value, *suffix):
+    """A "title value [suffix...]" row of the details, the value selectable."""
+    row = Gtk.Box(spacing=8)
+    label = Gtk.Label(label=title, xalign=0)
+    label.add_css_class("dim-label")
+    row.append(label)
+    row.append(value)
+    for widget in suffix:
+        row.append(widget)
+    return row
+
+
+def value_label(mono=False):
+    label = Gtk.Label(
+        xalign=0,
+        hexpand=True,
+        selectable=True,
+        ellipsize=Pango.EllipsizeMode.END,
+        max_width_chars=32,
+    )
+    if mono:
+        label.add_css_class("monospace")
+    return label
 
 
 class Panel(Gtk.Box):
@@ -44,46 +72,20 @@ class Panel(Gtk.Box):
         )
         self.append(content)
         heading = Gtk.Box(spacing=8)
-        title = Gtk.Label(label="Traffic Inspector", xalign=0)
+        title = Gtk.Label(label="Traffic Inspector", xalign=0, valign=Gtk.Align.CENTER)
         title.add_css_class("heading")
-        self.status = Gtk.Label(xalign=1, hexpand=True, ellipsize=Pango.EllipsizeMode.END)
-        self.installation = Gtk.Label()
-        self.installation.add_css_class("dim-label")
-        self.install = Gtk.Button(label="Install…")
-        self.install.connect("clicked", lambda *_: manager.install_mitm())
-        self.open = Gtk.Button(label="Open", valign=Gtk.Align.CENTER)
-        self.open.connect("clicked", self.open_browser)
-        for widget in (title, self.status, self.open):
-            heading.append(widget)
-        content.append(heading)
-        self.description = Gtk.Label(
-            label=DESCRIPTION, xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR
-        )
-        self.description.add_css_class("dim-label")
-        self.details = Gtk.Expander(label="Connection details and credentials")
-        details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=10)
-        self.details.set_child(details)
-        details.append(self.description)
-        # link lan: the address the VM leased on the LAN (its ports, and the inspector's, are there)
-        self.lan_row = Gtk.Box(spacing=8)
-        label = Gtk.Label(label="LAN address", xalign=0)
-        label.add_css_class("dim-label")
-        self.lan_address = Gtk.Label(
-            xalign=0,
-            hexpand=True,
-            selectable=True,
-            ellipsize=Pango.EllipsizeMode.END,
-            max_width_chars=32,
-        )
-        self.lan_row.append(label)
-        self.lan_row.append(self.lan_address)
-        details.append(self.lan_row)
-        url = Gtk.Box(spacing=4)
+        # "Running · http://...": its status, then its URL (dim; the URL wraps when narrow)
+        self.status = Gtk.Label(xalign=1, hexpand=True, valign=Gtk.Align.CENTER)
+        self.status.add_css_class("dim-label")
         self.address = Gtk.Label(
-            xalign=0,
+            xalign=1,
+            valign=Gtk.Align.CENTER,
             selectable=True,
-            ellipsize=Pango.EllipsizeMode.END,
-            max_width_chars=32,
+            wrap=True,
+            wrap_mode=Pango.WrapMode.CHAR,
+            natural_wrap_mode=Gtk.NaturalWrapMode.NONE,
+            max_width_chars=30,
+            justify=Gtk.Justification.RIGHT,
         )
         self.address.add_css_class("dim-label")
         self.copy = Gtk.Button(
@@ -91,51 +93,45 @@ class Panel(Gtk.Box):
         )
         self.copy.add_css_class("flat")
         self.copy.connect("clicked", self.copy_url)
-        url.append(self.address)
-        url.append(self.copy)
-        content.append(url)
-        from .summary_ui import Summary
-
-        self.limits = Summary.flow()
-        content.append(self.limits)
+        self.open = Gtk.Button(label="Open", valign=Gtk.Align.CENTER)
+        self.open.connect("clicked", self.open_browser)
+        for widget in (title, self.status, self.address, self.copy, self.open):
+            heading.append(widget)
+        content.append(heading)
+        self.details = Gtk.Expander(label="Connection details and credentials")
+        details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=10)
+        self.details.set_child(details)
         content.append(self.details)
-        # link lan: the URL that works from this host (the one above is the LAN's), which Open uses
-        self.local_row = Gtk.Box(spacing=8)
-        label = Gtk.Label(label="On this host", xalign=0)
-        label.add_css_class("dim-label")
-        self.local_url = Gtk.Label(
-            xalign=0,
-            hexpand=True,
-            selectable=True,
-            ellipsize=Pango.EllipsizeMode.END,
-            max_width_chars=32,
+        self.description = Gtk.Label(
+            label=DESCRIPTION, xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR
         )
-        self.local_row.append(label)
-        self.local_row.append(self.local_url)
-        details.append(self.local_row)
+        self.description.add_css_class("dim-label")
+        details.append(self.description)
         # the inspector's password (netns.py makes one per start); Open in Browser logs in with it
-        self.credentials = Gtk.Box(spacing=8)
-        label = Gtk.Label(label="Password", xalign=0)
-        label.add_css_class("dim-label")
-        self.password = Gtk.Label(
-            xalign=0,
-            hexpand=True,
-            selectable=True,
-            ellipsize=Pango.EllipsizeMode.END,
-            max_width_chars=32,
-        )
-        self.password.add_css_class("monospace")
+        self.password = value_label(mono=True)
         self.copy_password = Gtk.Button(label="Copy Password")
         self.copy_password.connect("clicked", self.copy_secret)
-        for widget in (label, self.password, self.copy_password):
-            self.credentials.append(widget)
+        self.credentials = detail_row("Password", self.password, self.copy_password)
         details.append(self.credentials)
+        # link lan: the address the VM leased on the LAN (its ports, and the inspector's, are there)
+        self.lan_address = value_label()
+        self.lan_row = detail_row("LAN address", self.lan_address)
+        details.append(self.lan_row)
+        # link lan: the URL that works from this host (the one above is the LAN's), which Open uses
+        self.local_url = value_label()
+        self.local_row = detail_row("On this host", self.local_url)
+        details.append(self.local_row)
+        self.installation = Gtk.Label(xalign=0, hexpand=True)
+        self.installation.add_css_class("dim-label")
+        self.install = Gtk.Button(label="Install…")
+        self.install.connect("clicked", lambda *_: manager.install_mitm())
         setup = Gtk.Box(spacing=8)
-        self.installation.set_hexpand(True)
-        self.installation.set_xalign(0)
         setup.append(self.installation)
         setup.append(self.install)
         details.append(setup)
+        diagnostics = Gtk.Label(label="Proxy diagnostics", xalign=0)
+        diagnostics.add_css_class("dim-label")
+        details.append(diagnostics)
         self.log = Gtk.TextView(
             editable=False,
             cursor_visible=False,
@@ -148,19 +144,19 @@ class Panel(Gtk.Box):
         )
         self.scroll = Gtk.ScrolledWindow(min_content_height=100, max_content_height=100)
         self.scroll.set_child(self.log)
-        self.diagnostics = Gtk.Expander(label="Proxy diagnostics")
-        self.diagnostics.set_child(self.scroll)
-        content.append(self.diagnostics)
+        details.append(self.scroll)
 
     def show_state(self, state):
         self.state = state
-        self.status.set_text(state.status)
-        self.status.set_tooltip_text(state.status)
         running = state.status != "Not running"
-        self.address.set_text(
-            state.url or ("Not running" if not running else "Inspector unavailable")
+        # off: one line, what the VM's mode means for its next start
+        self.status.set_text(
+            OFF_TEXT if not running else state.status + (" ·" if state.url else "")
         )
-        self.address.set_tooltip_text(state.url or None)
+        self.address.set_visible(bool(state.url))
+        self.address.set_text(state.url or "")
+        for widget in (self.copy, self.open, self.details):
+            widget.set_visible(running)
         self.local_row.set_visible(bool(state.local_url))
         self.local_url.set_text(state.local_url)
         self.open.set_sensitive(state.ready)

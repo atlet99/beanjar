@@ -153,6 +153,27 @@ def main():
             and "unknown setting" in m.summary_text(),
             "its actions: none that need its settings; Delete",
         )
+        banner = m.win.summary_banner
+        check(
+            banner.get_revealed()
+            and "unknown setting network.unknown" in banner.get_title()
+            and banner.get_button_label() == "Open VM Folder"
+            and banner.get_action_name() == "win.folder"
+            and m.summary_view.tiles["state"].value.get_text() == gui.BROKEN,
+            f"the Summary's banner says why, with Open VM Folder ({banner.get_title()})",
+        )
+        if os.environ.get("CHECK_GUI_SHOTS"):
+            m.win.set_default_size(1100, 760)
+            yield 0.5
+            from gi.repository import Gtk  # the window as rendered, as check-gui.py's shot
+
+            snap = Gtk.Snapshot()
+            Gtk.WidgetPaintable.new(m.win).snapshot(snap, m.win.get_width(), m.win.get_height())
+            node = snap.to_node()
+            if node is not None:
+                m.win.get_renderer().render_texture(node, None).save_to_png(
+                    os.environ["CHECK_GUI_SHOTS"] + "-summary-broken.png"
+                )
         cli("start", "a")
         yield lambda: phase("a") == core.RUNNING
         check(phase("b") == gui.BROKEN, "the other VMs still follow")
@@ -160,7 +181,10 @@ def main():
         yield lambda: phase("a") == core.OFF
         shutil.copyfile(os.path.join(lib_dir, "vms", "a", "vm.toml"), os.path.join(bad, "vm.toml"))
         yield lambda: phase("b") == core.OFF
-        check(True, "fixed, it reads again")
+        check(
+            m.summary_view.problem is None or m.summary_view.problem.kind != "broken",
+            "fixed, it reads again; the banner no longer says it does not",
+        )
 
         # folders moved in and removed
         cli("create", "c", "--import", "--firmware", fw, library=other_dir)

@@ -55,14 +55,16 @@ from beanjar import (
     nvm,
     targets,
     paths,
+    lifecycle,
     poweroff,
+    rotation,
     vmsettings,
     vmunits,
 )  # noqa: E402
 from beanjar.core import OFF, RUNNING, STARTING, Error, Library  # noqa: E402
 from beanjar.firmware import fmt_size  # noqa: E402
 
-from . import header  # noqa: E402
+from . import header, picture, summary_facts  # noqa: E402
 
 PKG_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(core.__file__)))  # beanjar's
 TAIL_BYTES = 24 * 1024
@@ -172,6 +174,11 @@ def untested_suffix(fw_dir):
     except ValueError:
         return ""
     return "" if targets.tested(target) else f" ({targets.UNTESTED})"
+
+
+def widgets_phase(phase, widgets):
+    """The state dot's style class for phase, as the VM list's rows colour it."""
+    return widgets.VMRow.PHASE_CLASS.get(phase, "dimmed")
 
 
 def fmt_mem(mib):
@@ -297,6 +304,7 @@ class Manager:
         )
         self.want_viewer = {}  # VM name -> QEMU pid the viewer was for (auto-reconnect)
         self.cpu = {}  # VM name -> (ticks, monotonic)
+        self.cpu_text = {}  # VM name -> its last CPU% ("58%"), as its row shows it
         self.gpu = {}  # VM name -> (QEMU pid, its gpu.Sampler, its last status)
         self.watches = {}  # key -> (path, its stat signature, Gio.FileMonitor)
         self.console_monitor = None
@@ -309,6 +317,8 @@ class Manager:
         self.units = {}  # the last snapshot of the VMs' units (vmunits.vm_units)
         self.blocked = {}  # VM name -> why it cannot start (capacity.admission), the selected one's
         self.broken = {}  # VM name -> why its vm.toml does not read
+        self.failures = {}  # VM name -> (kind, exit status): its last start or stop, which failed
+        self.displays = {}  # VM name -> its display (dbus, egl-headless, none), at the last refresh
         self.elsewhere = []  # the VMs running elsewhere (elsewhere_rows), as listed
         self.polling = False  # the worker thread (_poll) is running
         self.logged = set()  # the errors already written to stderr
@@ -393,17 +403,25 @@ class Manager:
         )
         from .summary_ui import Summary
 
-        self.summary_view = Summary(self)
+        self.summary_view = Summary(self, self.win.summary_banner)
         self.summary.append(self.summary_view)
-        self.summary_view.follow(self.win.narrow)
+        self.summary_view.follow(self.win)
         self.summary_values = {}
         self.details = self.win.details
         from .inspector_ui import Panel
 
         self.inspector = Panel(self)
         self.summary_view.inspector_slot.append(self.inspector)
-        for key, title in (("mitm_flows", "Retention"), ("mitm_flow_bytes", "Body size")):
-            self.inspector.limits.append(self.summary_view.field(key, title))
+        # the TV picture: `beanjar screenshot` in a thread (picture.Pictures)
+        self.pictures = picture.Pictures(
+            lambda name, words: picture.beanjar_argv(self.lib, name, words),
+            self._rotation,
+            env=picture.cli_env(PKG_PARENT),
+        )
+        self.pictures.connect("changed", lambda _p, name: self.update_picture(name))
+        self.summary_view.picture.on_click = lambda: self.guard(self.picture_clicked)
+        self.details.connect("notify::visible-child-name", lambda *_: self.update_picture())
+        self.win.connect("notify::is-active", lambda *_: self.update_picture())
         from . import vnc_ui
 
         self.vnc_panel = vnc_ui.Panel(self)
@@ -576,6 +594,10 @@ class Manager:
             self._update_console(changed_only=True)
         except Exception as e:  # noqa: BLE001 - the timer must outlive any of it
             self.log_error("the console", e)
+        try:
+            self.update_picture()
+        except Exception as e:  # noqa: BLE001
+            self.log_error("the picture", e)
         self._poll()
         return True
 
@@ -702,6 +724,7 @@ class Manager:
             )
         )
         self.states[item.name] = (st, detail, pid, vpid)
+        self.displays[item.name] = vm.display
         item.set("phase", phase)
         item.set("state", phase + (f" ({detail})" if detail else ""))
         item.set("fw", fw)
@@ -713,11 +736,12 @@ class Manager:
     def _activity(self, item, pid):
         """A row's uptime, CPU and GPU use: the values that change each second."""
         cpu = self._cpu(item.name, pid)
+        self.cpu_text[item.name] = cpu
         graphics = self._gpu(item.name, pid)
-        if item.name == self.selected() and "gpu" in self.summary_view.fields:
-            self.summary_values["gpu"] = gpu.label(graphics)
-            self.summary_view.fields["gpu"].set_text(self.summary_values["gpu"])
         headline = graphics["headline"]
+        if item.name == self.selected() and self.summary_values:
+            self.summary_values["gpu"] = gpu.label(graphics)
+            self._live_tiles(pid, cpu, headline)
         activity = [
             v
             for v in (
@@ -728,6 +752,22 @@ class Manager:
             if v
         ]
         item.set("activity", "· " + " · ".join(activity) if activity else "")
+
+    def _live_tiles(self, pid, cpu, headline):
+        """The selected running VM's Uptime, CPU and Memory tiles: what its row shows each second,
+        and QEMU's resident memory on the host (with the GPU's use, when known)."""
+        mem = capacity.rss_mib(pid)
+        self.summary_view.set_tiles(
+            {
+                "time": ("Uptime", core.fmt_duration(hostprocs.uptime_of(pid)) or "—", ""),
+                "cpu": ("CPU", cpu or "—", ""),
+                "memory": (
+                    "Memory",
+                    summary_facts.fmt_gib(mem) if mem else "—",
+                    "on host" + (f" · GPU {headline:.0f}%" if headline is not None else ""),
+                ),
+            }
+        )
 
     def _activities(self):
         """Each row's activity, from the QEMU pids the last refresh found."""
@@ -818,8 +858,11 @@ class Manager:
             return ""
         now = time.monotonic()
         prev = self.cpu.get(name)
+        if prev and prev[2] == pid and now - prev[1] < 0.2:
+            # a refresh just after the tick's sample: keep that one (an empty CPU% flickers)
+            return self.cpu_text.get(name, "")
         self.cpu[name] = (t[0], now, pid)
-        if not prev or prev[2] != pid or now - prev[1] < 0.2:
+        if not prev or prev[2] != pid:
             return ""
         pct = (t[0] - prev[0]) / os.sysconf("SC_CLK_TCK") / (now - prev[1]) * 100
         return f"{pct:.0f}%"
@@ -937,7 +980,7 @@ class Manager:
 
     def update_details(self):
         name = self.selected()
-        try:  # the selected VM's traffic inspector, a group of its summary
+        try:  # the selected VM's traffic inspector, a card of its summary
             self.inspector.refresh(
                 core.VM(self.lib, name) if name and name not in self.broken else None
             )
@@ -949,20 +992,41 @@ class Manager:
             )
         except Exception as e:  # noqa: BLE001
             self.log_error("the VNC panel", e)
+        view = self.summary_view
         if not name:
             self.summary_values = {}
-            self.summary_view.update({})
+            view.update({})
+            view.set_tiles({k: ("", "—", "") for k in view.TILES}, "dimmed")
+            view.set_problem(None)
+            self.update_picture()
             self._set_console(None)
             return
         vm = core.VM(self.lib, name)
         st, detail, pid, vpid = self.states.get(name, (OFF, "", None, None))
         if name in self.broken:
             self.summary_values = {"state": f"{BROKEN}: {self.broken[name]}", "directory": vm.dir}
-            self.summary_view.update(
-                {"directory": vm.dir, "logs": vm.logs_dir, "qemu_pid": str(pid) if pid else ""},
-                state=BROKEN,
-                firmware=self.broken[name],
+            view.update(
+                {
+                    "directory": home_path(vm.dir),
+                    "logs": home_path(vm.logs_dir),
+                    "qemu_pid": str(pid) if pid else "",
+                },
+                full=dict(directory=vm.dir, logs=vm.logs_dir),
             )
+            view.set_tiles(
+                {
+                    "state": ("State", BROKEN, ""),
+                    "time": self._last_run_tile(vm),
+                    "cpu": ("CPUs", "—", ""),
+                    "memory": ("Memory", "—", ""),
+                },
+                widgets_phase(BROKEN, self.widgets),
+            )
+            short = self.broken[name].removeprefix(vm.config_path + ": ")
+            view.set_problem(
+                summary_facts.problem(broken=short)._replace(tooltip=self.broken[name])
+            )
+            self.update_picture()
             self._set_console(vm.console_log)
             return
         c = vm.config
@@ -977,7 +1041,8 @@ class Manager:
             + (f", viewer pid {vpid}" if vpid else "")
         )
         fw_dir = vm.firmware_dir()
-        if not paths.root_pak(fw_dir):
+        fw_found = bool(paths.root_pak(fw_dir))
+        if not fw_found:
             values["fw"] = f"{fw_dir} (not found)"
         elif vm.firmware_external():
             values["fw"] = f"{vm.firmware_name()} (used in place: {fw_dir})"
@@ -1004,35 +1069,41 @@ class Manager:
             if vm.has_model_key()
             else "None: the built-in model secret"
         )
-        values["gpu"] = gpu.label(self.gpu[name][2] if name in self.gpu else gpu.status_off())
+        graphics = self.gpu[name][2] if name in self.gpu and pid else gpu.status_off()
+        values["gpu"] = gpu.label(graphics)
         self.summary_values = values
         displayed = dict(values)
         mib = vm.mem() or 0
-        displayed["mem"] = (f"{mib / 1024:g} GiB" if mib >= 1024 else f"{mib} MiB") + (
-            " (model default)" if not c.get("mem") else ""
-        )
+        displayed["mem"] = fmt_mem(mib) + (" (model default)" if not c.get("mem") else "")
+        layers = c.get("layers", [])
+        displayed["gpu"] = "On" if (graphics["enabled"] if pid else "gl" in layers) else "Off"
         displayed["free_page_reporting"] = "On" if c.get("free_page_reporting") == "on" else "Off"
         displayed["model_key"] = "Custom installed" if vm.has_model_key() else "Built-in"
         displayed["display"] = {"dbus": "D-Bus", "egl-headless": "EGL headless", "none": "Off"}.get(
             vm.display, vm.display
         )
-        audio = c.get("audio") or ("dbus" if vm.display == "dbus" else "none")
+        audio = c.get("audio") or summary_facts.audio_default(vm.display)
         displayed["audio"] = {"dbus": "D-Bus", "none": "Off", "off": "Off"}.get(audio, audio)
         mode = {"mitm": "MITM", "direct": "Direct"}.get(c.get("mode", "mitm"), "—")
         displayed["network"] = "Off" if link == "off" else f"{link.upper()} · {mode}"
+        mitm = vmsettings.guest_net(link, c.get("mode")) == "mitm"
         flows = c.get("mitm_flows", vmsettings.MITM_FLOWS)
         values["mitm_flows"] = displayed["mitm_flows"] = (
-            "—"
-            if vmsettings.guest_net(link, c.get("mode")) != "mitm"
-            else "all flows"
-            if flows == 0
-            else f"the last {flows} flows"
+            "—" if not mitm else "all flows" if flows == 0 else f"the last {flows} flows"
         )
         values["mitm_flow_bytes"] = displayed["mitm_flow_bytes"] = (
-            "—"
-            if vmsettings.guest_net(link, c.get("mode")) != "mitm"
-            else vmsettings.flow_bytes_label(c.get("mitm_flow_bytes"))
+            "—" if not mitm else vmsettings.flow_bytes_label(c.get("mitm_flow_bytes"))
         )
+        # the address its forwarded ports are on, with them (VM.forwards: what ares and ssh use)
+        try:
+            ports = " ".join(str(port) for port in sorted({host for host, _g, _n in vm.forwards()}))
+        except Error:
+            ports = ""
+        with_ports = (lambda a: f"{a} · ports {ports}" if ports else a) if link != "off" else str
+        displayed["address"] = with_ports(values["address"]) if values["address"] else ""
+        displayed["lan_address"] = with_ports(lan) if lan else values["lan_address"]
+        unit = vm.unit_name() if pid else None
+        restarts = lifecycle.restarts(vm.run_dir) if pid else 0
         displayed.update(
             directory=home_path(vm.dir),  # ~ shortened; the tooltip has the full path
             logs=home_path(vm.logs_dir),
@@ -1040,21 +1111,147 @@ class Manager:
             firmware_path=home_path(fw_dir),
             qemu_pid=str(pid) if pid else "",
             viewer_pid=str(vpid) if vpid else "",
+            unit=unit or "",
+            restarts=str(restarts),
+        )
+        shown = summary_facts.shown_hardware(c, vm.display)
+        shown.update(
+            address=link == "nat",
+            lan_address=link == "lan",
+            listen=link != "off",
+            mitm_flows=mitm,
+            mitm_flow_bytes=mitm,
+            restarts=restarts > 0,
         )
         source = "External firmware" if vm.firmware_external() else "Managed firmware"
-        if not paths.root_pak(fw_dir):
+        if not fw_found:
             source = "Firmware missing"
-        self.summary_view.update(
+        elif self._untested(fw_dir):
+            source += " · not tested yet"
+        view.update(
             displayed,
-            state=st + (f" ({detail})" if detail else ""),
-            platform=vm.platform_title(),
-            firmware=f"{fw_label(vm.firmware_name())} · {source}",
-            layers=c.get("layers", []),
+            tv=" · ".join(filter(None, (vm.platform_title(), fw_label(vm.firmware_name())))),
+            source=source,
+            layers=layers,
             reason=vm.reason() if st != OFF else None,
             tags=c.get("tags", []),
             full=dict(directory=vm.dir, logs=vm.logs_dir, firmware_path=fw_dir),
+            shown=shown,
+            copies=dict(address=values["address"], lan_address=lan or ""),
         )
+        # the tiles: running, its live figures (_live_tiles, each second); off, its settings
+        phase = self.store_phase(name) or st
+        caption = " · ".join(
+            filter(None, (detail.capitalize() if detail else "", "Viewer open" if vpid else ""))
+        )
+        tiles = {"state": ("State", phase, caption)}
+        if not pid:
+            smp = int(c.get("smp", 0) or 0)
+            tiles.update(
+                time=self._last_run_tile(vm),
+                cpu=("CPUs", str(smp) if smp else "—", ""),
+                memory=("Memory", fmt_mem(mib) if mib else "—", ""),  # as set: the row's form
+            )
+        view.set_tiles(tiles, widgets_phase(phase, self.widgets))
+        if pid:
+            self._live_tiles(pid, self.cpu_text.get(name, ""), graphics["headline"])
+        view.set_problem(
+            summary_facts.problem(
+                qmp_detail=detail if pid else "",
+                failed=self.failures.get(name),
+                firmware_missing=None if fw_found else home_path(fw_dir),
+                blocked=self.blocked.get(name) if st == OFF and name not in self.ops else None,
+            )
+        )
+        self.update_picture()
         self._set_console(vm.console_log)
+
+    def store_phase(self, name):
+        """VM name's row phase (Starting while a start runs), or None."""
+        for i in range(self.store.get_n_items()):
+            item = self.store.get_item(i)
+            if item.name == name:
+                return item.phase
+        return None
+
+    @staticmethod
+    def _last_run_tile(vm):
+        """The Last run tile: when its console log or QEMU's output was last written."""
+        when = summary_facts.last_run(vm.logs_dir)
+        caption = "" if when is None else time.strftime("%Y-%m-%d %H:%M", time.localtime(when))
+        return ("Last run", summary_facts.relative_time(when), caption)
+
+    @staticmethod
+    def _untested(fw_dir):
+        try:
+            return not targets.tested(paths.firmware_target(fw_dir))
+        except ValueError:
+            return False
+
+    # -- the TV picture --
+    def _rotation(self, name, live):
+        """How far VM name's picture turns (a worker thread's): a portrait model's guest's last
+        rotation report while it runs (live), the angle its set was left at when it is off."""
+        try:
+            vm = core.VM(self.lib, name)
+            if not vm.portrait():
+                return 0
+            angle = rotation.status(vm).get("rotation" if live else "saved")
+        except Exception:  # noqa: BLE001 - no turn is the safe answer
+            return 0
+        return angle if angle in (90, 180, 270) else 0
+
+    def update_picture(self, changed=None):
+        """The selected VM's picture: taken anew (Pictures.update) at most every 5 s while it runs,
+        the Summary is shown, the window active and no viewer open; its last kept one when it is
+        off. changed: the VM a new picture came for (None: the selected one)."""
+        name = self.selected()
+        if changed is not None and changed != name:
+            return
+        view = self.summary_view.picture
+        if not name or name in self.broken:
+            view.show("none", None)
+            view.set_action(None)
+            return
+        st, _detail, pid, vpid = self.states.get(name, (OFF, "", None, None))
+        dbus = self.displays.get(name) == "dbus"
+        mode = "live" if pid and st == RUNNING and dbus else "last" if st == OFF else None
+        allowed = (
+            self.details.get_visible_child_name() == "summary" and self.win.is_active() and not vpid
+        )
+        if changed is None:
+            self.pictures.update(name, mode, allowed)
+        kind, texture = self.pictures.picture(name)
+        view.show(kind, texture)
+        if vpid:
+            action = "Show the Viewer"
+        elif pid:
+            action = "Connect" if self.actions["connect"].get_enabled() else None
+        else:
+            action = "Start" if self.actions["start"].get_enabled() else None
+        view.set_action(action)
+
+    def picture_clicked(self):
+        """A click on the picture: the viewer shown (if open) or opened while it runs, a start
+        when it is off; the header's state button does the same."""
+        name = self.selected()
+        _st, _detail, pid, vpid = self.states.get(name, (OFF, "", None, None))
+        if vpid:
+            self.present_viewer(name, vpid)
+        elif pid:
+            if self.actions["connect"].get_enabled():
+                self.connect()
+        elif self.actions["start"].get_enabled():
+            self.start()
+
+    def present_viewer(self, name, vpid):
+        """Bring VM name's open viewer (pid vpid) to the front: SIGUSR1, which it presents its
+        window on (viewer/main.py); a viewer that does not catch it (an older one) is not sent it,
+        since SIGUSR1 would end it."""
+        if hostprocs.catches_signal(vpid, signal.SIGUSR1):
+            os.kill(vpid, signal.SIGUSR1)
+        else:
+            self.say(f"{name}: the viewer is already open (pid {vpid})")
 
     def summary_text(self):
         """The summary as "Title: value" lines (the tests)."""
@@ -1188,6 +1385,12 @@ class Manager:
         def finished(rc):
             self.ops.pop(name, None)
             line(f"[exit {rc}]")
+            # the Summary's banner names a failed start or stop until the next one succeeds
+            if kind in summary_facts.FAILED_KINDS and library in (None, self.lib):
+                if rc:
+                    self.failures[name] = (kind, rc)
+                else:
+                    self.failures.pop(name, None)
             # done may take the result over (return True: a dialog says more than a toast)
             if not (done and done(rc)):
                 self.say(

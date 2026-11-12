@@ -38,6 +38,8 @@ class ManagerWindow(Adw.ApplicationWindow):
     console = Gtk.Template.Child()
     output = Gtk.Template.Child()
     narrow = Gtk.Template.Child()
+    medium = Gtk.Template.Child()
+    summary_banner = Gtk.Template.Child()
     state_button = Gtk.Template.Child()
     vm_menu_button = Gtk.Template.Child()
     main_menu_button = Gtk.Template.Child()

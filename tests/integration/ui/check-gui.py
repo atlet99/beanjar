@@ -26,7 +26,8 @@ installed and cleared through Settings, a bad file refused.
 firmware: a .epk chosen, its extraction's progress, a directory hard-linked into the VM's folder),
 -fw-settings.png (Settings' firmware: a directory used in place),
 -new-vm.png, -list-narrow.png, -running.png,
--console.png, -settings-model-key.png, -shut-down.png, -shut-down-unavailable.png,
+-console.png, -summary-off.png and -summary-failed.png (the Summary of a VM that is off, its
+last picture kept, and after a failed start), -settings-model-key.png, -shut-down.png, -shut-down-unavailable.png,
 -not-powered-off.png, -wipe.png and -new-identity.png (the window, with the dialog over it), and -vmform-<page>-wide.png,
 -vmform-error-wide.png and -vmform-{sidebar,<page>}-narrow.png (New VM on each of its pages, the
 window wide and narrow).
@@ -115,10 +116,18 @@ def dismiss_toasts(m):
 
 def shot(widget, path):
     """The widget as rendered, to PNG, through its own renderer."""
-    w, h = widget.get_width(), widget.get_height()
-    snap = Gtk.Snapshot()
-    Gtk.WidgetPaintable.new(widget).snapshot(snap, w, h)
-    node = snap.to_node()
+    # a widget waiting for its next layout (the Summary's tiles change every second) renders
+    # nothing: let the frame clock lay it out first
+    for _ in range(100):
+        w, h = widget.get_width(), widget.get_height()
+        snap = Gtk.Snapshot()
+        Gtk.WidgetPaintable.new(widget).snapshot(snap, w, h)
+        node = snap.to_node()
+        if node is not None:
+            break
+        time.sleep(0.01)
+        while GLib.MainContext.default().iteration(False):
+            pass
     if node is None:
         raise AssertionError(f"nothing rendered for {path} ({w}x{h}, mapped={widget.get_mapped()})")
     widget.get_native().get_renderer().render_texture(node, None).save_to_png(path)
@@ -204,8 +213,25 @@ def main():
                 return m.vm_list.get_row_at_index(i)
         return None
 
+    # the TV picture's `beanjar screenshot` (a fake VM has no screen): a PNG per mode, from files
+    shots = {"live": os.path.join(tmp, "live.png"), "last": os.path.join(tmp, "last.png")}
+    shot_runs = []
+
+    def fake_screenshot(name, words):
+        shot_runs.append((name, tuple(words)))
+        path = shots["last" if "--last" in words else "live"]
+        return ["cat", path] if os.path.exists(path) else ["false"]
+
+    def png(path, rgb):
+        from gi.repository import GdkPixbuf
+
+        p = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, 64, 36)
+        p.fill(rgb << 8 | 0xFF)
+        p.savev(path, "png", [], [])
+
     def script():
         widgets = m.widgets
+        m.pictures.command = fake_screenshot
         # 0. the empty library: a status page offering New VM
         check(m.win.stack.get_visible_child_name() == "empty", "empty library: the status page")
         check(m.details.get_visible_child_name() == "summary", "the details open on the Summary")
@@ -1062,6 +1088,81 @@ def main():
             and lib.vm("tv1").address().startswith("127.0.1."),
             "the summary has its address",
         )
+        # the tiles while it runs: what its row shows each second, and QEMU's memory on the host
+        view = m.summary_view
+        tiles = view.tiles
+        yield lambda: tiles["memory"].value.get_text().endswith("iB")
+        check(
+            [t.title.get_text() for t in tiles.values()] == ["State", "Uptime", "CPU", "Memory"]
+            and tiles["state"].value.get_text() == "Running"
+            and tiles["state"].dot.has_css_class("success")
+            and ":" in tiles["time"].value.get_text()
+            and tiles["memory"].caption.get_text().startswith("on host")
+            and not view.problem,
+            "running: State, Uptime, CPU and Memory on the host; no banner "
+            f"({[t.value.get_text() for t in tiles.values()]})",
+        )
+        # the Network card: the address with its forwarded ports, the inspector's limits
+        address = lib.vm("tv1").address()
+        ports = " ".join(str(h) for h in sorted({h for h, _g, _n in lib.vm("tv1").forwards()}))
+
+        def shown(key):
+            row = view.rows[key]
+            return row.get_visible() and row.get_parent().get_visible()
+
+        check(
+            ports
+            and view.fields["address"].get_text() == f"{address} · ports {ports}"
+            and view.values["address"] == address
+            and shown("address")
+            and not shown("lan_address")
+            and view.fields["mitm_flows"].get_text() == "the last 1000 flows"
+            and view.fields["mitm_flow_bytes"].get_text() == "no limit"
+            and shown("mitm_flows"),
+            f"Network: the host address with its ports, copied without them, and the inspector's "
+            f"limits ({view.fields['address'].get_text()})",
+        )
+        check(
+            not shown("free_page_reporting") and view.fields["gpu"].get_text() in ("On", "Off"),
+            "Hardware: GPU on or off, free page reporting only when on",
+        )
+        # the picture: live while it runs, the Summary shown and the window active, every 5 s
+        picture = view.picture
+        png(shots["live"], 0x2060C0)
+        m.details.set_visible_child_name("summary")  # the start showed its output
+        if not m.win.is_active():
+            print("note: the window is not active under this X server: the picture waits")
+        yield lambda: picture.kind == "live" or not m.win.is_active()
+        if m.win.is_active():
+            check(
+                picture.picture.get_paintable() is not None
+                and not picture.badge.get_visible()
+                and picture.overlay.get_tooltip_text() == "Connect"
+                and ("tv1", ("--size", "384x216")) in shot_runs,
+                "running: the picture is live (beanjar screenshot --size 384x216), a click connects",
+            )
+            m.details.set_visible_child_name("console")
+            n = len(shot_runs)
+            yield 6
+            check(len(shot_runs) == n, "no picture taken while the Summary is not shown")
+            m.details.set_visible_child_name("summary")
+            yield lambda: len(shot_runs) > n
+            n = len(shot_runs)
+            yield 2
+            check(len(shot_runs) == n, "at most one picture in 5 s")
+        # QEMU paused: a banner, without a button, and the State tile says it
+        st = m.states["tv1"]
+        m.states["tv1"] = (st[0], "paused", st[2], st[3])
+        m.update_details()
+        check(
+            m.win.summary_banner.get_revealed()
+            and m.win.summary_banner.get_title() == "QEMU is paused"
+            and not m.win.summary_banner.get_button_label()
+            and tiles["state"].caption.get_text() == "Paused",
+            "QEMU paused: the banner says so, the State tile too",
+        )
+        m.refresh(qmp=True)
+        check(not m.win.summary_banner.get_revealed(), "and the banner goes with it")
         meminfo = os.path.join(lib_dir, "meminfo")  # the host's free memory, as the test says
 
         def available(mib):
@@ -1071,6 +1172,87 @@ def main():
         os.environ["BEANJAR_MEMINFO"] = meminfo
         m.select("tv2")
         yield 0.1
+        # off: State, Last run, CPUs and Memory as set; its last picture, or none yet
+        check(
+            [t.title.get_text() for t in tiles.values()] == ["State", "Last run", "CPUs", "Memory"]
+            and tiles["state"].value.get_text() == "Off"
+            and tiles["state"].dot.has_css_class("dimmed")
+            and tiles["time"].value.get_text() == "Never"
+            and tiles["cpu"].value.get_text() == str(lib.vm("tv2").config.get("smp"))
+            and tiles["memory"].value.get_text() == "1792 MiB",
+            f"off: State, Last run, CPUs, Memory ({[t.value.get_text() for t in tiles.values()]})",
+        )
+        yield lambda: ("tv2", ("--last",)) in shot_runs and not m.pictures.entry("tv2").pending
+        check(
+            picture.kind == "none"
+            and picture.badge.get_text() == "No picture yet"
+            and picture.outline.get_visible()
+            and picture.overlay.get_tooltip_text() == "Start",
+            "off without a picture kept: the TV outline, No picture yet; a click starts",
+        )
+        png(shots["last"], 0x30A050)
+        m.pictures.forget("tv2")
+        m.update_picture()
+        yield lambda: picture.kind == "last"
+        check(
+            picture.badge.get_text() == "Last picture"
+            and picture.overlay.has_css_class("dim")
+            and picture.picture.get_paintable() is not None,
+            "off: the last picture kept, dimmed, Last picture",
+        )
+        if a.shots:
+            yield 0.5
+            shot(m.win, f"{a.shots}-summary-off.png")
+        # the Inspector card while off: one line
+        check(
+            m.inspector.status.get_text() == "Starts with the VM (MITM)"
+            and not m.inspector.details.get_visible(),
+            "off: the inspector card is one line",
+        )
+        # a start that fails: the banner says so until the next one succeeds
+        m.run("tv2", "start", ["start", "tv2", "--no-such-option"])
+        yield lambda: "tv2" not in m.ops
+        banner = m.win.summary_banner
+        check(
+            banner.get_revealed()
+            and banner.get_title() == "Start failed (exit 2)"
+            and banner.get_button_label() == "Show Output",
+            f"a failed start: the banner, Start failed (exit 2), Show Output ({banner.get_title()})",
+        )
+        m.details.set_visible_child_name("summary")
+        if a.shots:
+            yield 0.5
+            shot(m.win, f"{a.shots}-summary-failed.png")
+        next(w for w in descendants(banner) if isinstance(w, Gtk.Button)).emit("clicked")
+        yield 0.1
+        check(m.details.get_visible_child_name() == "output", "Show Output shows the output")
+        m.details.set_visible_child_name("summary")
+        m.select("tv1")
+        yield 0.1
+        check(not banner.get_revealed(), "another VM's failure is not this one's")
+        m.select("tv2")
+        yield 0.1
+        check(banner.get_revealed(), "and it stays with its VM")
+        m.run("tv2", "start", ["list"])  # stands in for a start that succeeds (exit 0)
+        yield lambda: "tv2" not in m.ops
+        m.details.set_visible_child_name("summary")
+        check(not banner.get_revealed(), "the next success clears it")
+        # its firmware gone: the banner offers Settings…
+        fw_dir = lib.vm("tv2").firmware_dir()
+        os.rename(fw_dir, fw_dir + ".away")
+        try:
+            m.refresh()
+            check(
+                view.problem is not None
+                and view.problem.kind == "firmware"
+                and banner.get_button_label() == "Settings…"
+                and banner.get_action_name() == "win.settings",
+                f"the firmware missing: the banner, Settings… ({banner.get_title()})",
+            )
+        finally:
+            os.rename(fw_dir + ".away", fw_dir)
+        m.refresh()
+        check(not banner.get_revealed(), "the firmware back: no banner")
         available(32768)
         yield lambda: m.enabled("start")  # the admission is taken off the main loop (_poll)
         check(m.enabled("start"), "Start enabled on tv2 while tv1 runs")
@@ -1080,6 +1262,16 @@ def main():
             not m.enabled("start")
             and "not enough free memory" in (m.win.state_button.get_tooltip_text() or ""),
             "Start disabled without the memory for tv2, and says why",
+        )
+        banner = m.win.summary_banner
+        check(
+            banner.get_revealed()
+            and m.summary_view.problem.kind == "blocked"
+            and banner.get_title().startswith("Not enough free memory to start VM tv2")
+            and "(stop another VM" not in banner.get_title()
+            and banner.get_tooltip_text() == m.win.state_button.get_tooltip_text()
+            and not banner.get_button_label(),
+            f"the banner says it, the first sentence, the full text its tooltip ({banner.get_title()})",
         )
         available(32768)
         yield lambda: m.enabled("start")
@@ -1096,9 +1288,19 @@ def main():
             and "beanjar host config set max_running=2" in tip,
             f"Start disabled at max_running, and says why ({tip})",
         )
+        check(
+            banner.get_revealed()
+            and banner.get_title().startswith("Cannot start VM tv2: 1 VM already running")
+            and "raise the limit" not in banner.get_title()
+            and banner.get_tooltip_text() == tip,
+            f"the banner names max_running ({banner.get_title()})",
+        )
         hostconfig.set_global_option("max_running", "")
         yield lambda: m.enabled("start")
-        check(m.enabled("start"), "and enabled again without the limit")
+        check(
+            m.enabled("start") and not banner.get_revealed(),
+            "and enabled again without the limit, the banner gone",
+        )
         m.select("tv1")
         yield 0.1
 
@@ -1116,6 +1318,15 @@ def main():
         check(
             not m.enabled("connect") and m.enabled("disconnect"),
             "Disconnect enabled, Connect disabled",
+        )
+        m.update_details()
+        n = len(shot_runs)
+        yield 6
+        check(
+            tiles["state"].caption.get_text() == "Viewer open"
+            and picture.overlay.get_tooltip_text() == "Show the Viewer"
+            and not [r for r in shot_runs[n:] if "--size" in r[1]],
+            "the viewer open: State says so, the picture shows it, no picture taken meanwhile",
         )
         check(
             m.win.state_button.get_icon_name() == "system-shutdown-symbolic"
@@ -1169,7 +1380,7 @@ def main():
             and "Platform: webOS 1" in m.summary_text()
             and "GPU: " in m.summary_text()
             and "Layers: normal, headless, gl" in m.summary_text(),
-            "the summary rows: state, pids, platform, firmware, GPU and layers",
+            f"the summary rows: state, pids, platform, firmware, GPU and layers ({m.summary_text()!r})",
         )
         check(
             not m.summary_view.runtime.get_expanded()
@@ -1212,15 +1423,20 @@ def main():
             not m.inspector.open.get_sensitive() and not m.inspector.copy.get_sensitive(),
             "fake VM without a proxy cannot open an unrelated inspector",
         )
+        from beanjar_ui.manager import inspector_ui
+
         inspector_state = m.inspector.state
         m.select("tv2")
         m.refresh()
         check(
             m.inspector.get_visible()
-            and m.inspector.address.get_text() == "Not running"
-            and not m.inspector.copy.get_sensitive()
+            and m.inspector.status.get_text() == inspector_ui.OFF_TEXT
+            and not m.inspector.address.get_visible()
+            and not m.inspector.copy.get_visible()
+            and not m.inspector.open.get_visible()
+            and not m.inspector.details.get_visible()
             and m.inspector.password.get_text() == "—",
-            "a stopped VM's inspector says it is not running: no stale URL",
+            "a stopped VM's inspector is one line, Starts with the VM (MITM): no stale URL",
         )
         lib.configure("tv2", mode="direct")
         m.refresh()
@@ -1230,7 +1446,6 @@ def main():
         m.refresh()
         # a running inspector with its password (inspector.snapshot reads it from netns.py's file)
         from beanjar import inspector
-        from beanjar_ui.manager import inspector_ui
 
         locked = inspector.State(
             "mitm",
@@ -1350,9 +1565,7 @@ def main():
                 "Copy Password copies the VNC password",
             )
             check(
-                not m.inspector.details.get_expanded()
-                and not m.inspector.diagnostics.get_expanded()
-                and not m.vnc_panel.details.get_expanded(),
+                not m.inspector.details.get_expanded() and not m.vnc_panel.details.get_expanded(),
                 "Inspector and VNC secondary details start folded",
             )
             if a.shots:

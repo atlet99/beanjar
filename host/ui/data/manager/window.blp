@@ -8,9 +8,9 @@
 // tooltip), one icon-only state button (state_button, an Adw.SplitButton: Start, Connect or Shut
 // Down…, named by its tooltip, with its dropdown; header.py picks them by the selected VM's state),
 // the VM menu (⋮: Settings… and the rare actions) and the main menu (☰). The list's rows
-// (vm-row.blp), the summary's grouped cards and every text are set from Python. Narrow, the
-// sidebar overlays the details, shown by the header's toggle, and a click on a row picks it and
-// hides the list again.
+// (vm-row.blp), the Summary (summary_ui.py, under its problem banner) and every text are set
+// from Python. Narrow, the sidebar overlays the details, shown by the header's toggle, and a click
+// on a row picks it and hides the list again.
 using Gtk 4.0;
 using Adw 1;
 
@@ -20,6 +20,13 @@ template $ManagerWindow: Adw.ApplicationWindow {
   default-height: 760;
   width-request: 480;
   height-request: 360;
+
+  // the Summary's tiles in a 2x2 grid beside the picture (summary_ui.py set_layout): four tiles
+  // of a running VM (Running, 1:52:03, 58%, 1.9 GiB) and the 240 px picture need about 690 px of
+  // the Summary, which it has from a 1060 px window with the sidebar shown; no overlap with narrow
+  Adw.Breakpoint medium {
+    condition ("max-width: 1060sp and min-width: 641sp")
+  }
 
   Adw.Breakpoint narrow {
     condition ("max-width: 640sp")
@@ -207,19 +214,27 @@ template $ManagerWindow: Adw.ApplicationWindow {
                   name: "summary";
                   title: "Summary";
 
-                  child: Gtk.ScrolledWindow {
-                    hscrollbar-policy: never;
+                  child: Gtk.Box {
+                    orientation: vertical;
 
-                    Adw.Clamp {
-                      maximum-size: 900;
-                      margin-top: 12;
-                      margin-bottom: 12;
-                      margin-start: 12;
-                      margin-end: 12;
+                    // the selected VM's one problem, if any (summary_ui.py set_problem)
+                    Adw.Banner summary_banner {}
 
-                      Gtk.Box summary {
-                        orientation: vertical;
-                        valign: start;
+                    Gtk.ScrolledWindow {
+                      hscrollbar-policy: never;
+                      vexpand: true;
+
+                      Adw.Clamp {
+                        maximum-size: 900;
+                        margin-top: 12;
+                        margin-bottom: 12;
+                        margin-start: 12;
+                        margin-end: 12;
+
+                        Gtk.Box summary {
+                          orientation: vertical;
+                          valign: start;
+                        }
                       }
                     }
                   };
