@@ -474,13 +474,13 @@ named ([above](#only-some-hosts---hosts)).
   At the end Sound, Save Screenshot (a PNG download named `NAME-TIME.png`), Remote, Fullscreen
   (the picture alone) and More appear in that order.
   More contains Quality, Planes and Stats for nerds (checked while the overlay is shown), Portrait,
-  Full remote and Traffic Inspector where they apply, and last, after a separator, Stop VM…, which
+  Full remote, Traffic Inspector and Remote in a Window where they apply, and last, after a separator, Stop VM…, which
   opens the list's Stop dialog (shown while the VM is not off). Planes (`layers`) opens a popover of three
   check items, UI, Video and Cursor: beanjar-vnc composes one picture for all its clients, so
   they are the VM's, shared by every page and VNC client, as its note says, and last until
   beanjar-vnc stops. The page sends `beanjar:planes=N` (the hidden `WV_PLANE_*` bits) as noVNC
   clipboard text, asks with `beanjar:planes?` when it connects, and shows what beanjar-vnc answers
-  ([vnc.md](vnc.md#planes)). Save Screenshot keeps every plane. The Remote toggle is pressed while its popup is open; a click then closes it. The toggle uses `static/tv-remote.svg`, a TV remote drawn on Bootstrap Icons' 16px
+  ([vnc.md](vnc.md#planes)). Save Screenshot keeps every plane. The Remote toggle is pressed while the remote shows (floating, or its window); a click then closes it. The toggle uses `static/tv-remote.svg`, a TV remote drawn on Bootstrap Icons' 16px
   grid with a one-pixel outline. The popup remote uses the same
   system icon masks for the keys the GTK layout draws as symbols (power, navigation, volume and
   media), in each key's ink colour; keys it labels with text (CC, GUIDE, BACK...) keep the text.
@@ -501,7 +501,24 @@ named ([above](#only-some-hosts---hosts)).
   still scales to fit between them. Desktop and landscape keep the header layout.
   CSS moves the groups; Save Screenshot and Fullscreen join the shared native overflow popover in portrait. More closes on selection, Escape or an outside click and supports arrow keys; Quality opens above the
   toolbar, stays in the viewport on resize, and Escape returns focus to More.
-- **Remote.** `window.open('/remote.html?vm=HOST/NAME', 'beanjar-remote-HOST-NAME',
+- **Remote.** On desktop the Remote button (on a touch screen's model, its menu's Show remote)
+  shows the remote floating over the picture, as the GTK remote window: `#remote-float` in
+  `#screen` (so fullscreen keeps it), drawn in the page by `remote-draw.js` from `layout.json` and
+  sending over the viewer's own remote socket. It is drawn in the page rather than as an iframe of
+  `remote.html` because a press inside an iframe reaches neither the parent's pointer events (the
+  drag would need the frame to post them back) nor leaves the keyboard where it was (the frame takes
+  the focus, so the PC's keys would stop reaching noVNC). The remote's own body is its only frame,
+  with a round close control on its chin (between the lowest key and the body's bottom edge). A
+  press that starts on a key is that key's only, however it moves; a press on the body between
+  the keys drags it once it has moved 8 px (the GTK remote's `gtk-dnd-drag-threshold`), and the
+  close control never drags. Presses on it keep the focus where it was (`preventDefault` on
+  `pointerdown`), so the PC's keys go on reaching the TV. It stays inside the picture's area, 12 px
+  from its edges, snaps to an edge within 24 px, and is kept per browser
+  (`beanjar-web-remote-float`) as its distance from the nearer horizontal and vertical edges, so it
+  keeps its corner as the window changes size and is clamped back into view; its first spot is top
+  right under the header. A picture area shorter than the remote scales it down to fit. It hides
+  on phones and while the VM is off. More's Remote in a Window opens the remote's own page instead:
+  `window.open('/remote.html?vm=HOST/NAME', 'beanjar-remote-HOST-NAME',
   'popup,width=W,height=H')`, sized to the layout (1.25 times, at most 90% of the screen's height);
   the window name keeps one popup per VM. `pointerdown` sends `down`,
   `pointerup` and `pointercancel` send `up`, with pointer capture, so holding a key is a long press
@@ -510,10 +527,11 @@ named ([above](#only-some-hosts---hosts)).
   and the viewer closes it when it unloads. In narrow portrait windows, the same remote page
   opens in an in-page panel above the toolbar instead, with a Close button and Escape to return
   focus to Remote. Its frame is unloaded when dismissed, ending its input WebSocket; embedded
-  remotes do not run the standalone window's opener check. Embedded, the remote page is
+  remotes do not run the standalone window's opener check. Desktop keeps no such panel: its remote
+  floats (above). Embedded, the remote page is
   transparent and fits the remote's body (the layout's `body`) rather than its whole panel, and
   the frame is as wide as that body at its height, so the remote's own body sits directly inside
-  the panel's frame. The desktop popup remains unchanged.
+  the panel's frame.
   On phones that panel is opened by the lite remote's 123 key in portrait and by More's Full remote in
   landscape, whose strip has no 123 key (More's item is hidden in portrait: it would duplicate 123).
   The audit of the other layouts found no further duplicates: Back, Home and Settings leave the bar

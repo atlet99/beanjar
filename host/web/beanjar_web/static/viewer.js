@@ -9,6 +9,7 @@ import RFB from "/novnc/core/rfb.js";
 import { Speaker } from "/audio.js";
 import { Picture, h264Unsupported } from "/video.js";
 import { stopDialog } from "/stop.js";
+import { drawRemote } from "/remote-draw.js";
 
 const [, , host, name] = location.pathname.split("/").map(decodeURIComponent);
 const spec = `${host}/${name}`;
@@ -176,8 +177,10 @@ const inputMenu = document.getElementById("input-menu"); // a touch screen's Rem
 const inputRemote = document.getElementById("input-remote");
 const inputTouch = document.getElementById("input-touch"); // the Mouse toggle (onMouseFinger)
 const shotButton = document.getElementById("shot");
+const remoteWindowItem = document.getElementById("remote-window"); // More's Remote in a Window
+const floatEl = document.getElementById("remote-float"); // the desktop's floating remote
 const moreItems = [qualityButton, planesButton, shotButton, statsButton, rotateButton, fullRemote,
-  inspectorLink, fullscreenButton, document.getElementById("stop-vm")];
+  inspectorLink, remoteWindowItem, fullscreenButton, document.getElementById("stop-vm")];
 const menuItems = () => moreItems.filter((item) => item.parentElement === morePop && !item.hidden && !item.disabled);
 
 function placePopover(pop, anchor) {
@@ -200,6 +203,9 @@ function adaptiveControls() {
   }
   // More's Full remote: only the phone in landscape, whose lite strip has no 123 key (portrait's sheet does)
   fullRemote.hidden = !phone.matches || compact.matches;
+  // desktop: the remote floats in the page, its window is More's; phones have the lite sheet
+  remoteWindowItem.hidden = phone.matches;
+  if (phone.matches) setFloat(false);
   showInput();
   if (compact.matches) {
     planesButton.after(shotButton);
@@ -581,7 +587,9 @@ function onPointer(e) {
 }
 for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel", "mousedown",
   "mousemove", "mouseup", "click", "contextmenu", "wheel"]) {
-  screenEl.addEventListener(type, (e) => onMouseFinger(e) || onPointer(e), { capture: true, passive: false });
+  // the floating remote's own presses are its keys' and its drag's, not the picture's
+  screenEl.addEventListener(type, (e) => floatEl.contains(e.target) || onMouseFinger(e) || onPointer(e),
+    { capture: true, passive: false });
 }
 function codeOf(key) {
   const k = layout && layout.keys.find((k) => k.name === key);
@@ -636,7 +644,7 @@ function touchAt(t) {
   return at && `${at[0]} ${at[1]} ${at[3]}`;
 }
 function onTouch(e) {
-  if (!touchScreen || !rfb) return;
+  if (!touchScreen || !rfb || floatEl.contains(e.target)) return;
   e.preventDefault();
   e.stopPropagation();
   for (const t of e.changedTouches) {
@@ -881,7 +889,9 @@ function remoteAttrs() {
     remoteButton.title = "Show or hide the TV remote";
   }
 }
-function remoteShown() { return remotePop.matches(":popover-open") || !!remoteWin && !remoteWin.closed; }
+function remoteShown() {
+  return remotePop.matches(":popover-open") || !floatEl.hidden || !!remoteWin && !remoteWin.closed;
+}
 function liteAttrs() {
   for (const row of liteRows) row.inert = !liteOpen; // collapsed, the keys wait behind the toolbar
   remoteAttrs();
@@ -1051,9 +1061,99 @@ function toggleRemoteWindow() {
 remoteButton.addEventListener("click", (e) => {
   // a keyboard's click (no pointer, detail 0) leaves the focus on the button
   if (phone.matches) return setLite(!liteOpen, { keepFocus: e.detail === 0 });
-  if (!inputMode()) toggleRemoteWindow(); // else the menu (popovertarget)
+  if (!inputMode()) setFloat(floatEl.hidden, { keepFocus: e.detail === 0 }); // else the menu (popovertarget)
 });
-inputRemote.addEventListener("click", () => { inputMenu.hidePopover(); toggleRemoteWindow(); remoteAttrs(); });
+inputRemote.addEventListener("click", () => { inputMenu.hidePopover(); setFloat(floatEl.hidden); });
+remoteWindowItem.addEventListener("click", () => { toggleRemoteWindow(); remoteAttrs(); });
+
+// The desktop's remote floats over the picture (in #screen, so fullscreen keeps it), as the GTK
+// remote window does: its own body the only frame, a close control on its chin, moved by a press
+// on the body between the keys once it has gone THRESHOLD px (the GTK remote's drag threshold); a
+// press on a key is that key's however it wobbles, and the close control never drags. It stays in
+// the picture's area MARGIN px from its edges, snaps to an edge within SNAP px, and is kept per
+// browser as its distance from the nearer edges (beanjar-web-remote-float), so it stays in its
+// corner as the window changes; top right at first. A window too short for it scales it down.
+// Presses on it never take the focus: the PC's keys stay the TV's (noVNC's).
+const floatPanel = floatEl.querySelector(".remote-panel");
+const floatClose = document.getElementById("float-close");
+const FLOAT_KEY = "beanjar-web-remote-float";
+const MARGIN = 12, SNAP = 24, THRESHOLD = 8;
+let floatDrawn = false;
+function sizeFloat() {
+  const b = layout.body;
+  const s = Math.min(1, (screenEl.clientHeight - 2 * MARGIN) / b.h, (screenEl.clientWidth - 2 * MARGIN) / b.w);
+  const k = Math.max(0.25, s);
+  Object.assign(floatEl.style, { width: `${b.w * k}px`, height: `${b.h * k}px` });
+  Object.assign(floatPanel.style, { transform: `scale(${k})`, left: `${-b.x * k}px`, top: `${-b.y * k}px` });
+  // the chin: between the lowest key and the body's bottom edge
+  const lowest = Math.max(b.y, ...layout.keys.map((key) => key.y + key.h));
+  floatClose.style.top = `${((lowest + b.y + b.h) / 2 - b.y) * k}px`;
+  floatEl.dataset.scale = k.toFixed(3); // the tests
+}
+function placeFloat(x, y, save) {
+  const maxX = Math.max(MARGIN, screenEl.clientWidth - floatEl.offsetWidth - MARGIN);
+  const maxY = Math.max(MARGIN, screenEl.clientHeight - floatEl.offsetHeight - MARGIN);
+  x = Math.max(MARGIN, Math.min(maxX, x));
+  y = Math.max(MARGIN, Math.min(maxY, y));
+  if (x - MARGIN < SNAP) x = MARGIN; else if (maxX - x < SNAP) x = maxX;
+  if (y - MARGIN < SNAP) y = MARGIN; else if (maxY - y < SNAP) y = maxY;
+  floatEl.style.left = `${x}px`;
+  floatEl.style.top = `${y}px`;
+  if (!save) return;
+  const w = screenEl.clientWidth, h = screenEl.clientHeight;
+  const right = x + floatEl.offsetWidth / 2 > w / 2, bottom = y + floatEl.offsetHeight / 2 > h / 2;
+  localStorage.setItem(FLOAT_KEY, JSON.stringify({ right, bottom,
+    dx: Math.round(right ? w - x - floatEl.offsetWidth : x), dy: Math.round(bottom ? h - y - floatEl.offsetHeight : y) }));
+}
+function restoreFloat() {
+  if (floatEl.hidden || !layout) return;
+  sizeFloat();
+  let st = null;
+  try { st = JSON.parse(localStorage.getItem(FLOAT_KEY) || "null"); } catch (_) { /* a default spot */ }
+  const w = screenEl.clientWidth, h = screenEl.clientHeight;
+  if (!st) return placeFloat(w, 0, false);
+  placeFloat(st.right ? w - st.dx - floatEl.offsetWidth : st.dx, st.bottom ? h - st.dy - floatEl.offsetHeight : st.dy, false);
+}
+function setFloat(open, { keepFocus = false } = {}) {
+  if (open && !layout) return; // nothing to draw yet
+  if (open && !floatDrawn) {
+    drawRemote(floatPanel, layout, remoteSend);
+    floatDrawn = true;
+  }
+  if (floatEl.hidden === !open) return;
+  floatEl.hidden = !open;
+  restoreFloat();
+  remoteAttrs();
+  if (!keepFocus && rfb) rfb.focus();
+}
+new ResizeObserver(restoreFloat).observe(screenEl);
+let floatPress = null;
+floatEl.addEventListener("pointerdown", (e) => {
+  e.preventDefault(); // the focus stays where it was
+  if (e.button !== 0 || floatPress || e.target.closest(".rk, #float-close")) return;
+  floatEl.setPointerCapture(e.pointerId);
+  floatPress = { id: e.pointerId, x: e.clientX, y: e.clientY, left: floatEl.offsetLeft, top: floatEl.offsetTop, moved: false };
+});
+floatEl.addEventListener("pointermove", (e) => {
+  const p = floatPress;
+  if (!p || e.pointerId !== p.id) return;
+  const dx = e.clientX - p.x, dy = e.clientY - p.y;
+  if (!p.moved && Math.hypot(dx, dy) < THRESHOLD) return;
+  p.moved = true;
+  floatEl.classList.add("dragging");
+  placeFloat(p.left + dx, p.top + dy, false);
+});
+function floatDragEnd(e) {
+  const p = floatPress;
+  if (!p || e.pointerId !== p.id) return;
+  floatPress = null;
+  floatEl.classList.remove("dragging");
+  if (p.moved) placeFloat(floatEl.offsetLeft, floatEl.offsetTop, true);
+}
+floatEl.addEventListener("pointerup", floatDragEnd);
+floatEl.addEventListener("pointercancel", floatDragEnd);
+floatEl.addEventListener("lostpointercapture", floatDragEnd);
+floatClose.addEventListener("click", () => setFloat(false));
 inputMenu.addEventListener("toggle", (event) => {
   remoteAttrs();
   if (event.newState === "open") { placeControls(); inputRemote.focus(); }
@@ -1099,6 +1199,7 @@ function applyVmState() {
     b.disabled = off;
   }
   if (off) for (const pop of [remotePop, inputMenu]) if (pop.matches(":popover-open")) pop.hidePopover();
+  if (off) setFloat(false);
   stopVm.hidden = stopSep.hidden = !vmRow || off;
 }
 

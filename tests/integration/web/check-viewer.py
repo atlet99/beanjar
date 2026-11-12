@@ -803,8 +803,8 @@ async def toolbar_checks(c):
         )
         entries = await c.js("""[...document.querySelectorAll('#viewer-more > button')]
           .filter(b=>!b.hidden).map(b=>({id:b.id,label:b.querySelector('.control-label').textContent,icon:!!b.querySelector('.bi')}))""")
-        # Save Screenshot and Fullscreen are the header's on desktop, More's in portrait; Stop VM…
-        # last (the fake VM runs)
+        # Save Screenshot and Fullscreen are the header's on desktop, More's in portrait; Remote in
+        # a Window desktop's only; Stop VM… last (the fake VM runs)
         if name == "portrait":
             expected = [
                 "quality-button",
@@ -815,7 +815,13 @@ async def toolbar_checks(c):
                 "stop-vm",
             ]
         else:
-            expected = ["quality-button", "planes-button", "stats-button", "stop-vm"]
+            expected = [
+                "quality-button",
+                "planes-button",
+                "stats-button",
+                "remote-window",
+                "stop-vm",
+            ]
         assert [e["id"] for e in entries] == expected, entries
         labels = {
             "quality-button": "Quality",
@@ -823,6 +829,7 @@ async def toolbar_checks(c):
             "shot": "Save Screenshot",
             "stats-button": "Stats for nerds",
             "full": "Fullscreen",
+            "remote-window": "Remote in a Window",
             "stop-vm": "Stop VM…",
         }
         assert [e["label"] for e in entries] == [labels[i] for i in expected], entries
@@ -1327,6 +1334,71 @@ async def sheet_checks(c, state_js, height):
     await slide_checks(c, "portrait")
 
 
+async def float_checks(c):
+    """The floating remote under real mouse events: a press on a key is the key's (no move, the
+    focus kept), a wobble on the body under the 8 px threshold moves nothing, a drag on the body
+    moves it, snapped to the edge it ends near and kept in localStorage, and the close control
+    closes it."""
+    rect = "(()=>{const r=document.querySelector('#remote-float').getBoundingClientRect();return [r.x,r.y,r.width,r.height]})()"
+
+    async def mouse(points):
+        x0, y0 = points[0]
+        await c.cmd("Input.dispatchMouseEvent", type="mouseMoved", x=x0, y=y0)
+        await c.cmd("Input.dispatchMouseEvent", type="mousePressed", x=x0, y=y0, button="left",
+                    buttons=1, clickCount=1)  # fmt: skip
+        for x, y in points[1:]:
+            await c.cmd("Input.dispatchMouseEvent", type="mouseMoved", x=x, y=y, button="left",
+                        buttons=1)  # fmt: skip
+        x1, y1 = points[-1]
+        await c.cmd("Input.dispatchMouseEvent", type="mouseReleased", x=x1, y=y1, button="left",
+                    buttons=0, clickCount=1)  # fmt: skip
+        await asyncio.sleep(0.2)
+
+    await c.js("localStorage.removeItem('beanjar-web-remote-float')")
+    start = await c.js(rect)
+    screen = await c.js(
+        "(()=>{const r=document.querySelector('#screen').getBoundingClientRect();return [r.x,r.y,r.width,r.height]})()"
+    )
+    # top right of the picture, 12 px in
+    assert (
+        abs(start[0] + start[2] - (screen[0] + screen[2] - 12)) < 1
+        and abs(start[1] - screen[1] - 12) < 1
+    ), (start, screen)
+    focus = await c.js("document.activeElement === document.querySelector('#screen canvas')")
+    key = await c.js("""(()=>{const k=[...document.querySelectorAll('#remote-float .rk')]
+      .find(e=>e.title.startsWith('ENTER')).getBoundingClientRect();return [k.x+k.width/2,k.y+k.height/2]})()""")
+    await mouse([key] + [(key[0] - 6 * i, key[1] + 3 * i) for i in range(1, 11)])
+    assert await c.js(rect) == start, "a press on a key moved the remote"
+    if focus:
+        assert await c.js("document.activeElement === document.querySelector('#screen canvas')")
+    body = (start[0] + 4, start[1] + start[3] / 2)
+    await mouse(
+        [body, (body[0] + 3, body[1] + 2), (body[0] + 5, body[1] - 1), (body[0] + 2, body[1] + 4)]
+    )
+    assert await c.js(rect) == start, "a wobble under the threshold moved the remote"
+    assert await c.js("localStorage.getItem('beanjar-web-remote-float')") is None
+    await mouse([body] + [(body[0] - 2000 * i / 10, body[1] + 2000 * i / 10) for i in range(1, 11)])
+    moved = await c.js(rect)
+    assert (
+        abs(moved[0] - screen[0] - 12) < 1
+        and abs(moved[1] + moved[3] - (screen[1] + screen[3] - 12)) < 1
+    ), (moved, screen)
+    saved = await c.js("JSON.parse(localStorage.getItem('beanjar-web-remote-float'))")
+    assert saved == {"right": False, "bottom": True, "dx": 12, "dy": 12}, saved
+    close = await c.js(
+        "(()=>{const r=document.querySelector('#float-close').getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]})()"
+    )
+    await mouse([close, (close[0] + 20, close[1])])
+    assert await c.js(rect) == moved, "a press on the close control moved the remote"
+    await mouse([close])
+    assert await c.js("document.querySelector('#remote-float').hidden")
+    await c.js("localStorage.removeItem('beanjar-web-remote-float')")
+    print(
+        "PASS: the floating remote: a key's press stays the key's, a wobble does not drag, a drag on the body moves it to the corner and is kept, close closes it",
+        flush=True,
+    )
+
+
 async def remote_icons(c, session, debug):
     dest = os.environ.get("BEANJAR_VIEWER_ARTIFACTS")
 
@@ -1386,6 +1458,20 @@ async def remote_icons(c, session, debug):
             userGesture=True,
         )
         if name == "desktop":
+            # Show remote: the remote floating over the picture, drawn in the page
+            await c.wait(
+                "document.querySelectorAll('#remote-float:not([hidden]) .rk').length === 48"
+            )
+            result = await check_keys(c)
+            await capture(c, f"remote-float-{name}")
+            await float_checks(c)
+            # More's Remote in a Window: the popup remote
+            await c.js("document.querySelector('#more-button').click()")
+            await c.cmd(
+                "Runtime.evaluate",
+                expression="document.querySelector('#remote-window').click()",
+                userGesture=True,
+            )
             popup = None
             for _ in range(150):
                 tabs = await (await session.get(debug + "/json/list")).json()

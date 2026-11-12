@@ -874,7 +874,7 @@ class Server:
         vm = "/vm/{host}/{name}"
         app.router.add_get("/", self.page)
         app.router.add_get(
-            "/{page:(index|remote)\\.html|style\\.css|tv-remote\\.svg|(viewer|remote|index|stop|audio|audio-worklet|video)\\.js}",
+            "/{page:(index|remote)\\.html|style\\.css|tv-remote\\.svg|(viewer|remote|remote-draw|index|stop|audio|audio-worklet|video)\\.js}",
             self.page,
         )
         app.router.add_get("/api/vms", self.vms)

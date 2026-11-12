@@ -94,6 +94,18 @@ body.viewer #viewer-more .menu-sep { width: 100%; height: 1px; margin: 4px 0; bo
 body.viewer #viewer-more .menu-sep[hidden] { display: none; }
 body.viewer #viewer-more button.destructive { color: #ff8b7c; }
 body.viewer #viewer-more button { white-space: nowrap; }
+body.viewer #viewer-more { width: 230px; }
+/* the desktop's floating remote (viewer.js): over the picture, the remote's own body its frame,
+   grabbed by the body between its keys; the close control on its chin */
+#remote-float { position: absolute; z-index: 4; touch-action: none; cursor: grab;
+  user-select: none; -webkit-user-select: none; filter: drop-shadow(0 10px 24px #000d); }
+#remote-float[hidden] { display: none; }
+#remote-float.dragging { cursor: grabbing; }
+#float-close { position: absolute; left: 50%; transform: translate(-50%, -50%); width: 24px; height: 24px;
+  padding: 0; justify-content: center; border-radius: 50%; border: 1px solid #5a5a60;
+  background: transparent; color: var(--dim); font-size: 11px; }
+#float-close:hover { background: #ffffff1a; color: var(--text); }
+#float-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* the status over the picture: Start (while the VM is off) beside Reconnect */
 #status .status-actions { display: flex; gap: 8px; }
 /* the full remote in a popover (phones): its title and Close, then the remote page, whose body
@@ -275,8 +287,8 @@ header.bar button.labelled .bi { font-size: 15px; }
 /* the remote */
 body.remote { overflow: hidden; background: #000; user-select: none; -webkit-user-select: none;
   touch-action: none; }
-#panel { position: absolute; transform-origin: 0 0; }
-#panel div { position: absolute; }
+.remote-panel { position: absolute; transform-origin: 0 0; }
+.remote-panel div { position: absolute; }
 .rk { display: flex; align-items: center; justify-content: center; text-align: center;
   font-weight: 700; line-height: 1; white-space: pre; cursor: pointer; font-family: "DejaVu Sans", sans-serif; }
 .rk.held { filter: brightness(1.6); }

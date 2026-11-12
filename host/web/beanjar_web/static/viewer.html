@@ -34,6 +34,7 @@
 <button id="rotate" class="flat toggle" role="menuitemcheckbox" hidden aria-checked="false" aria-pressed="false" title="Portrait" aria-label="Portrait"><i class="bi" style="--i: url(/icons/arrow-clockwise.svg)"></i><span class="control-label">Portrait</span></button>
 <button id="full-remote" class="flat" role="menuitem" hidden title="Full remote" aria-label="Full remote" aria-controls="remote-pop"><i class="bi" style="--i: url(/tv-remote.svg)"></i><span class="control-label">Full remote</span></button>
 <a id="inspector" class="flat" role="menuitem" target="_blank" rel="noopener" hidden title="Traffic Inspector (mitmweb), in a new tab" aria-label="Traffic Inspector"><i class="bi" style="--i: url(/icons/binoculars.svg)"></i><span class="control-label">Traffic Inspector</span></a>
+<button id="remote-window" class="flat" role="menuitem" hidden title="The TV remote in a window of its own" aria-label="Remote in a Window"><i class="bi" style="--i: url(/icons/window.svg)"></i><span class="control-label">Remote in a Window</span></button>
 <hr id="stop-sep" class="menu-sep" hidden>
 <button id="stop-vm" class="flat destructive" role="menuitem" hidden aria-haspopup="dialog" title="Stop the VM: power-off signal or Unplug" aria-label="Stop VM…"><i class="bi" style="--i: url(/icons/power.svg)"></i><span class="control-label">Stop VM…</span></button>
 </div>
@@ -78,6 +79,9 @@
 <iframe id="remote-frame" title="TV remote"></iframe>
 </div>
 <div id="screen"><div id="status">Connecting…</div><div id="notice" hidden></div>
+<!-- Desktop: the remote floating over the picture, its own body the only frame, dragged by the
+     body between its keys, a close control on its chin (viewer.js, remote-draw.js). -->
+<div id="remote-float" role="group" aria-label="TV remote" hidden><div class="remote-panel"></div><button id="float-close" title="Close remote" aria-label="Close remote"><i class="bi" style="--i: url(/icons/x-lg.svg)"></i></button></div>
 <section id="stats-overlay" aria-label="Stats for nerds" hidden>
 <div class="stats-header"><strong>Stats for nerds</strong><button id="stats-close" title="Close stats" aria-label="Close stats"><i class="bi" style="--i: url(/icons/x-lg.svg)"></i></button></div>
 <div id="picture-stats"></div>
