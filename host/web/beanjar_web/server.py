@@ -13,6 +13,7 @@ VM socket and no tunnel of its own:
 - POST /vm/HOST/NAME/start or /stop: `beanjar start` or `beanjar stop`, accepted immediately;
   /vm/HOST/NAME/operation and /api/vms carry progress and the manager's result; /stop?force=1 is
   `beanjar stop --force`, for a VM that runs for a reason the page has shown and had confirmed;
+  /stop?unplug=1 is `beanjar stop --unplug` (QEMU killed at once), the stop dialog's Unplug;
 - POST /vm/HOST/NAME/vnc: `beanjar vnc start` unless it runs (the manager's refusal otherwise);
 - WebSocket /vm/HOST/NAME/rfb?page=ID: binary messages to and from `beanjar vnc pipe` (noVNC's
   RFB), the picture paused while the same page's /video plays (rfbpause.py);
@@ -422,6 +423,8 @@ class Server:
         }
         if action == "stop" and request.query.get("force") == "1":
             operation["force"] = True
+        if action == "stop" and request.query.get("unplug") == "1":
+            operation.update(unplug=True, message="Unplugging…")
         self.operations[spec] = operation
         if spec in self.thumbnails:
             self.thumbnails[spec].invalidate()
@@ -437,8 +440,9 @@ class Server:
         proc = None
         completed = False
         try:
-            force = ["--force"] if operation.get("force") else []
-            proc = await self.spawn([operation["action"], "--json", *force, spec])
+            options = ["--force"] if operation.get("force") else []
+            options += ["--unplug"] if operation.get("unplug") else []
+            proc = await self.spawn([operation["action"], "--json", *options, spec])
 
             async def tail(stream):
                 # Drain both pipes, retaining bounded diagnostics even for a long boot.
@@ -870,7 +874,7 @@ class Server:
         vm = "/vm/{host}/{name}"
         app.router.add_get("/", self.page)
         app.router.add_get(
-            "/{page:(index|remote)\\.html|style\\.css|tv-remote\\.svg|(viewer|remote|index|audio|audio-worklet|video)\\.js}",
+            "/{page:(index|remote)\\.html|style\\.css|tv-remote\\.svg|(viewer|remote|index|stop|audio|audio-worklet|video)\\.js}",
             self.page,
         )
         app.router.add_get("/api/vms", self.vms)

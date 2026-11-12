@@ -10,8 +10,8 @@
 <script type="module" src="/viewer.js"></script>
 </head>
 <body class="viewer">
-<!-- Secondary controls share More on desktop and portrait. Portrait also folds
-     Fullscreen into More and moves the controls to the bottom toolbar. -->
+<!-- Secondary controls share More on desktop and portrait, Stop VM… last. Portrait also folds
+     Save Screenshot and Fullscreen into More and moves the controls to the bottom toolbar. -->
 <header class="bar">
 <div class="start">
 <a id="vm-list" href="/" class="flat" title="All VMs" aria-label="All VMs"><i class="bi" style="--i: url(/icons/grid-3x3-gap.svg)"></i></a>
@@ -24,16 +24,18 @@
 <div class="titles"><div id="title"></div><div id="sub"></div></div>
 <div class="end" role="group" aria-label="Viewer controls">
 <button id="sound" class="flat toggle" aria-pressed="false" title="Sound off: click to hear the VM" aria-label="Sound"><i class="bi" style="--i: url(/icons/volume-mute.svg)"></i></button>
+<button id="shot" class="flat" title="Save Screenshot" aria-label="Save Screenshot"><i class="bi" style="--i: url(/icons/camera.svg)"></i><span class="control-label">Save Screenshot</span></button>
 <button id="remote" class="flat toggle" aria-pressed="false" title="Show or hide the TV remote" aria-label="TV remote" aria-controls="remote-pop"><i class="bi" style="--i: url(/tv-remote.svg)"></i></button>
 <button id="full" class="flat" title="Fullscreen" aria-label="Fullscreen"><i class="bi" style="--i: url(/icons/fullscreen.svg)"></i><span class="control-label">Fullscreen</span></button>
 <div id="viewer-more" popover role="menu" aria-label="More viewer controls">
 <button id="quality-button" class="flat toggle" role="menuitem" aria-pressed="false" aria-expanded="false" aria-haspopup="dialog" popovertarget="quality-pop" title="Picture Quality" aria-label="Picture Quality"><i class="bi" style="--i: url(/icons/badge-hd.svg)"></i><span class="control-label">Quality</span></button>
 <button id="planes-button" class="flat toggle" role="menuitem" aria-pressed="false" aria-expanded="false" aria-haspopup="dialog" popovertarget="planes-pop" title="Planes: show or hide the UI, the video and the cursor" aria-label="Planes"><i class="bi" style="--i: url(/icons/layers.svg)"></i><span class="control-label">Planes</span></button>
-<button id="shot" class="flat" role="menuitem" title="Save Screenshot" aria-label="Save Screenshot"><i class="bi" style="--i: url(/icons/camera.svg)"></i><span class="control-label">Save Screenshot</span></button>
 <button id="stats-button" class="flat toggle" role="menuitemcheckbox" aria-checked="false" aria-pressed="false" aria-controls="stats-overlay" title="Stats for nerds" aria-label="Stats for nerds"><i class="bi" style="--i: url(/icons/bar-chart.svg)"></i><span class="control-label">Stats for nerds</span></button>
 <button id="rotate" class="flat toggle" role="menuitemcheckbox" hidden aria-checked="false" aria-pressed="false" title="Portrait" aria-label="Portrait"><i class="bi" style="--i: url(/icons/arrow-clockwise.svg)"></i><span class="control-label">Portrait</span></button>
 <button id="full-remote" class="flat" role="menuitem" hidden title="Full remote" aria-label="Full remote" aria-controls="remote-pop"><i class="bi" style="--i: url(/tv-remote.svg)"></i><span class="control-label">Full remote</span></button>
 <a id="inspector" class="flat" role="menuitem" target="_blank" rel="noopener" hidden title="Traffic Inspector (mitmweb), in a new tab" aria-label="Traffic Inspector"><i class="bi" style="--i: url(/icons/binoculars.svg)"></i><span class="control-label">Traffic Inspector</span></a>
+<hr id="stop-sep" class="menu-sep" hidden>
+<button id="stop-vm" class="flat destructive" role="menuitem" hidden aria-haspopup="dialog" title="Stop the VM: power-off signal or Unplug" aria-label="Stop VM…"><i class="bi" style="--i: url(/icons/power.svg)"></i><span class="control-label">Stop VM…</span></button>
 </div>
 <button id="more-button" class="flat" title="More" aria-label="More viewer controls" aria-haspopup="menu" aria-expanded="false" popovertarget="viewer-more"><i class="bi" style="--i: url(/icons/three-dots-vertical.svg)"></i></button>
 </div>

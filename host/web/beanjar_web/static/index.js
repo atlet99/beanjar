@@ -3,11 +3,18 @@
 // VM cards, grouped by host. Only visible Running cards with beanjar-vnc get small previews, and
 // Off cards their last screen;
 // the server coalesces screenshot requests from several pages. No framework or build step.
+// The header filters the cards by name, tag or host, and puts running VMs first in each host's
+// section (kept per browser); each card's buttons are its state's actions: Start, or Open and Stop.
+import { stopDialog, reasonLine } from "/stop.js";
+
 const main = document.getElementById("vms");
 const icon = (name) => `<i class="bi" style="--i: url(/icons/${name}.svg)"></i>`;
 const DOT = { Running: "ok", Starting: "warn", Stopping: "warn", Error: "bad" };
 const requesting = new Set();
-let timer, refreshing = false;
+const failures = new Map(); // HOST/NAME: a start the server did not take, shown on its card
+let timer, refreshing = false, rows = null, listError = null;
+const filter = document.getElementById("filter");
+const runningFirst = document.getElementById("running-first");
 const previews = new Map();
 const observer = new IntersectionObserver((entries) => {
   for (const entry of entries) {
@@ -129,7 +136,11 @@ function card(vm) {
   }
   r.append(thumbnail);
   const content = el("div", "card-info");
-  content.append(el("h4", "name", vm.name));
+  const head = el("div", "card-head");
+  head.append(el("h4", "name", vm.name));
+  const actions = el("div", "card-actions");
+  head.append(actions);
+  content.append(head);
   const activity = [vm.platform, state !== "Off" && vm.uptime ? duration(vm.uptime) : ""];
   if (state === "Running" && vm.vnc) activity.push("VNC");
   if (state === "Running" && vm.viewer) activity.push("GTK viewer open");
@@ -164,83 +175,61 @@ function card(vm) {
     message.setAttribute("role", "status");
     content.append(message);
   }
+  if (failures.has(spec)) {
+    const message = el("span", "operation error", failures.get(spec));
+    message.setAttribute("role", "status");
+    content.append(message);
+  }
   r.append(content);
+  // the state's actions, labelled, in the info row (no menu): Start; Open and Stop
   if (state === "Off") {
-    const start = el("button", "card-start", "Start");
+    const start = el("button", "card-action", "Start");
     start.insertAdjacentHTML("afterbegin", icon("play-fill"));
     start.setAttribute("aria-label", `Start ${spec}`);
-    start.title = "Start";
     start.disabled = requesting.has(spec);
-    start.addEventListener("click", () => vmAction(spec, base, "start", start));
-    thumbnail.append(start);
+    start.addEventListener("click", () => startVm(spec, base, start));
+    actions.append(start);
   } else if (state === "Running") {
-    const toggle = el("button", "card-menu-button");
-    toggle.innerHTML = icon("three-dots-vertical");
-    toggle.setAttribute("aria-label", `Actions for ${spec}`);
-    toggle.setAttribute("aria-expanded", "false");
-    const menu = el("div", "card-menu");
-    menu.setAttribute("popover", "auto");
-    menu.id = `vm-menu-${encodeURIComponent(spec)}`;
-    toggle.setAttribute("popovertarget", menu.id);
-    toggle.setAttribute("aria-controls", menu.id);
-    toggle.setAttribute("aria-haspopup", "menu");
-    menu.setAttribute("role", "menu");
     if (open) {
-      const view = el("a", "menu-item", "Open");
+      const view = el("a", "card-action", "Open");
       view.href = `${base}/`;
-      view.setAttribute("role", "menuitem");
-      view.prepend(document.createRange().createContextualFragment(icon("box-arrow-up-right")));
-      menu.append(view);
+      view.insertAdjacentHTML("afterbegin", icon("box-arrow-up-right"));
+      view.setAttribute("aria-label", `Open ${spec}`);
+      view.title = link.title;
+      actions.append(view);
     }
-    const stop = el("button", "menu-item destructive", "Stop");
-    stop.setAttribute("role", "menuitem");
-    stop.insertAdjacentHTML("afterbegin", icon("power"));
+    const stop = el("button", "card-action icon destructive");
+    stop.innerHTML = icon("power");
+    stop.title = "Stop…";
+    stop.setAttribute("aria-label", `Stop ${spec}…`);
+    stop.setAttribute("aria-haspopup", "dialog");
     stop.disabled = requesting.has(spec);
     stop.addEventListener("click", () => {
-      menu.hidePopover();
-      vmAction(spec, base, "stop", stop, vm.reason);
+      failures.delete(spec);
+      // taken: the card's buttons off until the list shows it Stopping
+      stopDialog({ spec, base, reason: vm.reason, accepted: async () => {
+        requesting.add(spec);
+        render();
+        try { await refresh(); } finally { requesting.delete(spec); render(); }
+      } });
     });
-    menu.append(stop);
-    menu.addEventListener("toggle", (event) => {
-      toggle.setAttribute("aria-expanded", String(event.newState === "open"));
-      if (event.newState !== "open") return;
-      const bounds = toggle.getBoundingClientRect();
-      menu.style.top = `${bounds.bottom + 4}px`;
-      menu.style.left = `${Math.max(8, Math.min(innerWidth - 180, bounds.right - 168))}px`;
-      menu.querySelector("a, button").focus();
-    });
-    menu.addEventListener("keydown", (event) => {
-      const items = [...menu.querySelectorAll("a, button")];
-      const current = items.indexOf(document.activeElement);
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        items[(current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length].focus();
-      }
-      if (event.key === "Escape") { menu.hidePopover(); toggle.focus(); }
-    });
-    r.append(toggle, menu);
+    actions.append(stop);
   }
   return r;
 }
 
-// a reason as `beanjar reason` prints it: its text, then who set it and when
-function reasonLine(r) {
-  const who = [r.user, r.by].filter(Boolean).join(", ");
-  return `${r.text} (set ${r.set || "?"}${who ? ` by ${who}` : ""})`;
-}
-
-async function vmAction(spec, base, action, button, reason) {
-  const why = reason ? `\n\nIt runs for a reason: ${reasonLine(reason)}\nStop it anyway?` : "";
-  if (action === "stop" && !confirm(`Stop ${spec}? The manager will try to power it off, then sync and stop it if the guest refuses or does not shut down.${why}`)) return;
+// Start: the server takes it at once (202), the card follows the operation; a refusal of the
+// request itself (another operation pending, the server gone) stays on the card until the next try
+async function startVm(spec, base, button) {
   requesting.add(spec);
+  failures.delete(spec);
   button.disabled = true;
   try {
-    // a reason shown and confirmed: stop --force (the manager refuses a reason it has not shown)
-    const response = await fetch(`${base}/${action}${reason ? "?force=1" : ""}`, { method: "POST" });
-    const body = await response.json();
+    const response = await fetch(`${base}/start`, { method: "POST" });
+    const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || response.statusText);
   } catch (e) {
-    alert(`Cannot ${action} ${spec}: ${e.message}`);
+    failures.set(spec, `Cannot start: ${e.message}`);
   } finally {
     requesting.delete(spec);
     await refresh();
@@ -257,31 +246,52 @@ function status(iconName, title, text) {
 
 async function refresh() {
   if (refreshing) return;
-  // A menu remains stable under the pointer/finger until the user closes it.
-  if (document.querySelector(".card-menu:popover-open")) { timer = setTimeout(refresh, 2000); return; }
   refreshing = true;
   clearTimeout(timer);
-  let rows;
   try {
     const r = await fetch("/api/vms");
-    rows = await r.json();
-    if (!r.ok) throw new Error(rows.error || r.statusText);
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || r.statusText);
+    rows = body;
+    listError = null;
   } catch (e) {
-    refreshing = false;
-    timer = setTimeout(refresh, 10000);
-    return status("exclamation-triangle", "Cannot List the VMs", `beanjar list failed: ${e.message}`);
+    rows = null;
+    listError = e.message;
   }
   refreshing = false;
-  timer = setTimeout(refresh, rows.some((vm) => vm.operation?.status === "pending") ? 2000 : 10000);
+  timer = setTimeout(refresh, !rows ? 10000 : rows.some((vm) => vm.operation?.status === "pending") ? 2000 : 10000);
+  render();
+}
+
+// what the filter matches: the name, the tags, the host (this machine's as "local" and as its
+// section's title)
+function matches(vm, words) {
+  const hay = [vm.name, vm.host || "local", vm.host ? "" : "this machine", ...(vm.tags || [])]
+    .map((t) => t.toLowerCase());
+  return words.every((w) => hay.some((t) => t.includes(w)));
+}
+
+function render() {
+  if (!rows) {
+    observer.disconnect();
+    return status("exclamation-triangle", "Cannot List the VMs", `beanjar list failed: ${listError}`);
+  }
   if (!rows.length)
     return status("tv", "No Virtual Machines",
       "Create a VM from a webOS firmware file (.epk) or extracted firmware with the Beanjar window or beanjar create.");
+  const words = filter.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = rows.filter((vm) => matches(vm, words));
+  if (!shown.length) {
+    observer.disconnect();
+    return status("search", "No Matching VMs", `No VM's name, tag or host matches “${filter.value.trim()}”.`);
+  }
   const hosts = new Map();
-  for (const vm of rows) {
+  for (const vm of shown) {
     const h = vm.host || "local";
     if (!hosts.has(h)) hosts.set(h, []);
     hosts.get(h).push(vm);
   }
+  const first = runningFirst.getAttribute("aria-pressed") === "true";
   const order = [...hosts.keys()].sort((a, b) => (a === "local" ? -1 : b === "local" ? 1 : a.localeCompare(b)));
   const sections = order.map((h) => {
     const sec = el("section");
@@ -289,7 +299,11 @@ async function refresh() {
     head.innerHTML = icon(h === "local" ? "pc-display" : "hdd-network");
     head.append(h === "local" ? "This Machine" : h);
     const list = el("div", "vm-grid");
-    for (const vm of hosts.get(h)) list.append(card(vm));
+    let vms = hosts.get(h);
+    // running first, then starting or stopping, then off: the manager's order otherwise (a stable sort)
+    const rank = (vm) => (vm.state === "Running" ? 0 : vm.state === "Off" ? 2 : 1);
+    if (first) vms = [...vms].sort((a, b) => rank(a) - rank(b));
+    for (const vm of vms) list.append(card(vm));
     sec.append(head);
     sec.append(list);
     return sec;
@@ -302,11 +316,22 @@ async function refresh() {
       preview.controller?.abort();
       if (preview.url) URL.revokeObjectURL(preview.url);
       previews.delete(spec);
-    } else observer.observe(preview.card);
+    } else if (preview.card.isConnected) observer.observe(preview.card);
   }
 }
 
 document.getElementById("refresh").addEventListener("click", refresh);
+filter.addEventListener("input", render);
+function setRunningFirst(on) {
+  runningFirst.setAttribute("aria-pressed", String(on));
+  runningFirst.title = on ? "Running VMs first: click for the manager's order" : "Show running VMs first";
+  localStorage.setItem("beanjar-web-running-first", on ? "on" : "off");
+}
+setRunningFirst(localStorage.getItem("beanjar-web-running-first") !== "off");
+runningFirst.addEventListener("click", () => {
+  setRunningFirst(runningFirst.getAttribute("aria-pressed") !== "true");
+  render();
+});
 // Log Out, with --auth password
 fetch("/api/session")
   .then((r) => r.json())

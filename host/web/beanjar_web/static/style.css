@@ -89,12 +89,24 @@ body.viewer #viewer-more button:focus-visible, body.viewer #viewer-more a.flat:f
 body.viewer #input-menu button:focus-visible, body.viewer #input-menu a.flat:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 body.viewer #viewer-more [aria-checked="true"]::after,
 body.viewer #input-menu [aria-checked="true"]::after { content: "✓"; margin-left: auto; }
-#remote-pop { padding: 8px; width: 250px; height: min(740px, calc(100dvh - 130px)); }
+/* More's last section: Stop VM…, after a separator */
+body.viewer #viewer-more .menu-sep { width: 100%; height: 1px; margin: 4px 0; border: 0; background: #ffffff1f; }
+body.viewer #viewer-more .menu-sep[hidden] { display: none; }
+body.viewer #viewer-more button.destructive { color: #ff8b7c; }
+body.viewer #viewer-more button { white-space: nowrap; }
+/* the status over the picture: Start (while the VM is off) beside Reconnect */
+#status .status-actions { display: flex; gap: 8px; }
+/* the full remote in a popover (phones): its title and Close, then the remote page, whose body
+   (transparent around it, remote.js) is sized to the remote's own (--remote-ratio, viewer.js) */
+#remote-pop { --remote-h: min(740px, calc(100dvh - 130px)); padding: 0 6px 6px; width: auto;
+  height: var(--remote-h); }
 #remote-pop:popover-open { display: flex; flex-direction: column; }
 .remote-pop-header { display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  flex: none; min-height: 44px; padding-left: 6px; }
+  flex: none; min-height: 44px; padding-left: 8px; }
 #remote-close { width: 44px; height: 44px; justify-content: center; padding: 0; border: 0; background: transparent; }
-#remote-frame { flex: 1; min-height: 0; width: 100%; border: 0; }
+#remote-frame { flex: none; height: calc(var(--remote-h) - 50px); width: auto;
+  aspect-ratio: var(--remote-ratio, 180 / 644); border: 0; background: transparent; }
+html.embedded, html.embedded body.remote { background: transparent; }
 /* At 640 px the old header still fits the normal title; adapt before the buttons shrink.
    Keep landscape phones in the desktop layout. Linked system keys stay together at the start,
    flat viewer controls at the end; secondary actions need the overflow menu at 360 px. */
@@ -116,7 +128,7 @@ body.viewer #input-menu [aria-checked="true"]::after { content: "✓"; margin-le
     max-height: calc(100dvh - 48px - env(safe-area-inset-top) - var(--toolbar-height) - 20px); overflow: auto; }
   body.viewer .pop-row input { min-width: 0; min-height: 44px; }
   body.viewer .segmented span { display: flex; align-items: center; justify-content: center; min-height: 44px; }
-  body.viewer #remote-pop { height: min(740px, calc(100dvh - 48px - env(safe-area-inset-top) - var(--toolbar-height) - 20px)); }
+  body.viewer #remote-pop { --remote-h: min(740px, calc(100dvh - 48px - env(safe-area-inset-top) - var(--toolbar-height) - 20px)); }
 }
 #screen { flex: 1; min-height: 0; position: relative; background: #000; }
 #screen:fullscreen { width: 100vw; height: 100vh; }
@@ -164,17 +176,25 @@ section h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px 4px; 
 .preview[data-rotation="90"] { transform: rotate(270deg); }
 .preview[data-rotation="270"] { transform: rotate(90deg); }
 .preview[hidden], .placeholder[hidden] { display: none; }
-.card-start { position: absolute; z-index: 2; right: 12px; bottom: 12px; min-height: 44px;
-  padding: 8px 14px; border-radius: 8px; background: #303035ed; border-color: #ffffff38;
-  box-shadow: 0 2px 8px #0004; opacity: 0; pointer-events: none; transition: opacity .12s; }
-.vm-card:hover .card-start, .vm-card:focus-within .card-start { opacity: 1; pointer-events: auto; }
-.card-start:hover { background: #46464def; }
-.card-start:active { background: #5a5a62; }
-.card-start:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-@media (hover: none) { .card-start { opacity: 1; pointer-events: auto; } }
 .card-info { padding: 14px 16px 16px; min-height: 102px; }
-.vm-card .name { margin: 0 0 9px; font-weight: 650; font-size: 15px;
+/* the info row: the name, then the state's actions (Start; Open and Stop), always shown, over the
+   card's link; 44 px for fingers */
+.card-head { display: flex; align-items: center; gap: 8px; margin: 0 0 9px; min-height: 36px; }
+.vm-card .name { flex: 1; min-width: 0; margin: 0; font-weight: 650; font-size: 15px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-actions { position: relative; z-index: 2; display: flex; flex: none; gap: 6px; }
+.card-action { min-height: 36px; padding: 6px 12px; border-radius: 8px; background: #303035;
+  border: 1px solid #ffffff26; color: var(--text); font-size: 14px; text-decoration: none;
+  display: inline-flex; align-items: center; gap: 6px; }
+.card-action:hover { background: #3c3c42; }
+.card-action:active { background: #4a4a51; }
+.card-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card-action.icon { width: 36px; padding: 0; justify-content: center; font-size: 16px; }
+.card-action.destructive { color: #ff8b7c; }
+@media (pointer: coarse) {
+  .card-head, .card-action { min-height: 44px; }
+  .card-action.icon { width: 44px; }
+}
 .state-dot { position: absolute; z-index: 2; top: 14px; left: 14px; width: 10px; height: 10px;
   border-radius: 50%; box-shadow: 0 0 0 3px #17171b99; }
 .state-dot.ok { background: #57e389; }
@@ -193,26 +213,59 @@ section h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px 4px; 
 .vm-card .operation { display: block; margin-top: 10px; font-size: 12px; color: var(--dim);
   white-space: pre-wrap; overflow-wrap: anywhere; }
 .vm-card .operation.error { color: #ff7b63; }
-.card-menu-button { position: absolute; z-index: 2; right: 8px; top: 8px; width: 44px; height: 44px;
-  padding: 0; justify-content: center; background: #242427df; border: 1px solid #ffffff25;
-  border-radius: 50%; font-size: 20px; }
-.card-menu-button:active { background: #505057; }
-.card-menu { position: fixed; inset: auto; margin: 0; width: 168px; padding: 6px; border: 1px solid #505055;
-  border-radius: 12px; background: #353539; color: var(--text); box-shadow: 0 8px 28px #0008; }
-.menu-item { display: flex; gap: 10px; align-items: center; width: 100%; min-height: 44px; padding: 8px 10px;
-  border: 0; border-radius: 7px; background: transparent; color: inherit; text-decoration: none; font-size: 14px; }
-.menu-item:hover, .menu-item:focus-visible { background: #ffffff15; outline: none; }
-.menu-item.destructive { color: #ff8b7c; }
 @media (max-width: 560px) {
   body.list main { padding: 20px 16px 32px; }
   .vm-grid { grid-template-columns: 1fr; gap: 18px; }
 }
+/* the list header's filter and Running first; below 960 px they take a row of their own */
+.filter { position: relative; display: flex; color: var(--dim); font-size: 14px; }
+.filter .bi { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 13px;
+  pointer-events: none; }
+.filter input { width: 220px; height: 34px; padding: 4px 10px 4px 31px; border-radius: 8px;
+  border: 1px solid #ffffff1f; background: #ffffff12; color: var(--text); font: inherit; }
+.filter input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.filter input::placeholder { color: #8a8a90; }
+header.bar button.labelled { width: auto; padding: 0 10px; gap: 6px; font-size: 13px; white-space: nowrap; }
+header.bar button.labelled .bi { font-size: 15px; }
+@media (max-width: 960px) {
+  body.list header.bar { height: auto; grid-template-rows: 46px auto; padding-bottom: 8px; row-gap: 2px; }
+  body.list header.bar .start { grid-row: 1; grid-column: 1; }
+  body.list header.bar .titles { grid-row: 1; grid-column: 2; }
+  body.list header.bar .end { grid-row: 2; grid-column: 1 / -1; padding: 0 2px; }
+  body.list header.bar .filter { flex: 1; }
+  body.list header.bar .filter input { width: 100%; height: 40px; }
+  body.list header.bar button { width: 40px; height: 40px; }
+  body.list header.bar button.labelled { width: auto; }
+}
+/* a dialog (the Stop dialog, stop.js), as GTK's Adw.AlertDialog */
+.dialog { width: min(360px, calc(100vw - 32px)); padding: 24px 22px 20px; border: 1px solid #47474c;
+  border-radius: 14px; background: #2e2e32; color: var(--text); box-shadow: 0 12px 40px #000a; }
+.dialog::backdrop { background: #0009; }
+.dialog h2 { margin: 0 0 10px; text-align: center; font-size: 19px; overflow-wrap: anywhere; }
+.dialog-body { margin: 0 0 16px; text-align: center; line-height: 1.4; overflow-wrap: anywhere; }
+.choices { border: 1px solid #ffffff1a; border-radius: 12px; overflow: hidden; background: #ffffff08; }
+.choice { display: flex; gap: 12px; align-items: center; padding: 10px 14px; color: var(--text);
+  font-size: 14px; cursor: pointer; }
+.choice + .choice { border-top: 1px solid #ffffff1a; }
+.choice input { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); flex: none; }
+.choice span { display: flex; flex-direction: column; gap: 3px; }
+.choice b { font-weight: 400; }
+.choice small { color: var(--dim); font-size: 12px; line-height: 1.3; }
+.dialog-error { color: #ff7b63; margin: 12px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.dialog-error[hidden] { display: none; }
+.dialog-buttons { display: flex; flex-direction: column-reverse; gap: 12px; margin-top: 20px; }
+.dialog-buttons button { justify-content: center; min-height: 44px; border-radius: 10px; font-weight: 700;
+  border: 0; background: #3d3d42; }
+.dialog-buttons button:hover { background: #47474d; }
+.dialog-buttons button.suggested { background: var(--accent); }
+.dialog-buttons button.suggested:hover { background: #4499ee; }
+.dialog-buttons button.destructive { background: #c01c28; color: #fff; }
+.dialog-buttons button.destructive:hover { background: #d22c38; }
 .spinner { width: 12px; height: 12px; border: 2px solid #555; border-top-color: var(--dim);
   border-radius: 50%; animation: spin 1s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .spinner, .state-dot.warn { animation: none; }
-  .card-start { transition: none; }
 }
 .status-page { display: flex; flex-direction: column; align-items: center; text-align: center;
   padding: 90px 20px; color: var(--text); }
@@ -301,6 +354,7 @@ header.bar form[hidden] { display: none; }
   transform: translate(-50%, -50%); border-radius: 50%; background: #3a3a3f;
   box-shadow: 0 0 0 5px #232326; font-size: 17px; font-weight: 700; }
 #lite .ok:active, #lite .ok.held { background: var(--accent); transform: translate(-50%, -50%) scale(.95); }
+#lite .ok:disabled { transform: translate(-50%, -50%); }
 #lite button:disabled { opacity: .3; transform: none; }
 /* the grip: tap it, or drag the sheet by it (viewer.js); the peek strip while collapsed. Not a
    control of its own (the toolbar's Remote button is), so not focusable: pointers only. */

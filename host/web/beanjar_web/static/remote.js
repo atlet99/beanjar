@@ -4,8 +4,10 @@
 // width x height panel), each key's LG IR code sent over /vm/HOST/NAME/remote: down on press, up on
 // release, so holding a key is a long press. Keys without a code are dimmed. While the window has
 // the focus, the arrows, Enter and Backspace are the remote's arrows, OK and Back. It closes itself
-// when the viewer that opened it goes away.
+// when the viewer that opened it goes away. Embedded (the viewer's full-remote popover) the page is
+// transparent and the remote's body fills it, so the body is the only frame inside the popover's.
 const embedded = window.parent !== window;
+document.documentElement.classList.toggle("embedded", embedded);
 const vm = new URLSearchParams(location.search).get("vm") || "";
 const [host, name] = vm.split("/");
 const base = `/vm/${encodeURIComponent(host)}/${encodeURIComponent(name)}`;
@@ -113,11 +115,13 @@ function draw() {
   fit();
 }
 
+// the panel scaled to the window and centred in it; embedded, its body rather than the whole panel
 function fit() {
-  const s = Math.min(innerWidth / layout.width, innerHeight / layout.height);
+  const b = embedded ? layout.body : { x: 0, y: 0, w: layout.width, h: layout.height };
+  const s = Math.min(innerWidth / b.w, innerHeight / b.h);
   panel.style.transform = `scale(${s})`;
-  panel.style.left = `${(innerWidth - layout.width * s) / 2}px`;
-  panel.style.top = `${(innerHeight - layout.height * s) / 2}px`;
+  panel.style.left = `${(innerWidth - b.w * s) / 2 - b.x * s}px`;
+  panel.style.top = `${(innerHeight - b.h * s) / 2 - b.y * s}px`;
 }
 
 // the PC keys that act as remote keys while this window has the focus

@@ -194,11 +194,11 @@ Without `--hosts` nothing changes: one `beanjar list --json` of every host, and 
 
 | Path | What |
 |---|---|
-| `/` | VM cards grouped by host (`beanjar list --json`, refreshed every 10 s, every 2 s while an operation is pending); an Off card has a compact Start control on hover/focus (always on touch), a Running card opens the viewer and has Open/Stop in its Actions menu, its tags, and the reason it runs if it has one (`beanjar reason`), Starting/Stopping show a pulsing amber dot |
+| `/` | VM cards grouped by host (`beanjar list --json`, refreshed every 10 s, every 2 s while an operation is pending); an Off card has a labelled Start button, a Running card opens the viewer and has Open and a Stop button (the Stop dialog), its tags, and the reason it runs if it has one (`beanjar reason`), Starting/Stopping show a pulsing amber dot; the header filters by name, tag or host and puts running VMs first |
 | `/api/vms` | the list's rows, only what a row shows: name, host, state and detail, platform, firmware, display, memory, CPUs, uptime, whether a viewer or beanjar-vnc runs, the GPU headline, `mitm` (its network's mode is mitm), `reason` (why it runs: `{"text", "set", "user", "by"}`, or null), `tags` (an array), and `operation` (the latest start/stop result, or null); no VM paths |
 | `/vm/HOST/NAME/` | the viewer page |
 | `POST /vm/HOST/NAME/start` | `beanjar start --json HOST/NAME`, in the background: 202 with the pending operation and a `Location` pointing at its status; a second start or stop while pending is 409 without another CLI invocation |
-| `POST /vm/HOST/NAME/stop` | `beanjar stop --json HOST/NAME`, with the manager's normal power-off and sync/stop fallback; the same asynchronous response as start. The manager refuses a VM that runs for a reason; `?force=1` is `stop --force`, which the page sends only after its confirmation has shown the reason |
+| `POST /vm/HOST/NAME/stop` | `beanjar stop --json HOST/NAME`, with the manager's normal power-off and sync/stop fallback; the same asynchronous response as start. The manager refuses a VM that runs for a reason; `?force=1` is `stop --force`, which the page sends only after its Stop dialog has shown the reason; `?unplug=1` is `stop --unplug` (QEMU killed at once, no logs or sync), the dialog's Unplug, with `"unplug": true` in the operation |
 | `/vm/HOST/NAME/operation` | the latest start/stop operation: `{action, status, message}` (and `error` on failure); 202 while pending, 200 on success, 409 with the manager's refusal, 404 before any request or after a web server restart |
 | `POST /vm/HOST/NAME/rotate` | the body an angle (0, 90, 180 or 270): `beanjar sensor rotate --json HOST/NAME ANGLE`, 200 with its JSON once the guest reports the setting, 409 with the manager's refusal (a model that does not turn), 400 for another body |
 | `POST /vm/HOST/NAME/vnc` | `beanjar vnc start --json HOST/NAME --port 0` (any free TCP port, so a host program on 5900 does not stop it; the page uses only the local sockets): 200 when it started or already runs, 409 with the manager's message otherwise (for example `a viewer is already open for tv (pid N)`, as the GTK viewer and beanjar-vnc exclude each other) |
@@ -235,7 +235,7 @@ interrupts the manager's own boot or shutdown policy.
 Only the latest operation per VM is retained, in memory, until the next request or web server
 restart. `/api/vms` always keeps the manager's actual `state`; the pending label is a UI overlay.
 After a restart it shows the manager's state without a stale pending label. The controls live on
-the list; the viewer's existing header controls remain as documented below.
+the list's cards, and the viewer has Start on its VM-off page and Stop VM… in More.
 
 The cards use a responsive grid, one column on a phone. Each has a 16:9 thumbnail, name
 and one grey details line (webOS release, uptime, VNC or `GTK viewer open`, the former
@@ -244,11 +244,16 @@ Starting/Stopping in pulsing amber, and Error or a refusal in red. Its accessibl
 title tooltip include the state and detail. Off has no dot, keeping a large idle library quiet.
 Reduced-motion preferences disable the pulse. A Running card's link is keyboard reachable
 and highlights on hover or focus.
-The native popover Actions menu sits above that link: Open and a destructive Stop, with
-confirmation. Its button and menu items have 44 px touch targets; arrow keys move through the
-menu and Escape restores focus. An Off card has a compact Start button over its thumbnail,
-visible on hover or keyboard focus and always visible on devices without hover. It keeps a
-44 px touch target and an accessible name identifying the VM. Routine success has no extra
+The card's actions are labelled buttons in its info row, beside the name, always shown and above
+the link: an Off card has Start, a Running card Open (when it has a picture) and a destructive
+power button, Stop. There is no card menu. They are 36 px high with a pointer and 44 px on a
+touch screen, each with an accessible name identifying the VM. Stop opens the Stop dialog
+(`static/stop.js`, shared with the viewer): an in-page `<dialog>` in the GTK manager's Shut Down
+wording, "Send power-off signal" (`stop`, with its sync-and-stop fallback) or "Unplug (may lose
+data)" (`stop?unplug=1`), the button turning destructive and named Unplug for the latter; a VM
+that runs for a reason has it in the dialog, which then sends `force=1`. A request the server
+refuses (another operation pending, the server gone) shows in the dialog, which stays open; a
+refused start shows on its card. Routine success has no extra
 message: the state change is the feedback. Refusals
 stay red beneath the status; a forced-stop fallback stays grey. Unreachable hosts supply no rows
 from `beanjar list --json`, so the page does not keep stale actions for them.
@@ -450,20 +455,27 @@ named ([above](#only-some-hosts---hosts)).
 
 - **List.** A grid of TV cards grouped by host, this machine first; one column on a phone.
   A card has its preview or placeholder, name, one details line and a small corner state dot.
-  Off cards have Start on hover/focus (always on touch); running cards open the viewer and have
-  Open/Stop in their Actions menu; pending actions pulse amber. See [the server](#the-server)
+  Off cards have a Start button; running cards open the viewer and have Open and Stop buttons;
+  pending actions pulse amber. See [the server](#the-server)
   for thumbnail and operation behavior. The header
-  keeps the title centred and Refresh at the end; with `--auth password`, Log Out
-  (`box-arrow-right`) sits before Refresh. An empty list shows "No Virtual Machines".
+  keeps the title centred; at its end a filter box (a card shows when every word of it is in its
+  name, a tag or its host, `local` or "this machine" for this machine's), Running first (a toggle,
+  on by default and kept per browser as `beanjar-web-running-first`: within each host's section
+  running VMs first, then starting or stopping ones, then the rest in the manager's order) and
+  Refresh; with `--auth password`, Log Out (`box-arrow-right`) sits before Refresh. Below 960 px
+  the filter and the toggles take a second header row. An empty list shows "No Virtual
+  Machines", a filter that matches nothing "No Matching VMs".
 - **Viewer.** A header bar laid out as the GTK viewer's (`host/ui/data/viewer/window.blp`), icon-only
   buttons with tooltips, Bootstrap icons. At the start the remote's Back, Home and Settings keys as
   one linked group (shared edges, as GTK's `linked` box), sent with the layout's `BACK`, `HOME` and
   `MENU` codes (NetCast's Home is its dashboard key; held, they are long presses). In the middle the
   VM's name as the title, and under it its host (another host's), platform and board and firmware
   version ("webOS 1 · WT1H 05.06.10.01"), from the list's row.
-  At the end Sound, Remote, Fullscreen (the picture alone) and More appear in that order.
-  More contains Quality, Planes, Save Screenshot (a PNG download named `NAME-TIME.png`) and Stats for
-  nerds (checked while the overlay is shown). Planes (`layers`) opens a popover of three
+  At the end Sound, Save Screenshot (a PNG download named `NAME-TIME.png`), Remote, Fullscreen
+  (the picture alone) and More appear in that order.
+  More contains Quality, Planes and Stats for nerds (checked while the overlay is shown), Portrait,
+  Full remote and Traffic Inspector where they apply, and last, after a separator, Stop VM…, which
+  opens the list's Stop dialog (shown while the VM is not off). Planes (`layers`) opens a popover of three
   check items, UI, Video and Cursor: beanjar-vnc composes one picture for all its clients, so
   they are the VM's, shared by every page and VNC client, as its note says, and last until
   beanjar-vnc stops. The page sends `beanjar:planes=N` (the hidden `WV_PLANE_*` bits) as noVNC
@@ -476,14 +488,18 @@ named ([above](#only-some-hosts---hosts)).
   speaker (the GTK viewer's sound is the desktop's), and Quality (a popover) in More. Under the bar noVNC's canvas, scaled to fit
   (`scaleViewport`), with the keyboard and pointer as noVNC sends
   them. Before connecting the page asks for VNC (`POST .../vnc`) and shows the manager's refusal;
-  a lost connection says so, with a Reconnect button.
+  a lost connection says so, with a Reconnect button. Once a stop it sent has returned (or right
+  away) the page asks the list for the VM's state: while the VM is off it says "VM NAME is not
+  running" with Start beside Reconnect, and the TV keys (the header's and the lite remote's),
+  Sound, Remote and Save Screenshot are disabled. Start posts `start`, follows `/operation` until
+  the manager has returned, then connects as Reconnect does; a refusal shows with both buttons.
   In portrait windows up to 640 px wide, All VMs and the title stay in a single 48 px header.
   The same system-key, Sound and Remote buttons move to a fixed bottom toolbar, followed by
-  More (Quality, Planes, Save Screenshot, Stats for nerds and Fullscreen). Each visible toolbar control is 44 × 44 px; the
+  More (Quality, Planes, Save Screenshot, Stats for nerds, Fullscreen, Traffic Inspector, Stop VM…). Each visible toolbar control is 44 × 44 px; the
   system keys keep their linked group at the start, and flat controls stay together at the end. The toolbar reserves picture space
   and includes `env(safe-area-inset-bottom)`; the header respects the top safe area. The picture
   still scales to fit between them. Desktop and landscape keep the header layout.
-  CSS moves the groups; Fullscreen joins the shared native overflow popover in portrait. More closes on selection, Escape or an outside click and supports arrow keys; Quality opens above the
+  CSS moves the groups; Save Screenshot and Fullscreen join the shared native overflow popover in portrait. More closes on selection, Escape or an outside click and supports arrow keys; Quality opens above the
   toolbar, stays in the viewport on resize, and Escape returns focus to More.
 - **Remote.** `window.open('/remote.html?vm=HOST/NAME', 'beanjar-remote-HOST-NAME',
   'popup,width=W,height=H')`, sized to the layout (1.25 times, at most 90% of the screen's height);
@@ -494,7 +510,10 @@ named ([above](#only-some-hosts---hosts)).
   and the viewer closes it when it unloads. In narrow portrait windows, the same remote page
   opens in an in-page panel above the toolbar instead, with a Close button and Escape to return
   focus to Remote. Its frame is unloaded when dismissed, ending its input WebSocket; embedded
-  remotes do not run the standalone window's opener check. The desktop popup remains unchanged.
+  remotes do not run the standalone window's opener check. Embedded, the remote page is
+  transparent and fits the remote's body (the layout's `body`) rather than its whole panel, and
+  the frame is as wide as that body at its height, so the remote's own body sits directly inside
+  the panel's frame. The desktop popup remains unchanged.
   On phones that panel is opened by the lite remote's 123 key in portrait and by More's Full remote in
   landscape, whose strip has no 123 key (More's item is hidden in portrait: it would duplicate 123).
   The audit of the other layouts found no further duplicates: Back, Home and Settings leave the bar

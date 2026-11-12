@@ -779,7 +779,7 @@ async def toolbar_checks(c):
         visible = await c.js("""[...document.querySelectorAll('header .end > button')]
           .filter(b=>b.getBoundingClientRect().width>0).map(b=>b.id)""")
         assert visible == (
-            ["sound", "remote", "full", "more-button"]  # a touch screen's VM
+            ["sound", "shot", "remote", "full", "more-button"]  # a touch screen's VM
             if name == "desktop"
             else ["sound", "remote", "more-button"]
         ), visible
@@ -803,16 +803,34 @@ async def toolbar_checks(c):
         )
         entries = await c.js("""[...document.querySelectorAll('#viewer-more > button')]
           .filter(b=>!b.hidden).map(b=>({id:b.id,label:b.querySelector('.control-label').textContent,icon:!!b.querySelector('.bi')}))""")
-        expected = ["quality-button", "planes-button", "shot", "stats-button"] + (
-            ["full"] if name == "portrait" else []
-        )
+        # Save Screenshot and Fullscreen are the header's on desktop, More's in portrait; Stop VM…
+        # last (the fake VM runs)
+        if name == "portrait":
+            expected = [
+                "quality-button",
+                "planes-button",
+                "shot",
+                "stats-button",
+                "full",
+                "stop-vm",
+            ]
+        else:
+            expected = ["quality-button", "planes-button", "stats-button", "stop-vm"]
         assert [e["id"] for e in entries] == expected, entries
-        assert [e["label"] for e in entries][:4] == [
-            "Quality",
-            "Planes",
-            "Save Screenshot",
-            "Stats for nerds",
-        ], entries
+        labels = {
+            "quality-button": "Quality",
+            "planes-button": "Planes",
+            "shot": "Save Screenshot",
+            "stats-button": "Stats for nerds",
+            "full": "Fullscreen",
+            "stop-vm": "Stop VM…",
+        }
+        assert [e["label"] for e in entries] == [labels[i] for i in expected], entries
+        if name != "portrait":
+            assert await c.js(
+                "document.querySelector('#shot').nextElementSibling.id === 'remote'"
+                " && document.querySelector('#shot').parentElement.classList.contains('end')"
+            )
         assert all(e["icon"] for e in entries), entries
         await capture("open")
         await c.js("document.querySelector('#quality-button').click()")
@@ -839,7 +857,8 @@ async def toolbar_checks(c):
         for old in (OUT / "downloads").glob("tv-*.png"):
             old.unlink()
         await c.js(
-            "document.querySelector('#more-button').click();document.querySelector('#shot').click()"
+            ("document.querySelector('#more-button').click();" if name == "portrait" else "")
+            + "document.querySelector('#shot').click()"
         )
         await c.wait("!document.querySelector('#viewer-more').matches(':popover-open')")
         assert await c.js("document.querySelector('#screen').contains(document.activeElement)")

@@ -10,11 +10,14 @@
 <script type="module" src="/index.js"></script>
 </head>
 <body class="list">
-<!-- A header bar with the title in the middle; VM cards grouped by host below it. -->
+<!-- A header bar with the title in the middle, the filter and Running first at its end; VM cards
+     grouped by host below it. The Stop dialog is stop.js's. -->
 <header class="bar">
 <div class="start"></div>
 <div class="titles"><div id="title">Beanjar</div><div id="sub">Virtual machines</div></div>
 <div class="end">
+<label class="filter"><i class="bi" style="--i: url(/icons/search.svg)"></i><input id="filter" type="search" placeholder="Name, tag or host" aria-label="Filter VMs by name, tag or host" autocomplete="off"></label>
+<button id="running-first" class="flat toggle labelled" aria-pressed="true" title="Show running VMs first"><i class="bi" style="--i: url(/icons/sort-down.svg)"></i><span>Running first</span></button>
 <form id="logout" method="post" action="/logout" hidden><button class="flat" title="Log Out"><i class="bi" style="--i: url(/icons/box-arrow-right.svg)"></i></button></form>
 <button id="refresh" class="flat" title="Refresh"><i class="bi" style="--i: url(/icons/arrow-clockwise.svg)"></i></button>
 </div>

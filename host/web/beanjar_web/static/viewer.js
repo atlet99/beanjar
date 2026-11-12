@@ -8,6 +8,7 @@
 import RFB from "/novnc/core/rfb.js";
 import { Speaker } from "/audio.js";
 import { Picture, h264Unsupported } from "/video.js";
+import { stopDialog } from "/stop.js";
 
 const [, , host, name] = location.pathname.split("/").map(decodeURIComponent);
 const spec = `${host}/${name}`;
@@ -36,8 +37,20 @@ const where = host === "local" ? "" : ` on ${host}`;
 document.title = `${name}${where} - Beanjar`;
 document.getElementById("title").textContent = name;
 document.getElementById("sub").textContent = host === "local" ? "" : host;
-fetch("/api/vms").then((r) => r.json()).then((rows) => {
-  const vm = rows.find((r) => r.name === name && (r.host || "local") === host);
+// the VM's row of /api/vms (its state, reason), asked at load and whenever the picture ends; Off
+// disables the TV keys, Sound, Remote and Save Screenshot, offers Start, and hides Stop VM…
+let vmRow = null;
+async function loadVm() {
+  try {
+    const rows = await (await fetch("/api/vms")).json();
+    vmRow = (Array.isArray(rows) && rows.find((r) => r.name === name && (r.host || "local") === host)) || null;
+  } catch (_) {
+    vmRow = null; // unknown: nothing disabled
+  }
+  applyVmState();
+  return vmRow;
+}
+loadVm().then((vm) => {
   if (!vm) return;
   const m = /^(\d+(?:\.\d+)+)-HE_DTV_([A-Z0-9]+)_/.exec(vm.firmware || "");
   const board = m ? `${m[2]} ${m[1]}` : vm.firmware || "";
@@ -50,7 +63,7 @@ fetch("/api/vms").then((r) => r.json()).then((rows) => {
   portrait = !!vm.portrait;
   rotateButton.hidden = !portrait;
   if (portrait) remoteOpen(); // its rotation reports
-}).catch(() => {});
+});
 
 // More's Traffic Inspector: mitmweb through the server (/vm/HOST/NAME/mitm/), shown only while
 // the VM's inspector is ready (`beanjar mitm show`), asked again every 15 s until it is, then
@@ -64,17 +77,74 @@ function watchInspector() {
   check();
 }
 
+// the status over the picture; with retry, Reconnect, and Start beside it while the VM is off
 function show(text, error = false, retry = false) {
   status.hidden = !text;
   status.className = error ? "error" : "";
   status.replaceChildren(document.createTextNode(text || ""));
-  if (retry) {
-    const b = document.createElement("button");
-    b.innerHTML = '<i class="bi" style="--i: url(/icons/arrow-repeat.svg)"></i>Reconnect';
-    b.addEventListener("click", connect);
-    status.append(b);
+  if (!retry) return;
+  const actions = document.createElement("div");
+  actions.className = "status-actions";
+  if (vmRow?.state === "Off") {
+    const start = document.createElement("button");
+    start.className = "suggested";
+    start.innerHTML = '<i class="bi" style="--i: url(/icons/play-fill.svg)"></i>Start';
+    start.addEventListener("click", startVm);
+    actions.append(start);
+  }
+  const b = document.createElement("button");
+  b.innerHTML = '<i class="bi" style="--i: url(/icons/arrow-repeat.svg)"></i>Reconnect';
+  b.addEventListener("click", connect);
+  actions.append(b);
+  status.append(actions);
+}
+function showOff() { show(`VM ${name} is not running`, true, true); }
+
+// the latest start or stop of the VM once the manager has returned (null without one)
+async function settled() {
+  for (;;) {
+    const r = await fetch(`${base}/operation`).catch(() => null);
+    if (!r || r.status !== 202) return r && r.status !== 404 ? r.json().catch(() => null) : null;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 }
+
+// Start (the off page): POST start, then, the manager done, the picture as Reconnect brings it
+async function startVm() {
+  show(`Starting ${name}…`);
+  try {
+    const r = await fetch(`${base}/start`, { method: "POST" });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || r.statusText);
+    const done = await settled();
+    if (done?.status === "failed") throw new Error(done.message);
+  } catch (e) {
+    await loadVm();
+    return show(`Cannot start ${name}: ${e.message}`, true, true);
+  }
+  await loadVm();
+  connect();
+}
+
+// More's Stop VM…: the list's dialog; the picture ends when the VM does (the disconnect below),
+// a stop the manager refused shows as a notice
+const stopVm = document.getElementById("stop-vm");
+const stopSep = document.getElementById("stop-sep");
+const notice = document.getElementById("notice");
+let noticeTimer = 0;
+function note(text) {
+  notice.textContent = text;
+  notice.hidden = false;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => { notice.hidden = true; }, 10000);
+}
+stopVm.addEventListener("click", () => stopDialog({ spec, base, reason: vmRow?.reason,
+  accepted: async () => {
+    const done = await settled();
+    if (done?.status === "failed") note(`Cannot stop ${name}: ${done.message}`);
+    await loadVm();
+    if (!rfb && vmRow?.state === "Off") showOff();
+  } }));
 
 // quality: noVNC's qualityLevel (beanjar-vnc's Tight JPEG quality 11*q+1), kept per browser
 // (a slider in a popover anchored to More)
@@ -105,9 +175,10 @@ const fullRemote = document.getElementById("full-remote");
 const inputMenu = document.getElementById("input-menu"); // a touch screen's Remote button
 const inputRemote = document.getElementById("input-remote");
 const inputTouch = document.getElementById("input-touch"); // the Mouse toggle (onMouseFinger)
-const moreItems = [qualityButton, planesButton, document.getElementById("shot"), statsButton, rotateButton, fullRemote,
-  inspectorLink, fullscreenButton];
-const menuItems = () => moreItems.filter((item) => item.parentElement === morePop && !item.hidden);
+const shotButton = document.getElementById("shot");
+const moreItems = [qualityButton, planesButton, shotButton, statsButton, rotateButton, fullRemote,
+  inspectorLink, fullscreenButton, document.getElementById("stop-vm")];
+const menuItems = () => moreItems.filter((item) => item.parentElement === morePop && !item.hidden && !item.disabled);
 
 function placePopover(pop, anchor) {
   const r = anchor.getBoundingClientRect(), p = pop.getBoundingClientRect();
@@ -123,7 +194,7 @@ function placeControls() {
   if (inputMenu.matches(":popover-open")) placePopover(inputMenu, remoteButton);
 }
 function adaptiveControls() {
-  // Move only Fullscreen; the same secondary actions stay in More at every size.
+  // Move only Save Screenshot and Fullscreen; the same secondary actions stay in More at every size.
   for (const pop of [morePop, qualityPop, planesPop, remotePop, inputMenu]) {
     if (pop.matches(":popover-open")) pop.hidePopover();
   }
@@ -131,11 +202,13 @@ function adaptiveControls() {
   fullRemote.hidden = !phone.matches || compact.matches;
   showInput();
   if (compact.matches) {
-    morePop.append(fullscreenButton);
-    fullscreenButton.setAttribute("role", "menuitem");
+    planesButton.after(shotButton);
+    inspectorLink.before(fullscreenButton);
+    for (const b of [shotButton, fullscreenButton]) b.setAttribute("role", "menuitem");
   } else {
+    remoteButton.before(shotButton);
     moreButton.before(fullscreenButton);
-    fullscreenButton.removeAttribute("role");
+    for (const b of [shotButton, fullscreenButton]) b.removeAttribute("role");
   }
 }
 morePop.addEventListener("toggle", (event) => {
@@ -370,6 +443,7 @@ async function connect() {
   }
   if (!r.ok) {
     const body = await r.json().catch(() => ({}));
+    await loadVm(); // off: Start beside Reconnect
     return show(body.error || r.statusText, true, true);
   }
   show("Connecting…");
@@ -398,13 +472,23 @@ async function connect() {
     const c = screenEl.querySelector("div canvas");
     if (c) new ResizeObserver(placeOverlay).observe(c);
   });
-  rfb.addEventListener("disconnect", (e) => {
+  rfb.addEventListener("disconnect", async (e) => {
     rfb = null;
     connected = false;
     for (const box of planeBoxes) box.disabled = true;
     applyPicture();
     applySound();
-    show(e.detail.clean ? "Disconnected." : "The connection to the VM was lost.", !e.detail.clean, true);
+    const text = e.detail.clean ? "Disconnected." : "The connection to the VM was lost.";
+    show(text, !e.detail.clean);
+    // the VM stopped? (a stop still running: once it has returned; the list is a few seconds old)
+    await settled();
+    for (const wait of [0, 3500]) {
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      await loadVm();
+      if (rfb || vmRow?.state === "Off") break;
+    }
+    if (rfb) return; // reconnected meanwhile
+    if (vmRow?.state === "Off") showOff(); else show(text, !e.detail.clean, true);
   });
 }
 
@@ -989,6 +1073,8 @@ remotePop.addEventListener("toggle", (event) => {
   const open = event.newState === "open";
   remoteAttrs();
   if (open) {
+    // the frame as wide as the remote's body is at its height (remote.js fits the body to it)
+    if (layout?.body) remotePop.style.setProperty("--remote-ratio", `${layout.body.w} / ${layout.body.h}`);
     remoteFrame.src = `/remote.html?vm=${encodeURIComponent(spec)}`;
     placeControls();
     document.getElementById("remote-close").focus();
@@ -1005,10 +1091,21 @@ addEventListener("message", (event) => {
 window.addEventListener("pagehide", () => { if (remoteWin) remoteWin.close(); });
 setInterval(remoteAttrs, 300); // a remote window closed on its own
 
+// a key the layout has no code for is disabled, and every remote control while the VM is off
+function applyVmState() {
+  const off = vmRow?.state === "Off";
+  for (const b of remoteKeys()) b.disabled = off || (!!layout && codeOf(b.dataset.key) === null);
+  for (const b of [sound, remoteButton, shotButton, fullRemote, document.getElementById("lite-full")]) {
+    b.disabled = off;
+  }
+  if (off) for (const pop of [remotePop, inputMenu]) if (pop.matches(":popover-open")) pop.hidePopover();
+  stopVm.hidden = stopSep.hidden = !vmRow || off;
+}
+
 fetch(`${base}/layout.json`).then((r) => r.json()).then((l) => {
   if (l.error) throw new Error(l.error);
   layout = l;
-  for (const b of remoteKeys()) b.disabled = codeOf(b.dataset.key) === null;
+  applyVmState();
   for (const b of lite.querySelectorAll("button[data-key]")) relabel(b);
 }).catch((e) => console.warn(`no remote layout: ${e.message}`));
 connect();
