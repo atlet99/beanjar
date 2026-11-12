@@ -1253,16 +1253,17 @@ them ([testing](../../docs/dev/guides/testing.md)):
 
 ### MITM inspector in the manager
 
-The Summary of a VM whose network is mitm has a Traffic Inspector group: that VM's own mitmweb
+The Summary of a VM whose network is mitm has a Traffic Inspector card: that VM's own mitmweb
 (each such VM runs one, on its own port and with its own password; only the CA certificate it signs
-with is the library's, shared by its VMs, as the group says). It shows the inspector's status,
-its URL with Open in Browser (logged in with the password) and Copy URL, the password with Copy
-Password, and with link lan the VM's leased LAN address. A link lan VM's inspector is also on
+with is the library's, shared by its VMs, as the card says). Its heading has the inspector's
+status and URL with Copy URL and Open in Browser (logged in with the password); folded under it,
+the password with Copy Password, and with link lan the VM's leased LAN address. A link lan VM's inspector is also on
 that address: its URL is the LAN one (Copy URL), with the VM's own address beside it as "On this
-host", which Open in Browser uses, since the host cannot reach its own macvlan children. A VM that is off shows "Not running",
-never a URL from an earlier run; a VM with mode direct or link off has no group. Installing
-mitmproxy stays an explicit action (Install…, through the consent dialog), and the group's
-diagnostics fold out to a bounded tail of the proxy's log.
+host", which Open in Browser uses, since the host cannot reach its own macvlan children. A VM that is off shows one line,
+"Starts with the VM (MITM)", never a URL from an earlier run; a VM with mode direct or link off has
+no card. Installing mitmproxy stays an explicit action (Install…, through the consent dialog), and
+the folded details end with a bounded tail of the proxy's log. The inspector's retention and body
+size limit are settings, shown on the Network card.
 
 The endpoint comes from the running QEMU's environment, so custom ports and settings edited during
 a run do not point the window at another service. Wildcard bind addresses are presented as
@@ -1271,9 +1272,10 @@ does not answer cannot be opened. The full mitmweb interface opens in the system
 
 ### VNC in the manager
 
-While `beanjar vnc start` serves the selected VM, its Summary has a VNC group after the traffic
+While `beanjar vnc start` serves the selected VM, its Summary has a VNC card after the traffic
 inspector: the address (with link lan the LAN one, and the VM's own as "On this host") with Copy
-Address, and the password with Copy Password. The window does not start VNC itself.
+Address and Open (the system's vnc:// handler), and folded under it the password with Copy
+Password. The window does not start VNC itself.
 
 
 ### Web viewer
@@ -1292,11 +1294,28 @@ viewer holds it. A VM on another host works the same way, over the manager's ssh
 ([web viewer](../../docs/dev/architecture/web-viewer.md)).
 
 
-### Compact VM Summary
+### VM Summary
 
-The Summary groups hardware and connection settings into cards that stack on narrow
-windows. Firmware and state appear above them; enabled layers appear as compact tags.
-The Identity card has MAC and serial copy controls and shows only whether a custom model
-key is installed. Files and runtime details retain full paths and process IDs in a collapsed
-section. VM and log folder actions operate on the selected VM. Memory uses readable units
-and identifies the model default when no explicit allocation is configured.
+The Summary (host/ui/beanjar_ui/manager/summary_ui.py; what it shows, for users, is in
+[docs/user/vms.md](../../docs/user/vms.md)) opens with four stat tiles and the TV's picture. The
+tiles' live figures are the ones the list rows compute every second (uptime and CPU% from
+/proc/PID/stat, the GPU's use from gpu.Sampler) plus QEMU's resident memory
+(capacity.rss_mib); "Last run" for a VM that is off is the newer modification time of
+logs/console.log and logs/qemu.out (summary_facts.last_run). The picture is `beanjar screenshot
+NAME - --size 384x216` while the VM runs and `--last` once when it is off, the same commands the
+web list runs, each in a worker thread, one at a time per VM, at most every 5 s and only while the
+Summary is shown, the window is active and no viewer is open (picture.Pictures). With neither a
+viewer nor beanjar-vnc running, a screenshot runs a headless viewer for about 3 s; one costs about
+0.25 s of CPU on the development PC, so the 5 s refresh takes about 5% of a core while it is seen.
+A portrait model's picture is turned by rotation.status (what `beanjar sensor rotate --json`
+reports). Clicking it opens the viewer, or sends an open viewer SIGUSR1, which it presents its
+window on (only when /proc says it catches the signal).
+
+The window's breakpoints set the layout: four tiles in a row beside a 240x135 picture from 1061 sp,
+the tiles 2x2 beside a 256x144 picture down to 641 sp, and below that the tiles 2x2 with the
+picture the full width under them and the cards in one column. A problem banner above the page
+(summary_facts.problem) shows one problem at a time. The Hardware card shows audio and free page
+reporting only when they differ from vmconfig's defaults; the Identity card has MAC and serial copy
+controls and shows only whether a custom model key is installed; the Network card has the address
+with the forwarded ports (VM.forwards). Files and runtime details keep full paths, the systemd
+unit, process IDs and the guest's restarts (lifecycle.restarts) in a collapsed section.

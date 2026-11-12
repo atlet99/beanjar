@@ -16,10 +16,37 @@ dropdown: Start and Connect, Start with Reason…), **Connect** (the display ico
 open (Disconnect and Unplug…). Beside it is the VM menu (⋮): **Settings…** (only while the VM is
 off), Rename, Clone, Wipe, New Identity and Delete. The main menu (☰) has the viewer's reconnect
 option and About, and the title's tooltip shows the library's folder. Right-clicking a VM in the
-list gives every action at once. The Summary, the first page, shows each VM's state (with why it runs and its
-tags), firmware, address, connections and identity; each card's **Edit** opens Settings at its
-page, and the VM's folder and its logs open from "Files and runtime details". Closing the window or
-a viewer never stops a VM.
+list gives every action at once. Closing the window or a viewer never stops a VM.
+
+The Summary, the first page, starts with four tiles: the VM's state (with QEMU's detail, such as
+paused or standby, and "Viewer open"), then, while it runs, its uptime, CPU use and QEMU's memory
+on the host (with the GPU's use where the host reports it), the figures its list row shows each
+second; while it is off, when it last ran (the last write to its console log), and its CPUs and
+memory as set. Beside them is a picture of the TV (`beanjar screenshot NAME - --size 384x216`),
+taken at most every 5 seconds while the VM runs, the Summary is shown, the window is active and no
+viewer is open; a portrait model's picture is turned as its viewer turns it. Off, it is the last
+picture kept, dimmed, or a TV outline before there is one. Clicking it connects the viewer (or
+brings an open one to the front) while the VM runs and starts it while it is off. Under them come
+the TV (webOS version, board and firmware version, the firmware's source, "not tested yet" for a
+target that has never booted), why it runs, and its layers and tags. A narrower window puts the
+tiles in a 2x2 grid; a narrow one puts the picture under them.
+
+A banner at the top names one problem at a time, with one button where there is something to do:
+a vm.toml that does not read (Open VM Folder), a QEMU that is paused or has shut the guest down, a
+start or stop that failed (Show Output; it stays until the next one succeeds), firmware that is
+missing (Settings…), and why the VM cannot start now (the host's memory or `max_running`; the full
+reason in its tooltip).
+
+The Hardware, Identity and Network cards follow, each with an **Edit** that opens Settings at its
+page (only while the VM is off). Audio and free page reporting appear only when they differ from
+the defaults (sound as the display has it, free page reporting off). Network has the VM's host
+address (or LAN address) with its forwarded ports and a copy button, the connection mode, where the
+service ports listen, and the traffic inspector's retention and body size limit. The Traffic
+Inspector card has its status, its URL, Copy URL and Open, and folded under them its password, LAN
+details, mitmproxy's installation and the proxy's last lines; while the VM is off it is one line,
+"Starts with the VM (MITM)". A VNC card of the same shape appears while `beanjar vnc` serves the
+VM. "Files and runtime details" opens the VM's folder and its logs, and shows the firmware's
+location, the systemd unit, the QEMU and viewer process IDs, and how often the guest restarted.
 
 Keyboard: Ctrl+Return starts, Shift+Ctrl+Return connects, Shift+Ctrl+Delete shuts down,
 Alt+Return opens Settings, F2 renames, Delete deletes and Ctrl+N makes a new VM.
