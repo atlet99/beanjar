@@ -103,6 +103,19 @@ def proc_env(pid):
     return dict(i.decode(errors="replace").split("=", 1) for i in items if b"=" in i)
 
 
+def catches_signal(pid, signum, proc_root="/proc"):
+    """Whether process pid has a handler for signal signum (its SigCgt mask): one it is safe to
+    send a signal whose default action would end it."""
+    try:
+        with open(os.path.join(proc_root, str(pid), "status")) as f:
+            for line in f:
+                if line.startswith("SigCgt:"):
+                    return bool(int(line.split()[1], 16) >> (signum - 1) & 1)
+    except (OSError, ValueError, IndexError):
+        pass
+    return False
+
+
 def uptime_of(pid):
     t = proc_times(pid)
     if t is None:

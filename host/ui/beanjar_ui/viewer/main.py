@@ -313,6 +313,10 @@ def run(o):
         window["w"] = win
         win.connect("close-request", lambda _w: result.update(failed=pane.finish()) or False)
         win.present()
+        # the manager's "Show the Viewer" (manager/gui.py present_viewer): SIGUSR1 brings it up
+        GLib.unix_signal_add(
+            GLib.PRIORITY_DEFAULT, signal.SIGUSR1, lambda: (win.present(), True)[1]
+        )
         if o["seconds"] > 0:
             GLib.timeout_add(int(o["seconds"] * 1000), lambda: (quit_requested(), False)[1])
         if o["shot_every"]:
