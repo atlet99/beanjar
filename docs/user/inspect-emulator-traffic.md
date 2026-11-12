@@ -42,10 +42,11 @@ manager, `vm-launcher`), which is then used instead. It is kept in an owner-only
 run directory, `<vm>/run/mitmweb.password` (the checkout VM's `build/mitmweb.password`), and
 removed when the VM stops. It never appears on a command line, in a unit's environment or in a log.
 
-- **Manager:** the Traffic Inspector pane shows the password with **Copy Password**. **Open in
-  Browser** opens a link that logs in by itself; **Copy URL** copies the plain address. For a
+- **Manager:** the Traffic Inspector pane shows the password with **Copy Password**. **Open** (Open
+  in Browser) opens a link that logs in by itself; the copy button beside the URL copies the plain
+  address. For a
   `link = "lan"` VM the address shown and copied is the LAN one, and "On this host" the local one,
-  which Open in Browser uses (the browser runs on the host).
+  which Open uses (the browser runs on the host).
 - **CLI:** `beanjar info NAME` gives `inspector.url` (the LAN URL for a `link = "lan"` VM, with
   `inspector.local_url` for the host itself) and `inspector.password_file`, the file's
   path rather than the password, because status output ends up in terminals, logs and issues:

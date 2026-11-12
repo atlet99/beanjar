@@ -9,10 +9,18 @@ command, and the [manager guide](../../host/core/README.md) has the details.
 
 `beanjar-ui` (from a checkout, `python3 -m beanjar_ui.manager`) lists the VMs with their state.
 **New VM** makes one from a `.epk` or a directory of extracted paks, with pages for its hardware,
-display and audio, network and layers. **Start**, **Shut Down…** and **Connect** (the viewer) are
-in the header bar, and the VM menu has Settings, Wipe, New Identity, Rename, Open Log Folder and
-Delete. The Summary shows each VM's firmware, address, connections and identity. Closing the window
-or a viewer never stops a VM.
+display and audio, network and layers. The header bar has one button for the selected VM's next
+step: **Start** while it is off (its dropdown: Start and Connect, Start with Reason…), **Connect**
+(the viewer) while it runs (Shut Down… and Unplug… in the dropdown), and **Shut Down…** once the
+viewer is open (Disconnect and Unplug…). Beside it are **Settings** (only while the VM is off) and
+the VM menu: Rename, Clone, Wipe, New Identity and Delete. Right-clicking a VM in the list gives
+every action at once. The Summary, the first page, shows each VM's state (with why it runs and its
+tags), firmware, address, connections and identity; each card's **Edit** opens Settings at its
+page, and the VM's folder and its logs open from "Files and runtime details". Closing the window or
+a viewer never stops a VM.
+
+Keyboard: Ctrl+Return starts, Shift+Ctrl+Return connects, Shift+Ctrl+Delete shuts down,
+Alt+Return opens Settings, F2 renames, Delete deletes and Ctrl+N makes a new VM.
 
 ## From the CLI
 

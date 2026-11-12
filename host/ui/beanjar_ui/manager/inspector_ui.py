@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """The selected VM's traffic inspector, a group of its Summary: its own mitmweb (each VM with mode
 mitm has one, on its own port and with its own password; the CA it signs with is the library's),
-with its status, URL, Open in Browser (logged in), Copy URL and Copy Password, and with link lan
+with its status and Open in Browser (logged in) in its heading, its URL with Copy URL beside it, and
+Copy Password, and with link lan
 the VM's leased LAN address. The full mitmweb UI opens in the system browser. With link lan the URL
 is the LAN one, for other machines; this host cannot reach its own macvlan children, so its
 browser opens the inspector at the VM's own address, shown as "On this host"."""
@@ -50,7 +51,9 @@ class Panel(Gtk.Box):
         self.installation.add_css_class("dim-label")
         self.install = Gtk.Button(label="Install…")
         self.install.connect("clicked", lambda *_: manager.install_mitm())
-        for widget in (title, self.status):
+        self.open = Gtk.Button(label="Open", valign=Gtk.Align.CENTER)
+        self.open.connect("clicked", self.open_browser)
+        for widget in (title, self.status, self.open):
             heading.append(widget)
         content.append(heading)
         self.description = Gtk.Label(
@@ -75,24 +78,22 @@ class Panel(Gtk.Box):
         self.lan_row.append(label)
         self.lan_row.append(self.lan_address)
         details.append(self.lan_row)
-        self.buttons = Gtk.Box(spacing=8)
+        url = Gtk.Box(spacing=4)
         self.address = Gtk.Label(
             xalign=0,
-            hexpand=True,
             selectable=True,
             ellipsize=Pango.EllipsizeMode.END,
             max_width_chars=32,
         )
         self.address.add_css_class("dim-label")
-        self.open = Gtk.Button(label="Open in Browser")
-        self.open.add_css_class("suggested-action")
-        self.open.connect("clicked", self.open_browser)
-        self.copy = Gtk.Button(label="Copy URL")
+        self.copy = Gtk.Button(
+            icon_name="edit-copy-symbolic", tooltip_text="Copy URL", valign=Gtk.Align.CENTER
+        )
+        self.copy.add_css_class("flat")
         self.copy.connect("clicked", self.copy_url)
-        content.append(self.address)
-        for widget in (self.open, self.copy):
-            self.buttons.append(widget)
-        content.append(self.buttons)
+        url.append(self.address)
+        url.append(self.copy)
+        content.append(url)
         from .summary_ui import Summary
 
         self.limits = Summary.flow()
@@ -163,7 +164,9 @@ class Panel(Gtk.Box):
         self.local_row.set_visible(bool(state.local_url))
         self.local_url.set_text(state.local_url)
         self.open.set_sensitive(state.ready)
-        self.open.set_tooltip_text(state.here_url or None)
+        self.open.set_tooltip_text(
+            f"Open in Browser: {state.here_url}" if state.here_url else "Open in Browser"
+        )
         self.copy.set_sensitive(bool(state.url))
         self.password.set_text(state.password or ("Password unavailable" if state.url else "—"))
         self.password.set_tooltip_text(state.password_file or None)

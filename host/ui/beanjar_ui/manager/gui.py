@@ -62,6 +62,8 @@ from beanjar import (
 from beanjar.core import OFF, RUNNING, STARTING, Error, Library  # noqa: E402
 from beanjar.firmware import fmt_size  # noqa: E402
 
+from . import header  # noqa: E402
+
 PKG_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(core.__file__)))  # beanjar's
 TAIL_BYTES = 24 * 1024
 QMP_EVERY = 5  # ticks between QMP cross-checks
@@ -246,6 +248,7 @@ def elsewhere_rows(lib, units):
 ACCELS = {
     "new": ["<Control>n"],
     "start": ["<Control>Return"],
+    "shutdown": ["<Control><Shift>Delete"],  # opens the Shut Down dialog, which confirms
     "connect": ["<Control><Shift>Return"],
     "settings": ["<Alt>Return"],
     "rename": ["F2"],
@@ -327,7 +330,7 @@ class Manager:
         self.last_index = 0  # the selected row's, for the one to select after it goes
         self.win.on_secondary_click = lambda row, x, y: self.context_menu(row.item.name, x, y)
         self.win.on_activate = self.activate
-        self.vm_menu = Gtk.PopoverMenu.new_from_model(self.win.vm_menu_button.get_menu_model())
+        self.vm_menu = Gtk.PopoverMenu.new_from_model(self.win.vm_context_menu)
         self.vm_menu.set_parent(self.vm_list)
         self.vm_menu.set_has_arrow(False)
         self.vm_menu.set_halign(Gtk.Align.START)
@@ -340,12 +343,16 @@ class Manager:
         run = {
             "new": self.new_vm,
             "start": self.start,
+            "start-connect": self.start_connect,
+            "start-reason": self.start_reason,
             "shutdown": self.shutdown,
+            "unplug": self.unplug,
             "connect": self.connect,
             "disconnect": self.disconnect,
             "wipe": self.wipe,
             "new-identity": self.new_identity,
             "rename": self.rename,
+            "clone": self.clone,
             "settings": self.settings,
             "logs": self.open_logs,
             "folder": self.open_vm_folder,
@@ -361,6 +368,13 @@ class Manager:
             self.actions[key] = action
             if key in ACCELS:
                 app.set_accels_for_action("win." + key, ACCELS[key])
+        # Settings at one of its pages (the Summary cards' Edit: win.settings-page::network)
+        action = Gio.SimpleAction.new("settings-page", GLib.VariantType.new("s"))
+        action.connect(
+            "activate", lambda _a, page: self.guard(lambda: self.settings(page.get_string()))
+        )
+        self.win.add_action(action)
+        self.actions["settings-page"] = action
         # The reconnect option: its state is read from the library's config before it is
         # connected, so start-up does not write it.
         self.reconnect = Gio.SimpleAction.new_stateful(
@@ -380,6 +394,7 @@ class Manager:
 
         self.summary_view = Summary(self)
         self.summary.append(self.summary_view)
+        self.summary_view.follow(self.win.narrow)
         self.summary_values = {}
         self.details = self.win.details
         from .inspector_ui import Panel
@@ -392,7 +407,7 @@ class Manager:
 
         self.vnc_panel = vnc_ui.Panel(self)
         self.summary_view.insert_child_after(self.vnc_panel, self.summary_view.inspector_slot)
-        self.details.set_visible_child_name("console")
+        self.details.set_visible_child_name("summary")
 
         # Viewers and VMs already running are found from their pidfiles.
         for vm in self.lib.vms():
@@ -856,16 +871,23 @@ class Manager:
         # taken by _poll, off the main loop)
         blocked = self.blocked.get(name) if vm is not None and off else None
         dbus = vm is not None and vm.display == "dbus"
+        start = vm is not None and off and not blocked and self.prepare_op is None
+        shutdown = vm is not None and st in (STARTING, RUNNING) and not busy
         sens = {
             "new": self.create_op is None,
-            "start": vm is not None and off and not blocked and self.prepare_op is None,
-            "shutdown": vm is not None and st in (STARTING, RUNNING) and not busy,
+            "start": start,
+            "start-connect": start and dbus,
+            "start-reason": start,
+            "shutdown": shutdown,
+            "unplug": shutdown,
             "connect": vm is not None and dbus and pid is not None and not vpid and not busy,
             "disconnect": vm is not None and vpid is not None and not busy,
             "wipe": vm is not None and off,
             "new-identity": vm is not None and off,
             "rename": vm is not None and off,
+            "clone": vm is not None and off,
             "settings": vm is not None and off and self.prepare_op is None,
+            "settings-page": vm is not None and off and self.prepare_op is None,
             "logs": name is not None,
             "folder": name is not None,
             "delete": name is not None and (off or name in self.broken and not pid),
@@ -873,17 +895,44 @@ class Manager:
         for k, on in sens.items():
             if self.actions[k].get_enabled() != on:
                 self.actions[k].set_enabled(on)
-        self.win.start_button.set_tooltip_text(blocked or "Start")
-        self.win.connect_button.set_tooltip_text(
-            f"Display {vm.display}: the viewer needs dbus"
-            if vm is not None and not dbus
-            else "Connect"
+        self.update_header(
+            header.slot(
+                st if vm is not None else None,
+                self.ops[name][0] if busy else None,
+                blocked,
+                pid is not None,
+                vpid is not None,
+                vm.display if vm is not None else "dbus",
+            )
         )
+        settings_tip = (
+            "Shut down to change settings" if vm is not None and st != OFF else "Settings…"
+        )
+        self.win.settings_button.set_tooltip_text(settings_tip)
+        self.summary_view.set_edit_tooltip(settings_tip)
         self.win.vm_menu_button.set_sensitive(name is not None)
         self.win.busy.set_visible(
             bool(self.ops) or self.create_op is not None or self.prepare_op is not None
         )
         self.vm_title.set_text(name or "No VM selected")
+
+    def update_header(self, slot):
+        """The header's state button as header.slot says (label, icon, style, action, dropdown)."""
+        button, content = self.win.state_button, self.win.state_content
+        content.set_label(slot.label)
+        content.set_icon_name(slot.icon)
+        button.set_tooltip_text(slot.tooltip)
+        if slot.suggested != button.has_css_class("suggested-action"):
+            (button.add_css_class if slot.suggested else button.remove_css_class)(
+                "suggested-action"
+            )
+        button.set_action_name(f"win.{slot.action}" if slot.action else None)
+        if slot.menu:
+            menu = getattr(self.win, slot.menu)
+            if button.get_menu_model() is not menu:
+                button.set_menu_model(menu)
+        # without an action (an operation runs) the whole button, dropdown included, is insensitive
+        button.set_sensitive(slot.action is not None)
 
     def update_details(self):
         name = self.selected()
@@ -909,7 +958,7 @@ class Manager:
         if name in self.broken:
             self.summary_values = {"state": f"{BROKEN}: {self.broken[name]}", "directory": vm.dir}
             self.summary_view.update(
-                {"directory": vm.dir, "qemu_pid": str(pid) if pid else ""},
+                {"directory": vm.dir, "logs": vm.logs_dir, "qemu_pid": str(pid) if pid else ""},
                 state=BROKEN,
                 firmware=self.broken[name],
             )
@@ -984,8 +1033,10 @@ class Manager:
             else vmsettings.flow_bytes_label(c.get("mitm_flow_bytes"))
         )
         displayed.update(
+            directory=home_path(vm.dir),  # ~ shortened; the tooltip has it too (Summary.update)
+            logs=home_path(vm.logs_dir),
             link=link,
-            firmware_path=fw_dir,
+            firmware_path=home_path(fw_dir),
             qemu_pid=str(pid) if pid else "",
             viewer_pid=str(vpid) if vpid else "",
         )
@@ -998,6 +1049,8 @@ class Manager:
             platform=vm.platform_title(),
             firmware=f"{fw_label(vm.firmware_name())} · {source}",
             layers=c.get("layers", []),
+            reason=vm.reason() if st != OFF else None,
+            tags=c.get("tags", []),
         )
         self._set_console(vm.console_log)
 
@@ -1180,15 +1233,55 @@ class Manager:
             return True
         return False
 
-    def start_vm(self, name):
-        if self.offer_mitm(name, lambda: self.start_vm(name)):
+    def start_vm(self, name, reason=None, then=None):
+        """Start VM name (`beanjar start`, with --reason: why it runs); then(), once it started."""
+        if self.offer_mitm(name, lambda: self.start_vm(name, reason, then)):
             return
-        self.run(name, "start", ["start", name])
+        self.run(
+            name,
+            "start",
+            ["start", name, *(["--reason", reason] if reason else [])],
+            done=(lambda rc: then() if rc == 0 else None) if then else None,
+        )
+
+    def start_connect(self):
+        """Start and Connect: the viewer opens once the start returns (QEMU runs)."""
+        name = self.selected()
+        self.start_vm(name, then=lambda: self.guard(lambda: self.connect_vm(name)))
+
+    def start_reason(self):
+        """Start with Reason…: why it runs (`beanjar start --reason`), which list, info and the
+        viewers show and Stop asks about."""
+        name = self.selected()
+
+        def ok(form):
+            self.start_vm(name, form.fields["reason"].get_text().strip())
+
+        form = self.widgets.Confirm(
+            f"Start {name}?",
+            "Say why it runs: others see it in the list and the viewers, and Shut Down asks "
+            "before overriding it. It lasts until the VM stops.",
+            "_Start",
+            ok,
+            destructive=False,
+            on_error=self.say,
+        )
+        entry = form.add_entry("reason", "Reason")
+        entry.connect(
+            "changed", lambda e: form.set_response_enabled("ok", bool(e.get_text().strip()))
+        )
+        form.set_response_enabled("ok", False)
+        self.show(form)
+        return form
 
     def shutdown(self):
         return self.shut_down(self.selected(), self.lib, self.selected())
 
-    def shut_down(self, name, library, key, note=None):
+    def unplug(self):
+        """Unplug…: the Shut Down dialog with Unplug chosen."""
+        return self.shut_down(self.selected(), self.lib, self.selected(), unplug=True)
+
+    def shut_down(self, name, library, key, note=None, unplug=False):
         """Shut Down… (after VirtualBox's close dialog): the power-off signal (`beanjar stop
         --no-fallback`), the default, or Unplug (`beanjar stop --unplug`, QEMU killed at once).
         Whether the guest can take the signal is read when the dialog opens (VM.power_off_refusal:
@@ -1251,6 +1344,8 @@ class Manager:
             form.set_response_label("ok", "_Unplug" if unplug else "_Shut Down")
 
         form.fields["unplug"].connect("toggled", chosen)
+        if unplug:
+            form.fields["unplug"].set_active(True)
         self.show(form)
         return form
 
@@ -1299,7 +1394,9 @@ class Manager:
         return d
 
     def connect(self):
-        name = self.selected()
+        self.connect_vm(self.selected())
+
+    def connect_vm(self, name):
         pid = self.lib.view(name)
         self.want_viewer[name] = self.lib.vm(name).pid()
         self.say(f"{name}: viewer opened (pid {pid})")
@@ -1395,6 +1492,54 @@ class Manager:
         )
         form.set_response_enabled("ok", False)
         self.show(form)
+
+    def clone(self):
+        """Clone… (`beanjar clone`): a copy of the VM, off, as another TV under a new name."""
+        name = self.selected()
+
+        def ok(form):
+            new = form.fields["name"].get_text().strip()
+
+            def done(rc):
+                if rc == 0:
+                    self.refresh()
+                    self.select(new)
+                    self.say(f"{name} cloned to {new}")
+                    return True
+                return False
+
+            self.run(name, "clone", ["clone", name, new], done=done)
+
+        form = self.widgets.Confirm(
+            f"Clone {name}?",
+            "The copy keeps its settings, state disks and model key, as another TV: with a new "
+            "MAC address, serial number and SSH and developer mode keys.",
+            "_Clone",
+            ok,
+            destructive=False,
+            on_error=self.say,
+        )
+        taken = {vm.name for vm in self.lib.vms()}
+        entry = form.add_entry("name", "Name", self.clone_name(name, taken))
+        entry.connect(
+            "changed",
+            lambda e: form.set_response_enabled(
+                "ok",
+                bool(core.NAME_RE.fullmatch(e.get_text().strip()))
+                and e.get_text().strip() not in taken,
+            ),
+        )
+        self.show(form)
+        return form
+
+    @staticmethod
+    def clone_name(name, taken):
+        """A free name for a copy of VM name: name-2, name-3, ..."""
+        base = name
+        i = 2
+        while f"{base}-{i}" in taken:
+            i += 1
+        return f"{base}-{i}"
 
     def _vm_form(self, title, ok_label, cfg, on_ok, new):
         """New VM (new) or Settings, filled in from cfg (vm.toml's settings; name)."""
@@ -1833,7 +1978,8 @@ class Manager:
         self.show(win)
         self.update_actions()
 
-    def settings(self):
+    def settings(self, page=None):
+        """Settings…, at page (a VMForm page, or "identity": the Network page's Identity group)."""
         name = self.selected()
         vm = self.lib.vm(name)
         cfg = dict(vm.config, name=name, dir=vm.dir)
@@ -1861,7 +2007,14 @@ class Manager:
             self.say(saved)
             self.offer_mitm(name)
 
-        self.show(self._vm_form(f"Settings of {name}", "_Save", cfg, ok, False))
+        form = self._vm_form(f"Settings of {name}", "_Save", cfg, ok, False)
+        if page == "identity":
+            form.show_page("network")
+            form.scroll_to(form.identity_group)
+        elif page:
+            form.show_page(page)
+        self.show(form)
+        return form
 
     def delete(self):
         name = self.selected()

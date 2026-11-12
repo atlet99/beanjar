@@ -7,7 +7,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, GObject, Gtk  # noqa: E402
+from gi.repository import Adw, GLib, GObject, Graphene, Gtk  # noqa: E402
 
 from . import ui  # noqa: E402
 from beanjar.core import Error  # noqa: E402
@@ -36,10 +36,16 @@ class ManagerWindow(Adw.ApplicationWindow):
     summary = Gtk.Template.Child()
     console = Gtk.Template.Child()
     output = Gtk.Template.Child()
-    start_button = Gtk.Template.Child()
-    shutdown_button = Gtk.Template.Child()
-    connect_button = Gtk.Template.Child()
+    narrow = Gtk.Template.Child()
+    state_button = Gtk.Template.Child()
+    state_content = Gtk.Template.Child()
+    settings_button = Gtk.Template.Child()
     vm_menu_button = Gtk.Template.Child()
+    vm_context_menu = Gtk.Template.Child()
+    start_menu = Gtk.Template.Child()
+    running_menu = Gtk.Template.Child()
+    viewer_menu = Gtk.Template.Child()
+    unplug_menu = Gtk.Template.Child()
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -431,6 +437,20 @@ class VMForm(_Submit, Adw.Dialog):
         if navigate:
             self.split.set_show_content(True)
         self._banner_button()
+
+    def scroll_to(self, widget):
+        """Scroll widget's page to it (a group of a long page), once the page is laid out."""
+
+        def scroll(*_args):
+            view = widget.get_ancestor(Gtk.ScrolledWindow)
+            if view is None or not widget.get_mapped():
+                return GLib.SOURCE_CONTINUE  # not laid out yet
+            ok, point = widget.compute_point(view.get_child(), Graphene.Point())
+            if ok:
+                view.get_vadjustment().set_value(point.y)
+            return GLib.SOURCE_REMOVE
+
+        widget.add_tick_callback(lambda *_a: scroll())
 
     @Gtk.Template.Callback()
     def on_category_activated(self, _list, row):

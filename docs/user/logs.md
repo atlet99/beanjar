@@ -3,8 +3,8 @@
 ## Where the logs are
 
 Each VM keeps its logs in its own directory, `vms/NAME/logs/` of the library
-(`~/.local/share/beanjar/vms/NAME/logs/` by default); the manager window's **Open Log Folder**
-opens it.
+(`~/.local/share/beanjar/vms/NAME/logs/` by default); the **Open** beside "Logs" in the manager's
+Summary ("Files and runtime details") opens it.
 
 | File | What it holds |
 |---|---|

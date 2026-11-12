@@ -85,6 +85,19 @@ def slurp(path):
         return f.read()
 
 
+def menu_actions(model):
+    """The action names of a Gio.MenuModel's items, its sections' included."""
+    names = []
+    for i in range(model.get_n_items()):
+        action = model.get_item_attribute_value(i, "action", None)
+        if action is not None:
+            names.append(action.get_string())
+        section = model.get_item_link(i, "section")
+        if section is not None:
+            names += menu_actions(section)
+    return names
+
+
 def dismiss_toasts(m):
     """Close the toasts of earlier operations (libadwaita 1.7), so a screenshot shows the dialog's."""
     if hasattr(m.win.toasts, "dismiss_all"):
@@ -186,6 +199,7 @@ def main():
         widgets = m.widgets
         # 0. the empty library: a status page offering New VM
         check(m.win.stack.get_visible_child_name() == "empty", "empty library: the status page")
+        check(m.details.get_visible_child_name() == "summary", "the details open on the Summary")
         check(
             m.win.empty_new.has_css_class("suggested-action")
             and "import" not in m.actions
@@ -900,12 +914,30 @@ def main():
             "Save cleared it",
         )
 
+        # 2c'. the Summary cards' Edit opens Settings at their page
+        for edit, page in zip(m.summary_view.edits, ("hardware", "network", "network")):
+            check(edit.get_sensitive(), f"Edit ({page}) is sensitive while the VM is off")
+            edit.emit("clicked")
+            yield 0.3
+            form = m.dialog
+            check(
+                isinstance(form, m.widgets.VMForm) and form.current_page() == page,
+                f"Edit opens Settings at {page}",
+            )
+            form.close()
+            yield lambda form=form: form.closed
+
         # 2d. narrow: the list overlays the details; picking a VM there hides it again
         m.win.set_default_size(480, 760)
         yield lambda: m.win.split.get_collapsed()
         check(
             m.win.sidebar_button.get_visible() and m.vm_list.get_activate_on_single_click(),
             "narrow: the list collapses behind a header toggle, one click picks",
+        )
+        check(
+            not m.win.settings_button.get_visible()
+            and "win.settings" in menu_actions(m.win.vm_menu_button.get_menu_model()),
+            "narrow: Settings folds into the VM menu",
         )
         m.win.sidebar_button.set_active(True)
         yield 0.4
@@ -927,6 +959,11 @@ def main():
         # free memory allows
         m.vm_list.emit("row-activated", tv1_row)
         check(not m.enabled("start") and "tv1" in m.ops, "activating an Off VM's row starts it")
+        check(
+            m.win.state_content.get_label() == "Starting…"
+            and not m.win.state_button.get_sensitive(),
+            "the header's state button says Starting…, insensitive, while the start runs",
+        )
         yield lambda: state("tv1") == core.STARTING and "tv1" not in m.ops
         check(
             tv1_row.dot.has_css_class("warning") and item("tv1").phase == core.STARTING,
@@ -946,9 +983,15 @@ def main():
             "Wipe/New Identity/Delete disabled",
         )
         check(
-            m.win.start_button.get_action_name() == "win.start"
-            and not m.win.start_button.get_sensitive(),
-            "the header's Start button follows its action",
+            m.win.state_button.get_action_name() == "win.connect"
+            and m.win.state_content.get_label() == "Connect"
+            and m.win.state_button.has_css_class("suggested-action")
+            and m.win.state_button.get_menu_model() is m.win.running_menu
+            and not m.win.settings_button.get_sensitive()
+            and m.win.settings_button.get_tooltip_text() == "Shut down to change settings"
+            and not any(e.get_sensitive() for e in m.summary_view.edits),
+            "running: the state button connects (Shut Down… and Unplug… in its dropdown); "
+            "Settings and the cards' Edit insensitive",
         )
         check(
             f"Address: {lib.vm('tv1').address()}" in m.summary_text()
@@ -971,7 +1014,7 @@ def main():
         yield lambda: not m.enabled("start")
         check(
             not m.enabled("start")
-            and "not enough free memory" in (m.win.start_button.get_tooltip_text() or ""),
+            and "not enough free memory" in (m.win.state_button.get_tooltip_text() or ""),
             "Start disabled without the memory for tv2, and says why",
         )
         available(32768)
@@ -981,7 +1024,7 @@ def main():
         # the machine's max_running (the test's own XDG_CONFIG_HOME: testunits.isolate), tv1 running
         hostconfig.set_global_option("max_running", "1")
         yield lambda: not m.enabled("start")
-        tip = m.win.start_button.get_tooltip_text() or ""
+        tip = m.win.state_button.get_tooltip_text() or ""
         check(
             not m.enabled("start")
             and "cannot start VM tv2: 1 VM already running and the limit is 1 (max_running): tv1 of"
@@ -1009,6 +1052,14 @@ def main():
         check(
             not m.enabled("connect") and m.enabled("disconnect"),
             "Disconnect enabled, Connect disabled",
+        )
+        check(
+            m.win.state_content.get_label() == "Shut Down…"
+            and m.win.state_button.get_action_name() == "win.shutdown"
+            and not m.win.state_button.has_css_class("suggested-action")
+            and m.win.state_button.get_menu_model() is m.win.viewer_menu,
+            "with the viewer open the state button shuts down (Disconnect and Unplug… in its "
+            "dropdown)",
         )
         buf = m.console.get_buffer()
         check(
@@ -1393,8 +1444,11 @@ def main():
             "a stop refused the signal offers Shut Down without it, or Unplug",
         )
         d.force_close()
-        form = m.shutdown()
-        form.fields["unplug"].set_active(True)
+        form = m.unplug()
+        check(
+            form.fields["unplug"].get_active() and form.get_response_label("ok") == "_Unplug",
+            "Unplug… opens the Shut Down dialog with Unplug chosen",
+        )
         form.submit()
         yield lambda: state("tv1") == core.OFF and "tv1" not in m.ops
         out = m.output.get_buffer()
@@ -1505,9 +1559,67 @@ def main():
         m.dialog.submit()
         yield lambda: item("tv2") is not None and m.selected() == "tv2"
 
+        # 7c. Clone: a free name offered, a taken one refused; the copy is another TV, selected
+        check(m.enabled("clone"), "Clone enabled while off")
+        form = m.clone()
+        check(
+            form.fields["name"].get_text() == "tv2-2" and form.get_response_enabled("ok"),
+            "Clone offers a free name",
+        )
+        form.fields["name"].set_text("tv1")
+        check(not form.get_response_enabled("ok"), "Clone refuses a taken name")
+        form.fields["name"].set_text("tv2c")
+        form.submit()
+        yield lambda: "tv2" not in m.ops and item("tv2c") is not None and m.selected() == "tv2c"
+        check(
+            m.messages[-1] == "tv2 cloned to tv2c"
+            and lib.vm("tv2c").config["mac"] != lib.vm("tv2").config["mac"],
+            f"tv2 cloned as another TV, selected ({m.messages[-1]})",
+        )
+        lib.delete("tv2c")
+        yield lambda: item("tv2c") is None
+
+        # 7d. Start with Reason…: the reason on the Summary's state line
+        m.select("tv2")
+        yield lambda: m.enabled("start-reason")
+        form = m.start_reason()
+        check(not form.get_response_enabled("ok"), "Start with Reason needs a reason")
+        form.fields["reason"].set_text("gui check")
+        form.submit()
+        yield lambda: state("tv2") == core.RUNNING and "tv2" not in m.ops
+        reason = lib.vm("tv2").reason()
+        if reason:  # a reason needs the VM's systemd unit
+            m.refresh()
+            check(
+                reason["text"] == "gui check"
+                and m.summary_view.reason.get_visible()
+                and m.summary_view.reason_text.get_text() == "gui check",
+                "the reason shows on the Summary's state line",
+            )
+        else:
+            print("skip: no systemd unit: no reason")
+        form = m.unplug()
+        form.submit()
+        yield lambda: state("tv2") == core.OFF and "tv2" not in m.ops
+        check(not m.summary_view.reason.get_visible(), "and goes when the VM stops")
+
         # 8. the context menu, then Delete through its confirmation
         m.select("tv1")
         yield 0.3
+        check(
+            menu_actions(m.win.vm_menu_button.get_menu_model())
+            == ["win.rename", "win.clone", "win.wipe", "win.new-identity", "win.delete"],
+            "the VM menu (⋮) has the rare actions only",
+        )
+        context = menu_actions(m.win.vm_context_menu)
+        check(
+            all(
+                f"win.{k}" in context
+                for k in ("start", "shutdown", "unplug", "connect", "disconnect", "settings")
+            )
+            and context[-5:] == menu_actions(m.win.vm_menu_button.get_menu_model()),
+            "the context menu has every action, the VM menu's last",
+        )
         m.context_menu("tv2", 20, 20)
         yield 0.3
         check(
