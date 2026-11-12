@@ -98,6 +98,15 @@ def menu_actions(model):
     return names
 
 
+def descendants(widget):
+    """Every widget under widget (its children's children included)."""
+    child = widget.get_first_child()
+    while child is not None:
+        yield child
+        yield from descendants(child)
+        child = child.get_next_sibling()
+
+
 def dismiss_toasts(m):
     """Close the toasts of earlier operations (libadwaita 1.7), so a screenshot shows the dialog's."""
     if hasattr(m.win.toasts, "dismiss_all"):
@@ -218,6 +227,55 @@ def main():
             and Gtk.Window.get_default_icon_name() == "org.webosbrew.beanjar"
             and m.win.get_title() == "Beanjar",
             "the window: Beanjar, the application icon in the theme and the windows' default",
+        )
+        # the header: +, the title (the library's path in its tooltip), the icon-only state button,
+        # ⋮ (Settings… first) and ☰ (no New VM); no Settings gear
+        bar = m.win.state_button.get_ancestor(Adw.HeaderBar)
+        header_icons = [
+            w.get_icon_name()
+            for w in descendants(bar)
+            if isinstance(w, (Gtk.Button, Gtk.MenuButton)) and w.get_icon_name()
+        ]
+        check(
+            "applications-system-symbolic" not in header_icons
+            and not hasattr(m.win, "settings_button"),
+            f"the header has no Settings gear ({header_icons})",
+        )
+        check(
+            m.win.window_title.get_title() == "Beanjar"
+            and not m.win.window_title.get_subtitle()
+            and m.win.window_title.get_tooltip_text()
+            in (m.lib.root, "~" + m.lib.root[len(os.path.expanduser("~")) :]),
+            f"the title is Beanjar, the library's path its tooltip ({m.win.window_title.get_tooltip_text()})",
+        )
+        check(
+            menu_actions(m.win.vm_menu_button.get_menu_model())[0] == "win.settings",
+            "⋮ starts with Settings…",
+        )
+        main = menu_actions(m.win.main_menu_button.get_menu_model())
+        check(
+            "win.new" not in main and main == ["win.auto-reconnect", "win.about"],
+            f"☰ has no New VM: the reconnect option and About ({main})",
+        )
+        app = m.win.get_application()
+
+        def accels(names):
+            return [tuple(Gtk.accelerator_parse(n)) for n in names]
+
+        check(
+            all(
+                accels(app.get_accels_for_action(f"win.{k}")) == accels(v)
+                for k, v in gui.ACCELS.items()
+            )
+            and accels(app.get_accels_for_action("win.new")) == accels(["<Control>n"])
+            and accels(app.get_accels_for_action("win.settings")) == accels(["<Alt>Return"]),
+            "every accelerator is set, Ctrl+N and Alt+Return included",
+        )
+        check(
+            m.win.state_button.get_icon_name() == "media-playback-start-symbolic"
+            and m.win.state_button.get_tooltip_text() == "Start"
+            and not m.win.state_button.get_label(),
+            "the state button shows an icon only, its tooltip naming the action (Start)",
         )
         used = icon_names(["host/ui/data/manager/*.blp", "host/ui/beanjar_ui/manager/*.py"])
         missing = [n for n in used if not theme.has_icon(n)]
@@ -935,9 +993,9 @@ def main():
             "narrow: the list collapses behind a header toggle, one click picks",
         )
         check(
-            not m.win.settings_button.get_visible()
-            and "win.settings" in menu_actions(m.win.vm_menu_button.get_menu_model()),
-            "narrow: Settings folds into the VM menu",
+            menu_actions(m.win.vm_menu_button.get_menu_model())[0] == "win.settings"
+            and m.win.new_button.get_visible(),
+            "narrow: ⋮ still starts with Settings…; + stays (☰ has no New VM)",
         )
         m.win.sidebar_button.set_active(True)
         yield 0.4
@@ -960,9 +1018,12 @@ def main():
         m.vm_list.emit("row-activated", tv1_row)
         check(not m.enabled("start") and "tv1" in m.ops, "activating an Off VM's row starts it")
         check(
-            m.win.state_content.get_label() == "Starting…"
-            and not m.win.state_button.get_sensitive(),
-            "the header's state button says Starting…, insensitive, while the start runs",
+            m.win.state_button.get_icon_name() == "media-playback-start-symbolic"
+            and m.win.state_button.get_tooltip_text() == "Starting…"
+            and not m.win.state_button.get_sensitive()
+            and m.win.busy.get_visible(),
+            "while the start runs the state button keeps its icon, insensitive, its tooltip "
+            "Starting…; the header's spinner shows",
         )
         yield lambda: state("tv1") == core.STARTING and "tv1" not in m.ops
         check(
@@ -984,14 +1045,17 @@ def main():
         )
         check(
             m.win.state_button.get_action_name() == "win.connect"
-            and m.win.state_content.get_label() == "Connect"
+            and m.win.state_button.get_icon_name() == "video-display-symbolic"
+            and m.win.state_button.get_tooltip_text() == "Connect"
             and m.win.state_button.has_css_class("suggested-action")
             and m.win.state_button.get_menu_model() is m.win.running_menu
-            and not m.win.settings_button.get_sensitive()
-            and m.win.settings_button.get_tooltip_text() == "Shut down to change settings"
+            and not m.enabled("settings")
+            and all(
+                e.get_tooltip_text() == "Shut down to change settings" for e in m.summary_view.edits
+            )
             and not any(e.get_sensitive() for e in m.summary_view.edits),
-            "running: the state button connects (Shut Down… and Unplug… in its dropdown); "
-            "Settings and the cards' Edit insensitive",
+            "running: the state button connects, its tooltip Connect (Shut Down… and Unplug… in "
+            "its dropdown); Settings… (⋮) and the cards' Edit insensitive",
         )
         check(
             f"Address: {lib.vm('tv1').address()}" in m.summary_text()
@@ -1054,7 +1118,8 @@ def main():
             "Disconnect enabled, Connect disabled",
         )
         check(
-            m.win.state_content.get_label() == "Shut Down…"
+            m.win.state_button.get_icon_name() == "system-shutdown-symbolic"
+            and m.win.state_button.get_tooltip_text() == "Shut Down…"
             and m.win.state_button.get_action_name() == "win.shutdown"
             and not m.win.state_button.has_css_class("suggested-action")
             and m.win.state_button.get_menu_model() is m.win.viewer_menu,
@@ -1608,8 +1673,15 @@ def main():
         yield 0.3
         check(
             menu_actions(m.win.vm_menu_button.get_menu_model())
-            == ["win.rename", "win.clone", "win.wipe", "win.new-identity", "win.delete"],
-            "the VM menu (⋮) has the rare actions only",
+            == [
+                "win.settings",
+                "win.rename",
+                "win.clone",
+                "win.wipe",
+                "win.new-identity",
+                "win.delete",
+            ],
+            "the VM menu (⋮) has Settings… and the rare actions only",
         )
         context = menu_actions(m.win.vm_context_menu)
         check(
@@ -1617,7 +1689,7 @@ def main():
                 f"win.{k}" in context
                 for k in ("start", "shutdown", "unplug", "connect", "disconnect", "settings")
             )
-            and context[-5:] == menu_actions(m.win.vm_menu_button.get_menu_model()),
+            and context[-6:] == menu_actions(m.win.vm_menu_button.get_menu_model()),
             "the context menu has every action, the VM menu's last",
         )
         m.context_menu("tv2", 20, 20)

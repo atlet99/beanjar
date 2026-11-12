@@ -4,12 +4,13 @@
 // sidebar, the VMs running elsewhere below it, read-only (or, with neither, a status page),
 // beside the selected VM's details (Summary, Console, Output), and toasts for the results. The actions are the window's (win.start, ...; gui.Manager
 // adds them and sets their sensitivity); the header's buttons, its menus and the list's context
-// menu (vm_context_menu) name them. The header has one state button (state_button, an
-// Adw.SplitButton: Start, Connect or Shut Down…, with its dropdown; header.py picks them by the
-// selected VM's state), Settings, the VM menu (⋮, the rare actions) and the main menu (☰). The
-// list's rows (vm-row.blp), the summary's grouped cards and every text are set from Python. Narrow,
-// the sidebar overlays the details, shown by the header's toggle, a click on a row picks it and
-// hides the list again, and Settings folds into the VM menu.
+// menu (vm_context_menu) name them. The header has New VM (+), the title (the library's path in its
+// tooltip), one icon-only state button (state_button, an Adw.SplitButton: Start, Connect or Shut
+// Down…, named by its tooltip, with its dropdown; header.py picks them by the selected VM's state),
+// the VM menu (⋮: Settings… and the rare actions) and the main menu (☰). The list's rows
+// (vm-row.blp), the summary's grouped cards and every text are set from Python. Narrow, the
+// sidebar overlays the details, shown by the header's toggle, and a click on a row picks it and
+// hides the list again.
 using Gtk 4.0;
 using Adw 1;
 
@@ -26,9 +27,6 @@ template $ManagerWindow: Adw.ApplicationWindow {
     setters {
       split.collapsed: true;
       sidebar_button.visible: true;
-      new_button.visible: false;
-      settings_button.visible: false;
-      vm_menu_button.menu-model: vm_menu_narrow;
       vm_list.activate-on-single-click: true;
     }
   }
@@ -63,7 +61,7 @@ template $ManagerWindow: Adw.ApplicationWindow {
         };
 
         [end]
-        Gtk.MenuButton {
+        Gtk.MenuButton main_menu_button {
           icon-name: "open-menu-symbolic";
           tooltip-text: "Main Menu";
           primary: true;
@@ -78,22 +76,14 @@ template $ManagerWindow: Adw.ApplicationWindow {
         }
 
         [end]
-        Gtk.Button settings_button {
-          icon-name: "applications-system-symbolic";
-          tooltip-text: "Settings…";
-          action-name: "win.settings";
-        }
-
-        [end]
         Adw.SplitButton state_button {
           action-name: "win.start";
           menu-model: start_menu;
           dropdown-tooltip: "More Actions";
 
-          child: Adw.ButtonContent state_content {
-            icon-name: "media-playback-start-symbolic";
-            label: "Start";
-          };
+          // icon only: its tooltip (and accessible label) names the action (gui.Manager.update_header)
+          icon-name: "media-playback-start-symbolic";
+          tooltip-text: "Start";
 
           styles [
             "suggested-action",
@@ -283,10 +273,6 @@ template $ManagerWindow: Adw.ApplicationWindow {
 // item.
 menu main_menu {
   section {
-    item ("_New VM…", "win.new")
-  }
-
-  section {
     item ("_Reconnect the Viewer When the VM Restarts", "win.auto-reconnect")
   }
 
@@ -295,26 +281,10 @@ menu main_menu {
   }
 }
 
-// The VM menu (⋮): the selected VM's rare actions, those only an Off VM takes and the destructive
-// ones; Start, Shut Down, Connect and Disconnect are the state button's and the context menu's.
+// The VM menu (⋮): Settings…, then the selected VM's rare actions, those only an Off VM takes and
+// the destructive ones; Start, Shut Down, Connect and Disconnect are the state button's and the
+// context menu's.
 menu vm_menu {
-  section {
-    item ("Re_name…", "win.rename")
-    item ("_Clone…", "win.clone")
-  }
-
-  section {
-    item ("_Wipe…", "win.wipe")
-    item ("New _Identity…", "win.new-identity")
-  }
-
-  section {
-    item ("_Delete…", "win.delete")
-  }
-}
-
-// The VM menu while the window is narrow: Settings folds into it.
-menu vm_menu_narrow {
   section {
     item ("_Settings…", "win.settings")
   }

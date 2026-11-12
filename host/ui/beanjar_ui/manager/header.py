@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""The manager header's state button: one Adw.SplitButton whose label, icon, style, action and
-dropdown follow the selected VM's state (gui.Manager.update_actions applies it). Off it starts the
-VM, running it connects the viewer, with the viewer open it shuts the VM down; the dropdown has the
-variants (Start and Connect, Start with Reason…) or the rarer steps (Shut Down…, Disconnect,
-Unplug…). Whether each action can run is its own (the window's actions' sensitivity); this only
+"""The manager header's state button: one icon-only Adw.SplitButton whose icon, tooltip (the action
+it takes, also its accessible label), style, action and dropdown follow the selected VM's state
+(gui.Manager.update_actions applies it). Off it starts the VM, running it connects the viewer, with
+the viewer open it shuts the VM down; the dropdown has the variants (Start and Connect, Start with
+Reason…) or the rarer steps (Shut Down…, Disconnect, Unplug…). Whether each action can run is its own (the window's actions' sensitivity); this only
 picks which one the button shows. No GTK here: the tests check the mapping without a display."""
 
 from dataclasses import dataclass
@@ -32,9 +32,12 @@ BUSY = {
 
 @dataclass(frozen=True)
 class Slot:
-    """The state button: label and icon; action, the window action its main part runs (win.<action>;
-    None: the button is insensitive, dropdown included); menu, its dropdown (a menu of window.blp);
-    suggested: the suggested-action style; tooltip."""
+    """The state button: label, the action it names (its accessible label), and icon; action, the
+    window action its main part runs (win.<action>; None: the button is insensitive, dropdown
+    included); menu, its dropdown (a menu of window.blp); suggested: the suggested-action style;
+    tooltip, the label or why the action cannot run. While an operation runs the button is
+    insensitive with the state's icon (the header's spinner shows that something runs) and its
+    tooltip says what runs."""
 
     label: str
     icon: str
@@ -51,9 +54,9 @@ def slot(phase=OFF, busy=None, blocked=None, pid=False, viewer=False, display="d
     display (the viewer needs dbus)."""
     if busy is not None:
         label, icon = BUSY.get(busy, ("Working…", WORKING_ICON))
-        return Slot(label, icon, None, None, False, f"{busy[:1].upper()}{busy[1:]} in progress")
+        return Slot(label, icon, None, None, False, label)
     if phase == STOPPING:
-        return Slot("Shutting Down…", SHUTDOWN_ICON, None, None, False, "The VM is stopping")
+        return Slot("Shutting Down…", SHUTDOWN_ICON, None, None, False, "Shutting Down…")
     if phase not in (STARTING, RUNNING):
         return Slot("Start", START_ICON, "start", "start_menu", True, blocked or "Start")
     if display != "dbus":

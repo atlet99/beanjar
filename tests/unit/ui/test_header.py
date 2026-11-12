@@ -58,11 +58,12 @@ def test_busy_is_insensitive(busy, label):
     for phase in (header.OFF, header.STARTING, header.RUNNING):
         s = slot(phase, busy=busy, pid=True)
         assert (s.label, s.action, s.suggested) == (label, None, False)
+        assert s.tooltip == label  # the icon-only button's tooltip says what runs
 
 
 def test_stopping():
     s = slot(header.STOPPING, pid=True)
-    assert s.action is None and s.label == "Shutting Down…"
+    assert s.action is None and s.label == s.tooltip == "Shutting Down…"
 
 
 @pytest.mark.parametrize("phase", [header.STARTING, header.RUNNING])
@@ -91,6 +92,22 @@ def test_no_dbus_display_shuts_down(display):
 def test_no_qemu_yet_shuts_down():
     s = slot(header.STARTING, pid=False)
     assert (s.action, s.menu) == ("shutdown", "unplug_menu")
+
+
+@pytest.mark.parametrize(
+    "kwargs, action",
+    [
+        ({"phase": header.OFF}, "Start"),
+        ({"phase": header.RUNNING, "pid": True}, "Connect"),
+        ({"phase": header.RUNNING, "pid": True, "viewer": True}, "Shut Down…"),
+        ({"phase": header.STARTING, "pid": False}, "Shut Down…"),
+        ({"phase": header.RUNNING, "pid": True, "display": "none"}, "Shut Down…"),
+    ],
+)
+def test_tooltip_names_the_action(kwargs, action):
+    """The button shows only an icon: its tooltip and label (the accessible label) name the action."""
+    s = slot(**kwargs)
+    assert s.label == action and s.tooltip.startswith(action)
 
 
 def test_menus_and_actions_exist():

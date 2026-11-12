@@ -336,7 +336,8 @@ class Manager:
         self.vm_menu.set_halign(Gtk.Align.START)
         home = os.path.expanduser("~")
         root = self.lib.root
-        self.win.window_title.set_subtitle(
+        # the library's path: the title's tooltip, so a narrow window does not cut the title
+        self.win.window_title.set_tooltip_text(
             "~" + root[len(home) :] if root.startswith(home + os.sep) else root
         )
         self.actions = {}
@@ -908,7 +909,6 @@ class Manager:
         settings_tip = (
             "Shut down to change settings" if vm is not None and st != OFF else "Settings…"
         )
-        self.win.settings_button.set_tooltip_text(settings_tip)
         self.summary_view.set_edit_tooltip(settings_tip)
         self.win.vm_menu_button.set_sensitive(name is not None)
         self.win.busy.set_visible(
@@ -917,11 +917,12 @@ class Manager:
         self.vm_title.set_text(name or "No VM selected")
 
     def update_header(self, slot):
-        """The header's state button as header.slot says (label, icon, style, action, dropdown)."""
-        button, content = self.win.state_button, self.win.state_content
-        content.set_label(slot.label)
-        content.set_icon_name(slot.icon)
+        """The header's state button as header.slot says: its icon, its tooltip and accessible label
+        (the action, or what runs), style, action and dropdown."""
+        button = self.win.state_button
+        button.set_icon_name(slot.icon)
         button.set_tooltip_text(slot.tooltip)
+        button.update_property([Gtk.AccessibleProperty.LABEL], [slot.label])
         if slot.suggested != button.has_css_class("suggested-action"):
             (button.add_css_class if slot.suggested else button.remove_css_class)(
                 "suggested-action"

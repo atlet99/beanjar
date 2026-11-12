@@ -1124,9 +1124,11 @@ VirtualBox or GNOME Boxes:
   status page offers New VM while there are none. Double click or Enter on a
   VM connects to it, or starts it. In a narrow window the list slides in from the header's
   sidebar button
-- the actions for the selection: Start, Shut Down… and Connect in the header bar; every action
-  (also Disconnect, Settings, Wipe, New Identity, Rename, Open Log Folder, Delete) in the header's VM menu
-  and the list's context menu; New VM in the header and the main menu
+- the actions for the selection: Start, Connect or Shut Down… as one icon button in the header bar
+  (its tooltip names the action; the rest in its dropdown); Settings…, Rename, Clone, Wipe, New
+  Identity and Delete in the header's VM menu (⋮); every action in the list's context menu; New VM
+  as the header's + button (Ctrl+N); the main menu (☰) has the reconnect option and About; the
+  title's tooltip is the library's folder
 - beside the list, the details: Summary (grouped firmware, hardware, connections, the traffic inspector of a mitm VM, and identity), Console (a live tail of the serial console) and Output
   (the last operation's); results show as toasts
 
