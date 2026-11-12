@@ -142,6 +142,17 @@ of the public repository's `guest-<version>` releases, the newest of the host's 
 `beanjar-debs-guest`. Without one the run fails, naming the tag to push. Pushes and pull requests
 build only the host.
 
+The Packages workflow releases the host on a tag `host-<version>` of the public repository: it
+builds both architectures, the tag must name the version the build produced (as for the guest; else
+the run fails and names the right tag), and one release carries every host `.deb` of amd64 and
+arm64 (the architecture-all ones once) and a `SHA256SUMS` of them. The release does not repeat the
+guest `.deb`, which is over 100 MB and has a release of its own: its notes name the guest release
+that pairs with the host, found as a manual run finds it (`guest_release.py select`), and the run
+fails without one, naming the tag to push, so release the guest first. Any later guest release of
+the same contract pairs as well. In any other repository a tag only builds and checks; the release
+is skipped. To release a host, for example `git tag host-0.4.0 <commit> && git push <public remote>
+host-0.4.0`.
+
 The same script builds the packages locally as root in a throwaway trixie container, for example
 `docker run --rm -v "$PWD:/src" debian:trixie /src/scripts/build-packages.sh host` (or `guest`)
 from a clean clone with its full history (the version comes from git).

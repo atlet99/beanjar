@@ -111,3 +111,15 @@ def test_fetch_none_names_the_tag(tmp_path):
         ),
     ):
         guest_release.fetch("o/r", "0.4.0", tmp_path)
+
+
+def test_select_prints_the_tag(tmp_path, capsys):
+    (tmp_path / "packaging").mkdir()
+    (tmp_path / "packaging/VERSION").write_text("0.4.2\n")
+    with fake_api(RELEASES, {}):
+        assert guest_release.main(["select", "--repo", "o/r", "--top", str(tmp_path)]) == 0
+    assert capsys.readouterr().out == f"guest-0.4.0+git12.g{H}\n"
+    (tmp_path / "packaging/VERSION").write_text("0.6.0\n")
+    with fake_api(RELEASES, {}):
+        assert guest_release.main(["select", "--repo", "o/r", "--top", str(tmp_path)]) == 1
+    assert "contract 0.6" in capsys.readouterr().err

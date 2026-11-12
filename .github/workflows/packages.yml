@@ -5,12 +5,17 @@
 # programs of packaging/vendor.toml, natively for amd64 and arm64. Pushes to main and pull requests
 # only check that they build; a manual run uploads the .deb files as workflow artifacts, with the
 # released beanjar-guest of the host's contract beside them (packaging/guest_release.py; the Guest
-# workflow builds and releases it; packaging/debian/README.md, "Built on GitHub").
+# workflow builds and releases it). A tag host-<version> releases the commit it points at, in the
+# public repository only: the tag must name the version the build produced (packaging/identity.py,
+# from this repository's history), and the release carries both architectures' .deb files and a
+# SHA256SUMS, its notes naming the guest release that pairs with the host rather than repeating its
+# .deb (packaging/debian/README.md, "Built on GitHub").
 name: Packages
 
 on:
   push:
     branches: [main]
+    tags: ["host-*"]
   pull_request:
   workflow_dispatch:
 
@@ -19,7 +24,8 @@ permissions:
 
 concurrency:
   group: packages-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  # a release is never cancelled half-way
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 jobs:
   host:
@@ -28,7 +34,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # upload: what a manual run keeps, architecture all once, from amd64
+          # upload: what a manual run and a release keep, architecture all once, from amd64
           - arch: amd64
             runner: ubuntu-24.04
             upload: |
@@ -50,8 +56,19 @@ jobs:
           persist-credentials: false
       - name: Build
         run: scripts/build-packages.sh host "$GITHUB_WORKSPACE/build/ci-packages"
+      - name: Check the tag
+        if: github.ref_type == 'tag'
+        working-directory: build/ci-packages/debs
+        run: |
+          for deb in *.deb; do
+            version=$(dpkg-deb -f "$deb" Version)
+            if [ "$GITHUB_REF_NAME" != "host-$version" ]; then
+              echo "tag $GITHUB_REF_NAME does not name the version built, $version ($deb): tag this commit host-$version" >&2
+              exit 1
+            fi
+          done
       - name: Upload
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: beanjar-debs-${{ matrix.arch }}
@@ -59,24 +76,71 @@ jobs:
           if-no-files-found: error
 
   # beanjar-guest is not built here: the newest release of the host's contract on the public
-  # repository, checked against its SHA256SUMS
+  # repository, checked against its SHA256SUMS (a manual run), or only its tag (a release's notes)
   guest:
-    if: github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.repository == 'mariotaku/beanjar' && github.ref_type == 'tag')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      tag: ${{ steps.select.outputs.tag }}
+    env:
+      # PUBLISH_TOKEN (the private repository's, scoped to the public one) reads its releases while
+      # that repository is private; elsewhere the job's own token does
+      GH_TOKEN: ${{ secrets.PUBLISH_TOKEN || github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Select
+        id: select
+        if: github.ref_type == 'tag'
+        run: |
+          tag=$(python3 -I packaging/guest_release.py select)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Fetch
-        env:
-          # PUBLISH_TOKEN (the private repository's, scoped to the public one) reads its releases
-          # while that repository is private; elsewhere the job's own token does
-          GH_TOKEN: ${{ secrets.PUBLISH_TOKEN || github.token }}
+        if: github.event_name == 'workflow_dispatch'
         run: python3 -I packaging/guest_release.py fetch --out build/ci-packages/debs
       - name: Upload
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: beanjar-debs-guest
           path: build/ci-packages/debs/beanjar-guest_*_all.deb
           if-no-files-found: error
+
+  # One release of both architectures' packages; beanjar-guest stays on its own release, which the
+  # notes name (the newest of the host's contract when this ran; any later one of it pairs too)
+  release:
+    needs: [host, guest]
+    if: github.repository == 'mariotaku/beanjar' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: beanjar-debs-amd64
+          path: release
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: beanjar-debs-arm64
+          path: release
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GUEST_TAG: ${{ needs.guest.outputs.tag }}
+        working-directory: release
+        run: |
+          [ -n "$GUEST_TAG" ] || { echo "no beanjar-guest release selected" >&2; exit 1; }
+          sha256sum -- *.deb > SHA256SUMS
+          cat SHA256SUMS
+          version=${GITHUB_REF_NAME#host-}
+          guest=${GUEST_TAG#guest-}
+          gh release create "$GITHUB_REF_NAME" --verify-tag --repo "$GITHUB_REPOSITORY" \
+            --title "beanjar $version" \
+            --notes "beanjar $version host packages for Debian 13 (amd64, arm64), built from $GITHUB_SHA by the Packages workflow.
+
+          They need beanjar-guest of the same host-guest contract, released separately: [$GUEST_TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/${GUEST_TAG//+/%2B}) (beanjar-guest_${guest}_all.deb), the newest of that contract when this was released." \
+            ./*.deb SHA256SUMS

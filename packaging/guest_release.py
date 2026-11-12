@@ -5,12 +5,14 @@
 "Built on GitHub").
 
   guest_release.py fetch --out DIR [--repo OWNER/NAME] [--top TOP]
+  guest_release.py select [--repo OWNER/NAME] [--top TOP]
 
 beanjar-guest is built and released only by the Guest workflow (.github/workflows/guest.yml), on a
 tag guest-<version> of the public repository. This picks, among that repository's releases, the
 newest whose version has the host-guest contract of TOP's packaging/VERSION (the range beanjar's
 Depends names: >= 0.Y, << 0.(Y+1)), downloads its .deb, checks it against the release's SHA256SUMS
-and writes it to DIR. No matching release is an error naming the tag to push. GH_TOKEN, when set,
+and writes it to DIR; select only prints that release's tag (a host release's notes name it). No
+matching release is an error naming the tag to push. GH_TOKEN, when set,
 authenticates the GitHub API requests; a public repository needs none.
 """
 
@@ -129,8 +131,8 @@ def asset(release, name):
     raise Error(f"release {release['tag_name']} has no asset {name}")
 
 
-def fetch(repository, host_version, out):
-    """Download and check the newest beanjar-guest of host_version's contract into out; its path."""
+def pick(repository, host_version):
+    """(version, release) of the newest beanjar-guest release of host_version's contract."""
     contract = identity.contract(host_version)
     picked = select(releases(repository), contract)
     if picked is None:
@@ -141,7 +143,12 @@ def fetch(repository, host_version, out):
             f"where <version> is the beanjar-guest version that commit builds "
             f"(the Guest workflow builds and releases it)"
         )
-    version, release = picked
+    return picked
+
+
+def fetch(repository, host_version, out):
+    """Download and check the newest beanjar-guest of host_version's contract into out; its path."""
+    version, release = pick(repository, host_version)
     name = deb_name(version)
     sums = parse_sums(asset(release, SUMS).decode())
     if name not in sums:
@@ -169,9 +176,16 @@ def main(argv=None):
     f.add_argument("--out", type=Path, required=True)
     f.add_argument("--repo", default=REPOSITORY)
     f.add_argument("--top", type=Path, default=TOP)
+    s = sub.add_parser("select")
+    s.add_argument("--repo", default=REPOSITORY)
+    s.add_argument("--top", type=Path, default=TOP)
     a = p.parse_args(argv)
     try:
-        path = fetch(a.repo, identity.base_version(a.top), a.out)
+        host_version = identity.base_version(a.top)
+        if a.cmd == "select":
+            print(pick(a.repo, host_version)[1]["tag_name"])
+            return 0
+        path = fetch(a.repo, host_version, a.out)
     except (Error, identity.Error) as e:
         print(f"guest_release: {e}", file=sys.stderr)
         return 1
