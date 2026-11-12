@@ -35,10 +35,25 @@ function build() {
   }
 }
 
-// why it runs, as `beanjar reason` prints it: its text, then who set it and when
-export function reasonLine(r) {
+// when and by whom a reason was set, as the desktop manager words it: "set 10:58 by user" (today
+// in the browser's time zone), "set 11 Nov 10:58 by user, agent" (before), the stamp kept as is
+// if it does not parse
+export function reasonNote(r, now = new Date()) {
+  let stamp = r.set || "?";
+  const when = new Date(String(r.set || "").replace(/([+-]\d\d)(\d\d)$/, "$1:$2"));
+  if (!Number.isNaN(when.getTime())) {
+    const time = when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+    stamp = when.toDateString() === now.toDateString() ? time
+      : `${when.toLocaleDateString([], { day: "numeric", month: "short" })}${
+        when.getFullYear() === now.getFullYear() ? "" : " " + when.getFullYear()} ${time}`;
+  }
   const who = [r.user, r.by].filter(Boolean).join(", ");
-  return `${r.text} (set ${r.set || "?"}${who ? ` by ${who}` : ""})`;
+  return `set ${stamp}${who ? ` by ${who}` : ""}`;
+}
+
+// why it runs: its text, then who set it and when (every place the page shows a reason uses this)
+export function reasonLine(r) {
+  return `${r.text} (${reasonNote(r)})`;
 }
 
 // Open the dialog for a VM: spec HOST/NAME, base its /vm/HOST/NAME, reason its `reason` or null.
