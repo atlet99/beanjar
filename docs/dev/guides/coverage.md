@@ -101,5 +101,5 @@ The weakest spots:
   `export.c` 66 % (`export_frame`), and the 10-bit conversions in `frame.c` (`p010_to_nv12`,
   `to_8bit`).
 - **Python:** `lls.py` 44 % (`generate`, `generate_nyx`, `extract`, `tvconfig`), `launch.py`
-  65 % (`run`, `qmp`, half of `main`), `mitmsetup.py` 64 % (`_run`), `ui.py` 70 % and
+  65 % (`run`, `qmp`, half of `main`), `ui.py` 70 % and
   `netns.py` 73 % (`off`, part of `lan`).

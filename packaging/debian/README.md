@@ -110,7 +110,7 @@ The Packages workflow (`.github/workflows/packages.yml`) builds `beanjar`, `bean
 `beanjar-vnc`, `beanjar-web` and `beanjar-qemu` for amd64 and arm64, each natively on GitHub's
 hosted runner of that architecture in a `debian:trixie` container, with
 `scripts/build-packages.sh host`: the prebuilt programs downloaded and checked, role `host`'s
-build dependencies, the host build without the mitmproxy venv, then `build.py --host-only`.
+build dependencies, the host build, then `build.py --host-only`.
 Pushes to `main` and pull requests run it as a check; a manual run (Actions, Packages, "Run
 workflow") also uploads the `.deb` files as the run's artifacts `beanjar-debs-amd64` (with the
 host's architecture-all packages) and `beanjar-debs-arm64`.
@@ -273,19 +273,17 @@ The package's postinst gives `/usr/libexec/beanjar/beanjar-lan-helper` the file 
 `link = "lan"` VM's macvlan on the library's wired `lan_parent`
 (docs/dev/architecture/network.md). The lease is taken with `busybox udhcpc`.
 
-Selecting MITM networking offers installation of pinned mitmproxy dependencies
-into `$XDG_DATA_HOME/beanjar/mitmproxy`. `beanjar mitm setup` offers the same
-interactive setup; `beanjar mitm setup --install` explicitly authorizes it.
-Declined or failed installation leaves the VM stopped. Direct/off networking
-needs no MITM setup. Every successful setup removes the environments of earlier versions, except one a
-running mitmweb still uses. The system Python creates a private, hash-checked venv;
-no arbitrary executable from PATH is used. Setup logs are stored with the tool.
+The traffic inspector of `mode = "mitm"` needs mitmproxy 12.0.1 or newer, which the packages do not
+ship or depend on (Debian 13 has no mitmproxy package): install it with `pipx install mitmproxy`.
+Beanjar runs `NETNS_MITMWEB`, else `mitmweb` on `PATH`, else `~/.local/bin/mitmweb`. Without it a
+mitm VM still starts, its guest going out directly, and `beanjar start`, `beanjar mitm show` and
+the manager say why ([inspect emulator traffic](../../docs/user/inspect-emulator-traffic.md#install-mitmproxy)).
 
 Users supply extracted firmware. EPK import additionally needs their configured
 `epk2extract`. Guest execution requires no source checkout or webOS SDK. The
 packaged ARM LLS probe uses qemu-arm and bubblewrap; generated data goes to the
 user's XDG cache. No firmware, keys, user data, SDP derivation tools, Python
-venvs or private third-party MITM dependency trees are packaged.
+venvs or mitmproxy are packaged.
 
 These are preparation packages. Public release requires review of the project's
 licensing and corresponding source/license material for bundled components.

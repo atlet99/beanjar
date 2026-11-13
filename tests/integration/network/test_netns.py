@@ -6,18 +6,19 @@ place (fake-tap-guest: a network namespace of its own on the other end of the TA
 this host as the internet. Without a VM, and without internet access.
 
 One netns.mitm() run, as the launcher makes it: the relays, `unshare -rn`, slirp4netns, the
-proxy-ARP and AnyIP routing, DHCP and mitmweb with host/helpers/network/mitm_transparent.py. The guest
-checks its lease (router and DNS slirp's, the server identifier the TAP's own address) and a
-unicast renewal; a server-first and a client-first TCP service on this host reached through slirp
-unchanged; a closed port refused; the host's loopback unreachable; HTTP and HTTPS to any address
-intercepted by mitmweb (our CA's leaf, the flows in the inspector with their real destination); a
-connection to the namespace's own address refused by the proxy rather than looping. The
+proxy-ARP routing, DHCP and mitmweb in tun mode (the user's own, host/core/beanjar/mitmtool.py),
+every TCP and UDP port of the guest routed into its TUN device. The guest checks its lease (router
+and DNS slirp's, the server identifier the TAP's own address) and a unicast renewal; a
+server-first and a client-first TCP service on this host carried unchanged (eager connections);
+a closed port accepted and closed rather than refused; the host's loopback unreachable; HTTP and
+HTTPS on any port decrypted with our CA's leaf and UDP carried, all in the inspector with their
+real destination; a connection to the namespace's own address refused rather than looping. The
 forwarded port reaches the guest through the relays. No `nft` is run (a failing one is first on
 PATH). Everything started is gone afterwards.
 
-Skips (exit 77, a meson SKIP) without unprivileged user namespaces, slirp4netns, ip, or
-build/mitmproxy-venv. `meson test -C build/host --suite manager`, or
-`BEANJAR_RELAY=... pytest tests/integration/network/test_netns.py`."""
+Skips (exit 77, a meson SKIP) without unprivileged user namespaces, slirp4netns, ip, or a usable
+mitmweb (mitmproxy 12.0.1 or newer: pipx install mitmproxy). `meson test -C build/host --suite
+network`, or `BEANJAR_RELAY=... pytest tests/integration/network/test_netns.py`."""
 
 import json
 import os
@@ -37,7 +38,10 @@ import testunits
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOP = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 PKG = os.path.join(TOP, "host", "core")
-MITMWEB = os.path.join(TOP, "build", "mitmproxy-venv", "bin", "mitmweb")
+sys.path.insert(0, PKG)
+from beanjar import mitmtool  # noqa: E402
+
+MITMWEB = mitmtool.check()
 PASSWORD = "test-netns-inspector-pw"
 SBIN = os.environ.get("PATH", os.defpath) + ":/usr/sbin:/sbin"
 
@@ -46,8 +50,8 @@ def unavailable():
     for tool in ("unshare", "ip", "slirp4netns"):
         if not shutil.which(tool, path=SBIN):
             return f"{tool} not found"
-    if not os.access(MITMWEB, os.X_OK):
-        return "no build/mitmproxy-venv (scripts/build.sh host)"
+    if not MITMWEB.usable:
+        return MITMWEB.problem
     if not os.access("/dev/net/tun", os.R_OK | os.W_OK):
         return "no /dev/net/tun"
     if subprocess.run(["unshare", "-rn", "true"], stderr=subprocess.DEVNULL).returncode != 0:
@@ -109,6 +113,75 @@ class Server:
         self.sock.close()
 
 
+class HttpServer:
+    """An HTTP server on host:0, HTTPS with a self-signed certificate if tls: what the
+    interception of every port reaches upstream."""
+
+    def __init__(self, host, tmp, tls=False):
+        import http.server
+        import socketserver
+        import ssl
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b"upstream-ok\n"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+
+        class Httpd(http.server.ThreadingHTTPServer):
+            def server_bind(self):  # without HTTPServer's getfqdn: a reverse lookup, seconds
+                socketserver.TCPServer.server_bind(self)
+                self.server_name, self.server_port = "upstream.test", self.server_address[1]
+
+        self.httpd = Httpd((host, 0), Handler)
+        if tls:
+            subprocess.run(
+                ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                 "-subj", "/CN=upstream.test", "-keyout", f"{tmp}/up.key", "-out", f"{tmp}/up.pem"],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )  # fmt: skip
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.load_cert_chain(f"{tmp}/up.pem", f"{tmp}/up.key")
+            plain = self.httpd.get_request
+
+            def get_request():  # the handshake in the request's thread, not the accept loop's
+                sock, peer = plain()
+                sock.settimeout(5)
+                return ctx.wrap_socket(sock, server_side=True, do_handshake_on_connect=False), peer
+
+            self.httpd.get_request = get_request
+        self.port = self.httpd.server_address[1]
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+
+class UdpEcho:
+    def __init__(self, host):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind((host, 0))
+        self.port = self.sock.getsockname()[1]
+        threading.Thread(target=self.run, daemon=True).start()
+
+    def run(self):
+        while True:
+            try:
+                data, peer = self.sock.recvfrom(4096)
+                self.sock.sendto(b"udp:" + data, peer)
+            except OSError:
+                return
+
+    def close(self):
+        self.sock.close()
+
+
 class Run:
     """One netns.mitm() run with its fake guest, and what was observed of it."""
 
@@ -120,8 +193,11 @@ class Run:
             Server(self.addr, "banner"),
             Server(self.addr, "echo"),
             Server("127.0.0.1", "banner"),
+            HttpServer(self.addr, t),
+            HttpServer(self.addr, t, tls=True),
+            UdpEcho(self.addr),
         ]
-        banner, echo, loopback = (s.port for s in self.servers)
+        banner, echo, loopback, web, tls, udp = (s.port for s in self.servers)
         closed = free_port()
         # a failing nft first on PATH, recording that it ran
         os.makedirs(f"{t}/bin")
@@ -149,6 +225,23 @@ class Run:
                 "cafile": cafile,
                 "timeout": 30,
             },
+            # an HTTP(S) server on another port, and UDP: intercepted too
+            "web": {
+                "kind": "tcp",
+                "host": self.addr,
+                "port": web,
+                "send": "GET /web HTTP/1.1\r\nHost: web.test\r\nConnection: close\r\n\r\n",
+                "timeout": 30,
+            },
+            "tls": {
+                "kind": "https",
+                "host": self.addr,
+                "port": tls,
+                "sni": "upstream.test",
+                "cafile": cafile,
+                "timeout": 30,
+            },
+            "udp": {"kind": "udp", "host": self.addr, "port": udp, "send": "ping", "timeout": 10},
             "self": {
                 "kind": "tcp",
                 "host": "10.0.2.254",
@@ -177,6 +270,7 @@ class Run:
             FAKE_GUEST_STOP=f"{t}/stop",
             FAKE_GUEST_PORT=str(guest_port),
             BEANJAR_MITM_PASSWORD=PASSWORD,
+            NETNS_MITMWEB=MITMWEB.path,
         )
         with open(f"{t}/out.log", "w") as out:
             self.proc = subprocess.Popen(
@@ -337,30 +431,47 @@ def test_other_tcp_through_slirp(run):
     assert run.result("echo").get("data") == "echo:ping", run.results
 
 
-def test_closed_port_refused(run):
-    assert run.result("closed").get("error") == "ConnectionRefusedError", run.results
+def test_closed_port_accepted_then_closed(run):
+    r = run.result("closed")
+    # mitmweb's TUN stack accepts every SYN, then closes once its upstream is refused
+    assert r.get("data") == "" or r.get("error"), run.results
+    assert r.get("error") != "ConnectionRefusedError", run.results
+    assert r["seconds"] < 5, r
 
 
 def test_host_loopback_unreachable(run):
-    assert "data" not in run.result("loopback"), run.results
+    assert not run.result("loopback").get("data"), run.results
 
 
-def test_http_intercepted(run):
+def test_http_without_upstream_closed(run):
+    # nothing listens on the fake internet's port 80: eager mitmweb closes the connection (the
+    # refused upstream is no HTTP flow: the web and tls probes show the flows)
     data = run.result("http").get("data", "")
-    assert data.startswith("HTTP/1.1 "), run.results
-    assert (run.addr, 80) in run.destinations()
+    assert data == "" or run.result("http").get("error"), run.results
 
 
-def test_https_intercepted_with_our_ca(run):
+def test_https_without_upstream_closed(run):
     r = run.result("https")
-    assert r.get("issuer") == "Beanjar netstub local CA", r
-    assert r.get("data", "").startswith("HTTP/1.1 "), r
-    assert (run.addr, 443) in run.destinations()
+    assert "data" not in r or not r["data"], r
+
+
+def test_other_ports(run):
+    """HTTP and HTTPS on other ports decrypted, UDP carried, all in the inspector."""
+    web, tls, udp = run.result("web"), run.result("tls"), run.result("udp")
+    assert web.get("data", "").split(" ")[1:2] == ["200"], web
+    assert udp.get("data") == "udp:ping", udp
+    seen = run.destinations()
+    assert tls.get("issuer") == "Beanjar netstub local CA", tls
+    assert tls.get("data", "").split(" ")[1:2] == ["200"], tls
+    assert {(run.addr, s.port) for s in run.servers[3:6]} <= seen, seen
+    kinds = {f["type"] for f in run.flows}
+    assert {"http", "udp"} <= kinds, kinds
 
 
 def test_own_address_refused_not_looping(run):
     r = run.result("self")
-    assert r.get("data", "").startswith("HTTP/1.1 502"), r
+    # the namespace's own address is the local table's (pref 0), before the interception
+    assert r.get("error") == "ConnectionRefusedError", r
     assert r["seconds"] < 5, r
 
 
@@ -372,5 +483,5 @@ def test_forwarded_port(run):
 def test_mitm_log(run):
     with open(f"{run.tmp}/netstub-mitm.log") as f:
         log = f.read()
-    assert "destination unknown" not in log
-    assert "Transparent mode failure" not in log
+    assert "Traceback" not in log
+    assert "UDP_TIMEOUT" not in log  # the addon raised it

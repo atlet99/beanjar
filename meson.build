@@ -11,7 +11,7 @@
 #                SSH and the Mesa stack, every target's build copies them from there, and
 #                publishes them to the same build/Image, build/initramfs.cpio.gz and build/lgemu.ko
 #   build/host   native (x86_64 workstation or aarch64 Pi): the viewer, the VM manager's GUI
-#                layouts, the firmware cache and the mitmproxy venv, the unit tests, and the
+#                layouts, the firmware cache, the network helpers, the unit tests, and the
 #                prebuilt QEMU, FFmpeg and neatvnc (packaging/vendor.toml) published beside them
 #   build/host-arm64
 #                the same programs cross-built on the PC for arm64 (meson/cross/debian-arm64.ini)
@@ -298,7 +298,7 @@ else
       'host/helpers/virtcam',             # the virtual USB camera (beanjar io usb plug --camera)
       'host/ui',                   # the GTK windows: beanjar_ui and its layouts
       'host/scripts',              # the firmware cache
-      'host/helpers/network',             # the mitmproxy venv
+      'host/helpers/network',             # the port relay and the LAN helper
       'tests',                     # the unit and integration tiers (docs/dev/guides/testing.md)
     ]
     subdir(module)

@@ -10,7 +10,7 @@ new webos-netns-* in TMPDIR), bridges the mitmweb inspector and the loopback-for
 qemu.py; the forwards on LISTEN_ADDRESS when vm.toml's listen sets it), into the namespace over those sockets (beanjar-relay, host/helpers/network/relay.c, one
 process on each side), runs inner() under `unshare -rn` (a user+net namespace) and gives that
 namespace its uplink to the internet with slirp4netns. inner() sets up the TAP, the routing of
-tcp/80+443 into mitmweb and DHCP, then runs QEMU. When QEMU exits the namespace is gone; the
+the guest's TCP and UDP into mitmweb and DHCP, then runs QEMU. When QEMU exits the namespace is gone; the
 helpers are killed and the socket dir removed.
 
   python3 -m beanjar.netns inner QEMU-ARGV...     (what mitm() runs under unshare -rn)
@@ -20,15 +20,17 @@ The namespace is a router with no NAT and no netfilter. slirp4netns runs on the 
 network, 10.0.2.0/24, as QEMU's slirp does for mode=direct, and the namespace sits between the two
 by proxy ARP: the guest's 10.0.2.15 is routed to the TAP, and each side's ARP for the other side's
 addresses is answered by the namespace, so slirp sees the guest's packets from 10.0.2.15 unchanged
-(a source outside its network it drops). The guest's tcp/80 and tcp/443 are delivered locally
-instead of forwarded, by a policy rule and a table whose route makes every address local
-("AnyIP"), to mitmweb listening on those ports (host/helpers/network/mitm_transparent.py). Apart from
-that the guest's network is mode=direct's: DHCP (10.0.2.15, router 10.0.2.2), real DNS
-(slirp4netns's resolver, 10.0.2.3), every other TCP port and all UDP through slirp's NAT. Env:
+(a source outside its network it drops). The guest's TCP and UDP, every port, are routed instead
+into mitmweb's own TUN device (`--mode tun`, TUN_DEV below) by policy rules; mitmweb forwards each
+connection to its real destination itself, and ICMP goes to slirp unchanged. Apart from that the
+guest's network is mode=direct's: DHCP (10.0.2.15, router 10.0.2.2), real DNS (slirp4netns's
+resolver, 10.0.2.3, through mitmweb). mitmweb is the user's own mitmproxy (mitmtool.py: NETNS_MITMWEB,
+PATH or ~/.local/bin, 12.0.1 or newer); without it the guest goes out directly. Env:
 NETNS_FWD ("hostport:guestport ..."), NETNS_TAP, NETSTUB_WEB_HOST/NETSTUB_WEB_PORT,
 NETSTUB_LOG, NETSTUB_STREAM_LARGE, MITM_FLOWS and MITM_FLOW_BYTES (mitmweb's max_flows and max_flow_bytes, in bytes), NETNS_LOG_DIR (the helpers' logs, default build/),
 BEANJAR_MITM_PASSWORD / NETSTUB_WEB_PASSWORD_FILE (the inspector's password, PASSWORD_FILE below),
 NETNS_SOCK_DIR, NETSTUB_CA (the proxy's CA, mitmweb's confdir; qemu.py sets it), VM_ADDRESS (qemu.py sets it).
+NETNS_MITMWEB (mitmweb's path, mitmtool.py).
 The inspector's host side listens on NETSTUB_WEB_HOST (default VM_ADDRESS;
 0.0.0.0 opens it to the LAN), behind a password wherever it listens (PASSWORD_FILE below).
 
@@ -74,7 +76,7 @@ import sys
 import tempfile
 import time
 
-from . import paths
+from . import mitmtool, paths, vmsettings
 
 
 class Error(Exception):
@@ -90,8 +92,32 @@ GUEST = "10.0.2.15"
 ROUTER = "10.0.2.2"
 DNS = "10.0.2.3"
 DHCP_SERVER = "10.0.2.254"
-ANYIP_TABLE = "100"
-PROXIED = ("80", "443")
+
+# The inspector: mitmweb's own `--mode tun:TUN_DEV`. mitmweb makes the TUN device itself in this
+# namespace (its user namespace's CAP_NET_ADMIN is enough) and reads each connection's destination
+# from its packets, so no mitmproxy internals are patched for that. All of the guest's TCP and UDP,
+# every port (only what arrives on the TAP: mitmweb's own upstream connections are not, and leave
+# by the main table's default route), is routed into the device by policy rules (TUN_PROTOCOLS) to
+# TUN_TABLE, whose one route is the device; ICMP is not matched and goes to slirp. The replies come
+# out of the device and are forwarded to the TAP like any other packet. mitm_addon.py raises
+# mitmproxy's UDP idle timeout (its TUN_UDP_TIMEOUT: an idle UDP flow closed in Python while the
+# TUN side keeps the 5-tuple lost the guest's DNS). docs/research/network-proxy.md has the
+# measurements. mitmweb is the user's own (mitmtool.py); what this start found (its path, version
+# and, when it cannot serve, the problem) goes to RUN_DIR/MITM_INFO_FILE.
+TUN_DEV = "mitm0"
+TUN_TABLE = "101"
+MITM_INFO_FILE = "mitmweb.json"
+
+
+def mitm_info(run_dir):
+    """What the VM's mitmweb is (RUN_DIR/MITM_INFO_FILE: version, path, problem), or None."""
+    try:
+        with open(os.path.join(run_dir, MITM_INFO_FILE)) as f:
+            info = json.load(f)
+        return info if isinstance(info, dict) else None
+    except (OSError, ValueError, TypeError):
+        return None
+
 
 # The inspector's password (mitmweb's web_password). BEANJAR_MITM_PASSWORD supplies one; otherwise
 # each start makes a random one. It travels only in an owner-only file, PASSWORD_FILE in RUN_DIR,
@@ -343,10 +369,9 @@ def mitm(argv, env, tree=paths.TREE):
                 "netns",
             )
         )
-        print(
+        _announce_inspector(
+            env,
             f"traffic inspector (mitmweb): http://{web_host}:{web_port} (password in {password})",
-            file=sys.stderr,
-            flush=True,
         )
         ns = subprocess.Popen(
             [
@@ -428,10 +453,19 @@ class Proxy:
     """mitmweb as _start_proxy started it: process, and ready once it listens (its addon's ready
     file and its web port), which the launcher does not wait for (_wait_guest polls it)."""
 
-    def __init__(self, process, ready_file, web_port, log):
+    def __init__(self, process, ready_file, web_port, log, info=None):
         self.process, self.ready_file, self.web_port, self.log = process, ready_file, web_port, log
+        self.info = info or {}  # what RUN_DIR/MITM_INFO_FILE says of it
         self.started = time.monotonic()
         self.ready = False
+
+    def _device(self):
+        """Whether mitmweb's TUN device exists in this namespace yet."""
+        try:
+            socket.if_nametoindex(TUN_DEV)
+            return True
+        except OSError:
+            return False
 
     def poll(self):
         """True once it is ready, False if it exited or has not been ready for PROXY_WAIT s, None
@@ -440,7 +474,7 @@ class Proxy:
             return True
         if self.process.poll() is not None:
             return False
-        if os.path.exists(self.ready_file) and _can_connect(self.web_port):
+        if os.path.exists(self.ready_file) and _can_connect(self.web_port) and self._device():
             self.ready = True
             return True
         if time.monotonic() - self.started >= PROXY_WAIT:
@@ -448,32 +482,92 @@ class Proxy:
         return None
 
 
-# How long mitmweb may take to listen (s): on an RK3399 board with the venv on NFS its first start
-# took 10 s. The guest's tcp/80 and tcp/443 wait (held, _hold) until then.
+# How long mitmweb may take to listen (s): on an RK3399 board with mitmproxy on NFS its first start
+# took 10 s. The guest's TCP and UDP wait (held, _hold) until then.
 PROXY_WAIT = 60
 # The policy rules' priorities: the interception (_intercept) before the hold (_hold).
 INTERCEPT_PREF = "100"
 HOLD_PREF = "101"
 
 
+def mitmweb_argv(mitmweb, tree, env, confdir, web_port):
+    """mitmweb's command line: its TUN device TUN_DEV, with mitm_addon.py."""
+    return [
+        mitmweb,
+        "--mode",
+        f"tun:{TUN_DEV}",
+        "--web-host",
+        "127.0.0.1",
+        "--web-port",
+        web_port,
+        "--no-web-open-browser",
+        "--set",
+        f"confdir={confdir}",
+        "--set",
+        "ssl_insecure=true",
+        "--set",
+        # every TCP port is carried, server-first protocols too (SSH, SMTP...), which lazy would
+        # hold until the client spoke: eager dials upstream as the guest connects
+        "connection_strategy=eager",
+        "--set",
+        "show_ignored_hosts=true",
+        "--set",
+        "termlog_verbosity=warn",
+        "--set",
+        "flow_detail=0",
+        "--set",
+        f"max_flows={env.get('MITM_FLOWS') or vmsettings.MITM_FLOWS}",  # mitm_addon.py's FlowLimit
+        "--set",
+        f"max_flow_bytes={env.get('MITM_FLOW_BYTES') or 0}",
+        "-s",
+        tree.src("host", "helpers", "network", "mitm_addon.py"),
+    ]
+
+
+def _write_info(env, rundir, info):
+    """RUN_DIR/MITM_INFO_FILE: what this start's mitmweb is (mitm_info reads it)."""
+    base = env.get("RUN_DIR") or rundir
+    if not base:
+        return
+    path = os.path.join(base, MITM_INFO_FILE)
+    try:
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, "w") as f:
+            json.dump(info, f)
+        os.replace(tmp, path)
+    except OSError as e:
+        print(f"netns inner: could not write {path}: {e}", file=sys.stderr)
+
+
+def _announce_inspector(env, line):
+    """Print the inspector's address line, unless its mitmweb cannot be used: the namespace then
+    says the inspector is off and why (_start_proxy), and an address would only mislead."""
+    if mitmtool.check(env).usable:
+        print(line, file=sys.stderr, flush=True)
+
+
 def _start_proxy(env, tree, rundir, logdir, web_port):
-    """Start the optional inspector, without waiting for it: a Proxy, or None if it cannot start.
-    Proxy failures leave the routed network usable."""
-    mitmweb = tree.mitmweb()
-    if not os.access(mitmweb, os.X_OK):
+    """Start the optional inspector, without waiting for it: a Proxy, or None if it cannot start
+    (no mitmweb, or one older than mitmtool.MIN_VERSION: the reason is printed and recorded in
+    RUN_DIR/MITM_INFO_FILE). Proxy failures leave the routed network usable."""
+    tool = mitmtool.check(env)
+    info = {"version": tool.version, "path": tool.path, "problem": tool.problem}
+    _write_info(env, rundir, info)
+    if not tool.usable:
         print(
-            "netns inner: mitmweb unavailable; forwarding directly (beanjar mitm setup --install)",
+            f"netns inner: traffic inspector off, forwarding directly: {tool.problem}",
             file=sys.stderr,
+            flush=True,
         )
         return None
+    print(f"netns inner: mitmweb {tool.version} ({tool.path})", file=sys.stderr, flush=True)
     proxy = None
     try:
-        # transparent mitmweb on the real ports (mitm_transparent.py makes that work without NAT),
-        # with the proxy's CA (NETSTUB_CA) as its confdir. Upstream certificates are not
-        # verified (ssl_insecure): the proxy is a debug tool, and LG's servers (*.lgtvsdp.com) come
-        # from a private root no proxy-side store has. A TLS handshake failure may fail one
-        # request; subsequent connections pass through undecrypted. The failed request is
-        # not replayed. Ordinary connection failures remain network failures.
+        # mitmweb on its TUN device, with the proxy's CA (NETSTUB_CA) as its confdir. Upstream
+        # certificates are not verified (ssl_insecure): the proxy is a debug tool, and LG's servers
+        # (*.lgtvsdp.com) come from a private root no proxy-side store has. A TLS handshake failure
+        # may fail one request; subsequent connections pass through undecrypted. The failed
+        # request is not replayed. Ordinary connection failures remain network failures.
         ca = subprocess.run(
             [tree.src("host", "helpers", "network", "tlsca.py")],
             env=env,
@@ -491,92 +585,70 @@ def _start_proxy(env, tree, rundir, logdir, web_port):
             os.chmod(f, 0o600)
         with open(mitm_log, "w") as log:
             proxy = subprocess.Popen(
-                [
-                    mitmweb,
-                    *(a for p in PROXIED for a in ("--mode", f"transparent@{p}")),
-                    "--listen-host",
-                    "0.0.0.0",
-                    "--web-host",
-                    "127.0.0.1",
-                    "--web-port",
-                    web_port,
-                    "--no-web-open-browser",
-                    "--set",
-                    f"confdir={os.path.dirname(ca)}",
-                    "--set",
-                    "ssl_insecure=true",
-                    "--set",
-                    "connection_strategy=lazy",
-                    "--set",
-                    "show_ignored_hosts=true",
-                    "--set",
-                    "termlog_verbosity=warn",
-                    "--set",
-                    "flow_detail=0",
-                    "--set",
-                    f"max_flows={env.get('MITM_FLOWS') or 1000}",  # mitm_addon.py's FlowLimit
-                    "--set",
-                    f"max_flow_bytes={env.get('MITM_FLOW_BYTES') or 0}",
-                    "-s",
-                    tree.src("host", "helpers", "network", "mitm_transparent.py"),
-                    "-s",
-                    tree.src("host", "helpers", "network", "mitm_addon.py"),
-                ],
+                mitmweb_argv(tool.path, tree, env, os.path.dirname(ca), web_port),
                 env=env,
                 stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=log,
                 preexec_fn=_die_with_parent,
             )
-        return Proxy(proxy, ready_file, web_port, mitm_log)
+        return Proxy(proxy, ready_file, web_port, mitm_log, info)
     except (OSError, subprocess.CalledProcessError) as exc:
         if proxy is not None:
             _kill([proxy])
         print(f"netns inner: mitmweb unavailable: {exc}; forwarding directly", file=sys.stderr)
+        _write_info(env, rundir, dict(info, problem=f"mitmweb did not start: {exc}"))
         return None
+
+
+# All of the guest's TCP and UDP, every port (DNS, NTP and the rest included); other protocols
+# (ICMP: ping, traceroute's replies) are not matched and are forwarded to slirp, since mitmweb's
+# TUN stack handles only TCP and UDP.
+TUN_PROTOCOLS = ("tcp", "udp")
+
+
+def intercept_rules(tap, action):
+    """The ip commands of _intercept: one policy rule per protocol (TUN_PROTOCOLS), for packets
+    arriving on tap only, to TUN_TABLE. Packets to the namespace's own addresses (DHCP, the
+    relays' replies) meet the local table first (pref 0)."""
+    return [
+        ["rule", action, "pref", INTERCEPT_PREF, "iif", tap, "ipproto", p, "lookup", TUN_TABLE]
+        for p in TUN_PROTOCOLS
+    ]
+
+
+def hold_rules(tap, action):
+    """The ip commands of _hold: the same selectors, blackholed."""
+    return [
+        ["rule", action, "pref", HOLD_PREF, "iif", tap, "ipproto", p, "blackhole"]
+        for p in TUN_PROTOCOLS
+    ]
+
+
+def tun_route(action):
+    """TUN_TABLE: every destination by mitmweb's device. The kernel drops it with the device when
+    mitmweb exits; the rules then find no route there and fall through to the main table, the
+    guest going straight out."""
+    return ["route", action, "default", "dev", TUN_DEV, "table", TUN_TABLE]
 
 
 def _intercept(env, tap, action):
     """Only the ingress policy rules divert traffic; the private table is inert without them."""
-    for port in PROXIED:
-        _ip(
-            env,
-            "rule",
-            action,
-            "pref",
-            INTERCEPT_PREF,
-            "iif",
-            tap,
-            "ipproto",
-            "tcp",
-            "dport",
-            port,
-            "lookup",
-            ANYIP_TABLE,
-        )
+    if action == "add":
+        _ip(env, *tun_route("replace"))
+    for rule in intercept_rules(tap, action):
+        _ip(env, *rule)
 
 
 def _hold(env, tap, action):
-    """While mitmweb starts, the guest's tcp/80 and tcp/443 are dropped (a blackhole rule), not
-    refused or let through: a connection the guest opens then is not reset or failed, its SYN is
-    sent again (TCP's retransmission: after 1, 3, 7, 15 s ...) and reaches mitmweb once it listens.
-    Letting it through directly instead would have it reset when the interception starts, as its
-    later packets would then be delivered to a mitmweb that has no such connection."""
-    for port in PROXIED:
-        _ip(
-            env,
-            "rule",
-            action,
-            "pref",
-            HOLD_PREF,
-            "iif",
-            tap,
-            "ipproto",
-            "tcp",
-            "dport",
-            port,
-            "blackhole",
-        )
+    """While mitmweb starts, the guest's TCP and UDP are dropped (a blackhole rule), not refused or
+    let through: a connection the guest opens then is not reset or failed, its SYN is sent again
+    (TCP's retransmission: after 1, 3, 7, 15 s ...) and reaches mitmweb once it listens; a lost
+    DNS query is asked again. Letting it through directly instead would have it reset when the
+    interception starts, as its later packets would then be delivered to a mitmweb that has no
+    such connection."""
+    for rule in hold_rules(tap, action):
+        _ip(env, *rule)
 
 
 def _wait_guest(qemu, proxy, env, tap):
@@ -599,6 +671,11 @@ def _wait_guest(qemu, proxy, env, tap):
             elif ready is False:
                 _kill([pending.process])
                 _hold(env, tap, "del")
+                _write_info(
+                    env,
+                    env.get("NETNS_RUNDIR"),
+                    dict(pending.info, problem=f"mitmweb did not start (see {pending.log})"),
+                )
                 print(
                     f"netns inner: mitmweb unavailable (see {pending.log}); forwarding directly",
                     file=sys.stderr,
@@ -608,6 +685,11 @@ def _wait_guest(qemu, proxy, env, tap):
         elif proxy is not None and proxy.process.poll() is not None:
             _intercept(env, tap, "del")
             print("netns inner: mitmweb exited; forwarding directly", file=sys.stderr)
+            _write_info(
+                env,
+                env.get("NETNS_RUNDIR"),
+                dict(proxy.info, problem=f"mitmweb exited (see {proxy.log})"),
+            )
             proxy = None
         try:
             return _status(qemu.wait(timeout=0.2))
@@ -639,7 +721,7 @@ def _discovery(env, mode, logdir):
 
 def inner(argv, tree=paths.TREE):
     """Inside the namespace (mitm() runs this under unshare -rn and attaches the uplink, up0): the
-    TAP, proxy ARP between it and the uplink, the routing of tcp/80+443 into mitmweb, DHCP, the
+    TAP, proxy ARP between it and the uplink, the routing of TCP and UDP into mitmweb, DHCP, the
     port bridges into the guest, then QEMU in the foreground. The helpers are killed when QEMU
     exits."""
     env = _sbin_path(dict(os.environ))
@@ -675,13 +757,11 @@ def inner(argv, tree=paths.TREE):
             )
 
         # routing: the guest's packets are forwarded to slirp unchanged, and slirp's back to the
-        # guest, each side's ARP for the other's addresses answered here (proxy ARP). Its tcp/80
-        # and tcp/443, whatever the destination, are delivered locally to mitmweb instead: the rule
-        # picks them by port, and the table's one route makes every address local.
+        # guest, each side's ARP for the other's addresses answered here (proxy ARP). Its TCP and
+        # UDP go to mitmweb's TUN device instead once it is ready (_intercept, _wait_guest).
         _sysctl("ip_forward", "1")
         for dev in (tap, "up0"):
             _sysctl(f"conf/{dev}/proxy_arp", "1")
-        _ip(env, "route", "add", "local", "0.0.0.0/0", "dev", "lo", "table", ANYIP_TABLE)
         # DHCP (fixed lease; router and DNS slirp's, the server the TAP's own address)
         with open(os.path.join(logdir, "netns-helper.log"), "a") as log:
             helpers.append(
@@ -710,7 +790,7 @@ def inner(argv, tree=paths.TREE):
 
         # Runtime files stay private even when the optional inspector is absent.
         os.umask(0o077)
-        # mitmweb starts beside QEMU: the guest's web traffic is held until it listens (_hold,
+        # mitmweb starts beside QEMU: the guest's TCP and UDP are held until it listens (_hold,
         # _wait_guest), long before the guest's network is up on any board measured
         proxy = _start_proxy(env, tree, rundir, logdir, web_port)
         if proxy is not None:
@@ -904,10 +984,9 @@ def lan(argv, tree=paths.TREE):
                 "netns lan",
             )
         )
-        print(
+        _announce_inspector(
+            env,
             f"traffic inspector (mitmweb) on the LAN: http://{lease['address']}:{env['NETSTUB_WEB_PORT']}",
-            file=sys.stderr,
-            flush=True,
         )
         print(
             f"VNC (beanjar vnc, while it runs) on the LAN: vnc://{lease['address']}:{VNC_PORT}",

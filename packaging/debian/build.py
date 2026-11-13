@@ -120,7 +120,7 @@ def host_dependencies(version, libs, identity):
     beanjar-guest of the host's contract will do, whatever its patch version. python3-gi is Gio,
     for the VMs' bus (beanjar/dbus.py); GTK is beanjar-ui's."""
     return (
-        f"{guest_range(version, identity)}, python3 (>= 3.13), python3 (<< 3.14), python3-venv, python3-gi, "
+        f"{guest_range(version, identity)}, python3 (>= 3.13), python3 (<< 3.14), python3-gi, "
         "python3-tomlkit, python3-pyelftools, python3-capstone, python3-dnspython, "
         f"dbus-daemon, slirp4netns, iproute2, openssh-client, openssl, {QEMU_DEPENDS}, qemu-user, bubblewrap, "
         f"ca-certificates, squashfs-tools, busybox, libcap2-bin, {CAMERA_DEPENDS}, {libs}"
@@ -546,10 +546,6 @@ def stage_host(work, hp, arch, ident):
     copy(TOP / "guest/targets", host / "usr/share/beanjar/targets")
     shutil.rmtree(host / "usr/share/beanjar/targets/facts", ignore_errors=True)
     (host / "usr/share/beanjar/targets/meson.build").unlink(missing_ok=True)
-    copy(
-        TOP / "host/helpers/network/requirements.txt",
-        host / "usr/share/beanjar/mitmproxy/requirements.txt",
-    )
     write(
         h / "installation.toml",
         installation_toml(version=ident["version"], commit=ident["commit"], architecture=arch),

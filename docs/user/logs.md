@@ -38,8 +38,9 @@ journalctl --user -u 'beanjar-vm-*-tv1'
   same reason as its tooltip.
 - **The VM starts but shows nothing.** Look at `console.log` for the boot and at `qemu.out`; a VM
   made with `--display none` or `egl-headless` has no picture for the viewer or VNC.
-- **The traffic inspector does not start.** An installed Beanjar needs `beanjar mitm setup
-  --install` once; otherwise see `netstub-mitm.log`, or set `mode=direct`. See
+- **The traffic inspector does not start.** `beanjar mitm show NAME` says why: no mitmweb, or one
+  older than 12.0.1 (`pipx install mitmproxy`); otherwise see `netstub-mitm.log`, or set
+  `mode=direct`. See
   [Inspect emulator traffic](inspect-emulator-traffic.md#troubleshooting).
 - **A stop takes long.** `stop` waits up to 90 s for webOS to power the set off, then syncs the
   disks and stops QEMU itself. `beanjar stop NAME --unplug` cuts the power at once.

@@ -39,7 +39,6 @@ def fake_tree(root):
         "build/layers/h13-afro/rootssh",
         "build/layers/h13-afro/devmode",
         "build/layers/h13-afro/hbchannel",
-        "build/mitmproxy-venv/bin",
         "build/network",
         "build/qemu/bin",
         "build/qemu/libexec",
@@ -53,7 +52,6 @@ def fake_tree(root):
 
     sestore.set_model(os.path.join(top, "identity"), KEY)
     for f in (
-        "build/mitmproxy-venv/bin/mitmweb",
         "build/network/beanjar-relay",
         "build/qemu/bin/qemu-system-aarch64",
         "build/qemu/libexec/vhost-user-gpu",

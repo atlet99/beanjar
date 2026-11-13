@@ -21,12 +21,9 @@ def test_paths_and_prebuilt_probe(tmp_path):
     root = tmp_path
     tree = paths.Tree(root)
     assert tree.cache("lls") == str(root / "build/lls")
-    assert tree.mitmweb() == str(root / "build/mitmproxy-venv/bin/mitmweb")
     (root / "installation.toml").write_text('version="test"\n')
     with mock.patch.dict(os.environ, XDG_CACHE_HOME=str(root / "user-cache")):
         assert tree.cache("lls") == str(root / "user-cache/beanjar/lls")
-        with mock.patch("beanjar.mitmsetup.executable", return_value="/user/tool/mitmweb"):
-            assert tree.mitmweb() == "/user/tool/mitmweb"
         assert tree.build("lls", "lls-probe") == "/usr/share/beanjar/guest/bin/lls-probe"
         with mock.patch("os.path.isfile", return_value=True):
             assert lls.probe(tree) == "/usr/share/beanjar/guest/bin/lls-probe"

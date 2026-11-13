@@ -10,7 +10,7 @@ from .. import core, hostprocs, keys, poweroff, remote, vmsettings, vmunits
 from ..core import Error, fmt_duration
 from .common import Usage, emit, kv_lines, layer_versions, progress, table, warn
 from .forward import bare_new_name
-from .settings import offer_mitm, settings_of
+from .settings import settings_of, warn_mitm
 
 
 def vm_row(vm):
@@ -256,12 +256,13 @@ def cmd_create(lib, a):
         )
     vm = lib.create(a.name, fw=a.firmware, place=not a.import_, out=progress, **settings_of(a))
     emit(a, {"name": vm.name, **vm.summary()})
-    offer_mitm(vm, a)
+    warn_mitm(vm)
     return 0
 
 
 def cmd_start(lib, a):
     vm = lib.start(a.name, out=progress, args=a.args, reason=a.reason, by=a.by)
+    warn_mitm(vm)
     state, pid = vm.state()[0].lower(), vm.pid()
     return emit(
         a,

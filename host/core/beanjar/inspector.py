@@ -71,6 +71,12 @@ def snapshot(vm):
     # The namespace wrapper passes its readiness marker and endpoint to QEMU.
     marker = env.get("NETNS_MITM_READY")
     if not marker or not os.path.isfile(marker):
+        # why not, when this start's mitmweb could not serve (netns.py's RUN_DIR/mitmweb.json)
+        from . import netns
+
+        info = netns.mitm_info(vm.run_dir) or {}
+        if info.get("problem"):
+            return State(mode, f"Inspector off: {info['problem']}")
         return State(mode, "Inspector is not ready")
     # the relay's host side (netns.py): NETSTUB_WEB_HOST, by default the VM's address
     host = env.get("NETSTUB_WEB_HOST") or env.get("VM_ADDRESS") or ""
@@ -167,6 +173,14 @@ def show(vm, password=False):
         "local_url": state.local_url or None,
         "password_file": state.password_file or None,
     }
+    # what this start's mitmweb is (netns.py's RUN_DIR/mitmweb.json): its version and path, and
+    # why it does not serve (problem: none found, too old, or it failed) or None
+    from . import netns
+
+    info = netns.mitm_info(vm.run_dir) if state.status != "Not running" else None
+    data["mitmweb"] = (
+        {k: info.get(k) or None for k in ("version", "path", "problem")} if info else None
+    )
     if password:
         data["password"] = state.password or None
     return data

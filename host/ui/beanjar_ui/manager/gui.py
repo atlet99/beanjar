@@ -1404,44 +1404,22 @@ class Manager:
         self.refresh()
 
     # -- actions --
-    def install_mitm(self):
-        self.confirm(
-            "Install mitmproxy?",
-            "Download the pinned MITM dependencies into your Beanjar user data directory. All VMs share this installation.",
-            "_Install",
-            lambda: self.run(None, "install MITM", ["mitm", "setup", "--install"]),
-        )
-
     def start(self):
         self.start_vm(self.selected())
 
-    def offer_mitm(self, name, ready=None):
-        from beanjar import paths, mitmsetup
+    def warn_mitm(self, name):
+        """Say so when a mode=mitm VM will start without its traffic inspector (mitmtool.py)."""
+        from beanjar import mitmtool
 
         c = self.lib.vm(name).config
-        if (
-            paths.TREE.installed
-            and vmsettings.guest_net(c.get("link"), c.get("mode")) == "mitm"
-            and not mitmsetup.available(paths.TREE)
-        ):
-            self.confirm(
-                "Install mitmproxy?",
-                "Download the pinned MITM dependencies into your Beanjar user data directory. The VM starts only after installation succeeds.",
-                "_Install",
-                lambda: self.run(
-                    name,
-                    "install MITM",
-                    ["mitm", "setup", "--install"],
-                    done=lambda rc: ready() if rc == 0 and ready else None,
-                ),
-            )
-            return True
-        return False
+        if vmsettings.guest_net(c.get("link"), c.get("mode")) == "mitm":
+            tool = mitmtool.check()
+            if not tool.usable:
+                self.say(f"{name}: the traffic inspector will be off: {tool.problem}")
 
     def start_vm(self, name, reason=None, then=None):
         """Start VM name (`beanjar start`, with --reason: why it runs); then(), once it started."""
-        if self.offer_mitm(name, lambda: self.start_vm(name, reason, then)):
-            return
+        self.warn_mitm(name)
         self.run(
             name,
             "start",
@@ -2076,7 +2054,7 @@ class Manager:
         self.refresh()
         self.select(name)
         self.say(f"Created {name}")
-        self.offer_mitm(name)
+        self.warn_mitm(name)
 
     def create_async(self, form, name, v):
         """A New VM that takes time: python3 -m beanjar.newvm with a progress dialog over New VM.
@@ -2165,7 +2143,7 @@ class Manager:
                 win.close()
                 form.close()
                 self.say(saved)
-                self.offer_mitm(name)
+                self.warn_mitm(name)
             else:
                 message = refusal.get("message") or f"failed (exit {rc})"
                 win.finished(f"Failed: {message}")
@@ -2210,7 +2188,7 @@ class Manager:
                 self.prepare_async(form, name, saved)
                 return self.widgets.STAY
             self.say(saved)
-            self.offer_mitm(name)
+            self.warn_mitm(name)
 
         form = self._vm_form(f"Settings of {name}", "_Save", cfg, ok, False)
         if page == "identity":

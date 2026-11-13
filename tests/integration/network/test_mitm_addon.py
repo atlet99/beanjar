@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Unit tests for host/helpers/network/mitm_addon.py and mitm_transparent.py (mode=mitm). No network
-requests. They need mitmproxy, which only the pinned venv (build/mitmproxy-venv) has: Meson runs
-them with its Python (tests/integration/meson.build); under another Python they are skipped."""
+"""Unit tests for host/helpers/network/mitm_addon.py (mode=mitm). No network requests. They need
+mitmproxy, the user's own (host/core/beanjar/mitmtool.py): Meson runs them with the Python of the
+mitmweb it finds (tests/meson.build); under another Python they are skipped."""
 
 import os
 import re
 from pathlib import Path
-import socket
 import sys
 import tempfile
 import unittest
@@ -19,14 +18,15 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "host/helpers/network"))
 import pytest
 
-pytest.importorskip("mitmproxy", reason="no mitmproxy: run with build/mitmproxy-venv's Python")
+pytest.importorskip(
+    "mitmproxy", reason="no mitmproxy: run with mitmweb's Python (pipx install mitmproxy)"
+)
 from mitmproxy import connection, http  # noqa: E402
 from mitmproxy.addons.next_layer import NextLayer
-from mitmproxy.proxy import context, mode_servers
+from mitmproxy.proxy import context
 from mitmproxy.proxy.layers import tls
 from mitmproxy.test import taddons
 import mitm_addon
-import mitm_transparent
 
 
 def flow(request_headers=(), response_headers=None, method="GET", status=200):
@@ -126,7 +126,7 @@ class TlsFailure(unittest.TestCase):
         self.assertIsNotNone(re.search(hosts[0], "2001:db8::1:443"))
         self.assertIsNone(re.search(hosts[0], "2001:db8::2:443"))
 
-    def test_pinned_next_layer_honors_fallback_and_manual_patterns(self):
+    def test_next_layer_honors_fallback_and_manual_patterns(self):
         addon, next_layer = mitm_addon.Capture(), NextLayer()
         with taddons.context(addon, next_layer) as tctx:
             tctx.options.update(ignore_hosts=[r"^manual\.example:443$"])
@@ -229,10 +229,14 @@ class FlowLimit(unittest.TestCase):
             finally:
                 tctx.master.event_loop.run_until_complete(tctx.master.done())
 
-    def test_default_is_1000(self):
+    def test_default_is_vmsettings(self):
+        # the addon runs in mitmproxy's own Python, without beanjar: its default repeats this one
+        sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "host/core"))
+        from beanjar import vmsettings
+
         with taddons.context(mitm_addon.FlowLimit()) as tctx:
             try:
-                self.assertEqual(tctx.options.max_flows, 1000)
+                self.assertEqual(tctx.options.max_flows, vmsettings.MITM_FLOWS)
             finally:
                 tctx.master.event_loop.run_until_complete(tctx.master.done())
 
@@ -274,67 +278,42 @@ class FlowLimit(unittest.TestCase):
         self.assertEqual(kept, made)
 
 
-class Transparent(unittest.TestCase):
-    """mitm_transparent.py: the pin guard, and what it changes in mitmproxy 12.2.3."""
+class Ready(unittest.TestCase):
+    """The ready file netns.py waits for, and the UDP idle timeout of a TUN device."""
 
-    def test_pinned_version_passes(self):
-        mitm_transparent.check_version()
+    def test_ready_file_after_the_udp_timeout(self):
+        with tempfile.TemporaryDirectory() as d:
+            ready = os.path.join(d, "mitmweb.ready")
+            with patch.dict(os.environ, {"NETNS_MITM_READY": ready}):
+                with taddons.context(mitm_addon.Ready()) as tctx:
+                    tctx.options.update(mode=["regular@8080"])
+                    with patch.object(mitm_addon, "tun_udp_timeout") as raised:
+                        mitm_addon.Ready().running()
+                    raised.assert_not_called()  # no TUN device: nothing to raise
+                    self.assertTrue(os.path.exists(ready))
+                    os.unlink(ready)
+                    tctx.options.update(mode=["tun:mitm0"])
+                    with patch.object(mitm_addon, "tun_udp_timeout") as raised:
+                        mitm_addon.Ready().running()
+                    raised.assert_called_once_with()
+                    self.assertTrue(os.path.exists(ready))
 
-    def test_other_version_fails_naming_the_pin(self):
-        with self.assertRaisesRegex(
-            RuntimeError, r"needs mitmproxy 12\.2\.3.*requirements\.txt pins; this is 11\.0\.2"
-        ):
-            mitm_transparent.check_version("11.0.2")
+    def test_udp_timeout_raised_by_feature(self):
+        server = SimpleNamespace(UDP_TIMEOUT=20)
+        self.assertTrue(mitm_addon.tun_udp_timeout(server))
+        self.assertEqual(server.UDP_TIMEOUT, mitm_addon.TUN_UDP_TIMEOUT)
+        server = SimpleNamespace(UDP_TIMEOUT=3600)
+        self.assertTrue(mitm_addon.tun_udp_timeout(server))
+        self.assertEqual(server.UDP_TIMEOUT, 3600)  # never lowered
+        for missing in (SimpleNamespace(), SimpleNamespace(UDP_TIMEOUT="20")):
+            with self.assertLogs(level="WARNING") as logs:
+                self.assertFalse(mitm_addon.tun_udp_timeout(missing))
+            self.assertIn("UDP_TIMEOUT", logs.output[0])
 
-    def test_pin_matches_requirements(self):
-        req = (
-            Path(__file__).resolve().parents[3] / "host/helpers/network/requirements.txt"
-        ).read_text()
-        self.assertIn(f"\nmitmproxy=={mitm_transparent.PIN} ", req)
+    def test_the_real_attribute(self):
+        import mitmproxy.proxy.server as server
 
-    def test_load_replaces_original_addr(self):
-        import mitmproxy.platform
-
-        saved = mitmproxy.platform.original_addr
-        try:
-            mitm_transparent.Transparent().load(None)
-            self.assertIs(mitmproxy.platform.original_addr, mitm_transparent.original_addr)
-        finally:
-            mitmproxy.platform.original_addr = saved
-        with socket.socket() as s:
-            s.bind(("127.0.0.1", 0))
-            self.assertEqual(mitm_transparent.original_addr(s), s.getsockname())
-
-    def test_ip_transparent_on_transparent_listeners_only(self):
-        class Sock:
-            def __init__(self):
-                self.opts = []
-
-            def setsockopt(self, *args):
-                self.opts.append(args)
-
-        manager = SimpleNamespace()
-        transparent = [
-            mode_servers.ServerInstance.make(f"transparent@{p}", manager) for p in (80, 443)
-        ]
-        regular = mode_servers.ServerInstance.make("regular@8080", manager)
-        socks = {}
-        for server in (*transparent, regular):
-            socks[server] = [Sock()]
-            server._servers = [SimpleNamespace(sockets=socks[server])]
-        ps = SimpleNamespace(servers=[*transparent, regular])
-        fake = SimpleNamespace(master=SimpleNamespace(addons=SimpleNamespace(get=lambda name: ps)))
-        with patch.object(mitm_transparent, "ctx", fake):
-            self.assertEqual(mitm_transparent.Transparent().apply(), 2)
-        for server in transparent:
-            self.assertEqual(socks[server][0].opts, [(socket.SOL_IP, socket.IP_TRANSPARENT, 1)])
-        self.assertEqual(socks[regular][0].opts, [])
-
-    def test_own_address_refused(self):
-        for host, refused in (("127.0.0.1", True), ("198.51.100.1", False), ("example.org", False)):
-            data = SimpleNamespace(server=SimpleNamespace(address=(host, 443), error=None))
-            mitm_transparent.Transparent().server_connect(data)
-            self.assertEqual(data.server.error is not None, refused, host)
+        self.assertIsInstance(server.UDP_TIMEOUT, (int, float))
 
 
 if __name__ == "__main__":

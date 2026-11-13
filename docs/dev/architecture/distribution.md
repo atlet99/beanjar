@@ -33,9 +33,8 @@ host architectures use the same virtual ARM TV payload.
 ## Build separation
 
 Build the native host packages separately on Debian 13 arm64 and amd64.
-Beanjar ships the MITM setup helper and pinned requirements, but no third-party
-MITM dependency binaries or separate MITM package. pip installs the native
-dependencies for the target architecture into a user-local venv when requested.
+Beanjar ships its mitmproxy addon but no mitmproxy: the inspector runs the user's own
+(below).
 
 | Build lane | Host artifacts |
 |---|---|
@@ -43,9 +42,6 @@ dependencies for the target architecture into a user-local venv when requested.
 | x86_64 / amd64 | `beanjar_*_amd64.deb`, `beanjar-vnc_*_amd64.deb`, `beanjar-qemu_*_amd64.deb` |
 | Shared guest build | `beanjar-guest_*_all.deb`, identical input payload for both host lanes |
 | Either lane | `beanjar-ui_*_all.deb`, `beanjar-web_*_all.deb` |
-
-Test MITM installation and execution independently on both targets. The local
-venv uses system Python; pip selects compatible native dependency builds.
 
 The guest package's `all` designation describes host independence: its ARM guest
 binaries are the same data for both host architectures. Build that payload once
@@ -89,7 +85,6 @@ remain under `scripts/`.
   vm-launcher                     VM launcher
   viewer-headless                 headless viewer helper
   media-helper                    native media helper
-  mitmproxy-setup                  user-local venv installation helper
   qemu-system-aarch64             patched QEMU (beanjar-qemu)
   vhost-user-gpu                  its GPU process (beanjar-qemu)
 
@@ -110,9 +105,6 @@ remain under `scripts/`.
     binds.conf                    guest bind configuration
     installation.toml             guest version, commit and payload digest
   qemu/                           data of the patched QEMU (beanjar-qemu)
-  mitmproxy/
-    requirements.txt              pinned dependency versions and hashes
-    patches/                      any required, version-specific patch inputs
 
 /usr/share/applications/
   org.webosbrew.beanjar.desktop
@@ -129,7 +121,7 @@ probe also belongs in `share/beanjar/guest/bin`, even when invoked through qemu-
 
 Host Python helpers are executable code and belong under `/usr/lib/beanjar/helpers`,
 including networking addons, firmware inspection and preparation, and SSH key
-support. Requirements and patch inputs are read-only setup data under `share`.
+support.
 The installed guest payload uses `guest/layers`, `guest/scripts` and
 `guest/boards`, without repeating the `guest` directory. Assembling a VM's 9p share
 keeps the guest-visible script paths it already uses (`guest/scripts/...`).
@@ -201,7 +193,6 @@ change from eliminating preassembled package combinations.
 | `/usr/bin/beanjar`, `/usr/bin/beanjar-viewer` | `beanjar` |
 | `/usr/lib/beanjar/` but `ui/` and `web/` | `beanjar` |
 | Host launchers/helpers in `/usr/libexec/beanjar/` | `beanjar` |
-| `/usr/share/beanjar/mitmproxy/` | `beanjar` |
 | `/usr/bin/beanjar-ui`, `/usr/lib/beanjar/ui/`, `/usr/share/beanjar/ui/` | `beanjar-ui` |
 | `/usr/bin/beanjar-web`, `/usr/lib/beanjar/web/` | `beanjar-web` |
 | `/usr/bin/beanjar-vnc` | `beanjar-vnc` |
@@ -211,8 +202,7 @@ change from eliminating preassembled package combinations.
 
 Each package owns its documentation and component copyright notices under
 `/usr/share/doc/<package>/`. Packages may share parent directories; they do not
-ship the same file. No maintainer script creates a VM library, CA, MITM environment
-or firmware cache. Installing or upgrading changes only package-owned files.
+ship the same file. No maintainer script creates a VM library, CA or firmware cache. Installing or upgrading changes only package-owned files.
 
 The host asks apt for a guest of the same `0.Y`, not one of its own version; the Pi updates
 its host alone while the minor stays the same. The optional QEMU package
@@ -245,53 +235,15 @@ replica checkout tree or writable files below `/usr`.
 
 Use Debian packages for GTK, libadwaita, SDL, GL, networking and ordinary QEMU; FFmpeg,
 neatvnc and the patched QEMU are the prebuilt ones above. Derive native library dependencies
-from the final ELF payloads, and those of the prebuilt trees from their `BUILDINFO`. Include
-`python3-venv` for the user-local MITM setup.
+from the final ELF payloads, and those of the prebuilt trees from their `BUILDINFO`.
 
-MITM lives in Beanjar's per-user data directory:
-
-```text
-$XDG_DATA_HOME/beanjar/mitmproxy/           normally ~/.local/share/beanjar/mitmproxy/
-  environments/<fingerprint>/            private venvs created on this machine
-  current                                active, validated environment
-```
-
-Keep this shared tool installation separate from VM identities, state, captures
-and the proxy CA. A custom VM library can still use the same per-user MITM tool.
-The environment is user-owned; installation requires no sudo and does not change
-system Python packages. Do not substitute an arbitrary `mitmweb` found on PATH.
-
-When a user selects `mode=mitm` and no compatible local installation exists, ask
-whether to download and install it. Saving that setting may leave installation
-pending if the user declines; starting the VM requires a working installation.
-The start path performs the same check for hand-edited configs and other callers.
-Show the GUI prompt or an interactive CLI prompt before downloading. A
-non-interactive invocation without an explicitly authorized installation refuses
-to start and reports how to run setup interactively.
-
-If accepted, create a venv with system Python at its final versioned path and use
-its pip to download/install the hash-pinned requirements. Apply any required,
-version-specific patch there, then verify dependency versions and MITM startup.
-Prefer compatible wheels for native dependencies so ordinary installation does
-not require a compiler or webOS SDK. Report setup errors and retain diagnostic
-output for the user.
-
-Environment identity includes the requirements, patch inputs and supported Python
-ABI. Reuse a compatible validated environment. Build and validate a replacement
-before switching `current`; do not rename a finished venv. Failed or cancelled
-installation does not replace a working environment. Serialize setup attempts so
-two manager windows cannot install into the same environment simultaneously.
-
-Declined, failed or cancelled setup leaves the VM stopped. Complete this check
-before spawning QEMU or VM helpers. Do not silently fall back to direct networking.
-Once installed, subsequent starts do not download or reinstall dependencies.
-Direct/off networking needs no MITM environment and does not prompt for setup.
-
-Beanjar ships its own addons and setup inputs, while pip supplies the third-party
-runtime. Invoke the venv's `mitmweb` executable so its own interpreter resolves
-native dependencies; do not import them into the manager's Python environment.
-No Debian package maintainer script performs a pip installation. Users can remove
-the local tool installation independently of their VM data.
+mitmproxy is the user's own, 12.0.1 or newer, installed however they like; the documented way is
+`pipx install mitmproxy`, since Debian 13 has no package of it. The packages neither ship nor depend
+on it (pipx cannot be a `Suggests`), and no maintainer script installs it. `mitmtool.py` finds it
+(`NETNS_MITMWEB`, `PATH`, `~/.local/bin`) and reads its version at each start. Beanjar runs its
+`mitmweb` executable, so mitmproxy's own interpreter loads its dependencies and the addon; nothing
+of it is imported into the manager's Python. Without a usable one a mitm VM starts with direct
+networking and says why; direct and off networking need none.
 
 Installation does not convert VM configs, start VMs or change device permissions.
 
@@ -317,7 +269,7 @@ configured `epk2extract`.
 Host native builds are independent
 arm64/amd64 lanes; the shared ARM guest input is reused unchanged. Device
 validation uses installed Debian packages, not a synchronized source checkout.
-Package installation and MITM setup are separate operations. Component variants
+mitmproxy is not Beanjar's to install: the user's own, 12.0.1 or newer. Component variants
 are selected from compatibility metadata; no full target stack is packaged.
 
 Public release licensing and source-distribution work is tracked in the issue;

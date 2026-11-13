@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Optional proxy lifecycle, including real AnyIP withdrawal and guest HTTP traffic: with no proxy
-and with one that dies before it listens, the guest's HTTP goes directly; with one that listens
-only after the guest's first connection was opened ("late"), that connection is held (its SYN
-dropped and sent again) and then answered by the proxy, neither refused nor reset."""
+"""Optional proxy lifecycle, including real policy-rule withdrawal and guest HTTP traffic: with no
+proxy and with one that dies before it listens, the guest's HTTP goes directly; with one whose TUN
+device appears only after the guest's first connection was opened ("late"), that connection is
+held (its SYN dropped and sent again) and then carried through the device, neither refused nor
+reset."""
 
+import io
 import os
 import pathlib
 import shutil
@@ -48,17 +50,37 @@ class StopHandler(unittest.TestCase):
 class OptionalProxy(unittest.TestCase):
     def test_missing_proxy_does_not_generate_ca(self):
         tree = mock.Mock()
-        tree.mitmweb.return_value = "/nonexistent/beanjar-mitmweb"
-        with mock.patch.object(netns.subprocess, "run") as run:
-            self.assertIsNone(netns._start_proxy({}, tree, "/unused", "/unused", "18083"))
-        run.assert_not_called()
+        with tempfile.TemporaryDirectory() as directory:
+            env = {"NETNS_MITMWEB": "/nonexistent/beanjar-mitmweb", "RUN_DIR": directory}
+            with mock.patch.object(netns.subprocess, "run") as run:
+                self.assertIsNone(netns._start_proxy(env, tree, directory, directory, "18083"))
+            run.assert_not_called()
+            info = netns.mitm_info(directory)
+            self.assertIn("pipx install mitmproxy", info["problem"])
+
+    def test_missing_proxy_has_no_address_line(self):
+        """Without a usable mitmweb the start output names no inspector address, only why it is
+        off; with one it does."""
+        for path, shown in (("/nonexistent/beanjar-mitmweb", False), (sys.executable, True)):
+            with (
+                self.subTest(path=path),
+                mock.patch.object(
+                    netns.mitmtool,
+                    "check",
+                    return_value=netns.mitmtool.Tool(
+                        path, "12.3.1" if shown else "", "" if shown else "x"
+                    ),
+                ),
+                mock.patch.object(netns.sys, "stderr", new_callable=io.StringIO) as err,
+            ):
+                netns._announce_inspector({}, "traffic inspector (mitmweb): http://a:1")
+                self.assertEqual(bool(err.getvalue()), shown)
 
     def test_start_does_not_wait(self):
         """_start_proxy returns at once, whatever mitmweb does; a Proxy whose mitmweb exited
         before it listened is not ready (False), one still starting is pending (None)."""
         with tempfile.TemporaryDirectory() as directory:
             tree = mock.Mock()
-            tree.mitmweb.return_value = sys.executable
             tree.src.return_value = "/unused"
             tree.build.return_value = directory + "/flows"
             process = mock.Mock()
@@ -68,6 +90,11 @@ class OptionalProxy(unittest.TestCase):
                     netns.subprocess, "run", return_value=mock.Mock(stdout=directory + "/ca.pem")
                 ),
                 mock.patch.object(netns.subprocess, "Popen", return_value=process),
+                mock.patch.object(
+                    netns.mitmtool,
+                    "check",
+                    return_value=netns.mitmtool.Tool(sys.executable, "12.3.1", ""),
+                ),
             ):
                 proxy = netns._start_proxy({}, tree, directory, directory, "1")
             self.assertIs(proxy.process, process)
@@ -89,7 +116,7 @@ class OptionalProxy(unittest.TestCase):
             self.assertEqual(netns._wait_guest(guest, proxy, {}, "tap0"), 7)
         self.assertEqual(
             [c.args[1:4] for c in ip.call_args_list],
-            [("rule", "del", "pref")] * len(netns.PROXIED),
+            [("rule", "del", "pref")] * len(netns.TUN_PROTOCOLS),
         )
         self.assertTrue(all(c.args[4] == netns.HOLD_PREF for c in ip.call_args_list))
         proxy.process.wait.assert_called()
@@ -104,10 +131,11 @@ class OptionalProxy(unittest.TestCase):
         with mock.patch.object(netns, "_ip") as ip:
             self.assertEqual(netns._wait_guest(guest, proxy, {}, "tap0"), 7)
         steps = [(c.args[2], c.args[4]) for c in ip.call_args_list]
-        n = len(netns.PROXIED)
+        n = len(netns.TUN_PROTOCOLS)
         self.assertEqual(
             steps,
-            [("add", netns.INTERCEPT_PREF)] * n
+            [("replace", "dev")]  # the route into the device, first
+            + [("add", netns.INTERCEPT_PREF)] * n
             + [("del", netns.HOLD_PREF)] * n
             + [("del", netns.INTERCEPT_PREF)] * n,
         )
@@ -128,8 +156,8 @@ from beanjar import netns, paths
 root, directory, mode = sys.argv[1:]
 env = os.environ
 def ip(*args): subprocess.run(['ip', *args], check=True)
-# Put the HTTP server beyond a real uplink. Leaving an AnyIP rule installed would
-# deliver guest port 80 to this namespace, where no listener exists, and fail.
+# Put the HTTP server beyond a real uplink. Leaving a rule into the TUN device installed would
+# send the guest's packets to a device no one reads, and fail.
 server_code = """
 import http.server, os, pathlib, subprocess, sys, time
 os.unshare(os.CLONE_NEWNET)
@@ -163,28 +191,28 @@ env.update(NETNS_RUNDIR=directory, NETNS_LOG_DIR=directory, NETNS_TAP='tap0',
            FAKE_GUEST_STOP=directory+'/stop', FAKE_GUEST_PORT='2222')
 proxy = None
 if mode == 'late':
-    # mitmweb's stand-in: it listens on port 80 (where AnyIP delivers the intercepted guest's
-    # traffic) and its web port only 1.5 s after the guest has its lease and starts its probe, so
-    # that probe's SYN arrives while the proxy is not up yet and is held (netns._hold).
+    # mitmweb's stand-in: its TUN device (mitm0), its web port and its ready file only 1.5 s
+    # after the guest has its lease and starts its probe, so that probe's SYN arrives while the
+    # proxy is not up yet and is held (netns._hold). It writes every packet the device gets back
+    # into it, which the namespace then forwards like any other (the rules match the TAP only),
+    # and counts them.
     late = """
-import http.server, os, pathlib, socket, sys, threading, time
+import fcntl, os, pathlib, socket, struct, subprocess, sys, time
 directory = sys.argv[1]
 while not pathlib.Path(directory, 'leased').exists(): time.sleep(.02)
 time.sleep(1.5)
-class Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200); self.end_headers(); self.wfile.write(b'proxy-ok')
-    def log_message(self, *args): pass
-class Server(http.server.HTTPServer):
-    def server_bind(self):
-        # as mitm_transparent.py has mitmweb's: answer from the address the guest dialled
-        self.socket.setsockopt(socket.SOL_IP, 19, 1)  # IP_TRANSPARENT
-        super().server_bind()
-server = Server(('0.0.0.0', 80), Handler)
+fd = os.open('/dev/net/tun', os.O_RDWR)
+fcntl.ioctl(fd, 0x400454ca, struct.pack('16sH', b'mitm0', 0x0001 | 0x1000))  # TUNSETIFF: IFF_TUN, IFF_NO_PI
+subprocess.run(['ip', 'link', 'set', 'mitm0', 'up'], check=True)
+pathlib.Path('/proc/sys/net/ipv4/conf/mitm0/rp_filter').write_text('0')
 web = socket.create_server(('127.0.0.1', 18099))
 pathlib.Path(directory, 'mitmweb.ready').touch()
-pathlib.Path(directory, 'ready-at').write_text(str(time.monotonic()))
-server.serve_forever()
+n = 0
+while True:
+    packet = os.read(fd, 65536)
+    n += 1
+    pathlib.Path(directory, 'tun-packets').write_text(str(n))
+    os.write(fd, packet)
 """
     process = subprocess.Popen([sys.executable, '-c', late, directory], preexec_fn=netns._die_with_parent)
     proxy = netns.Proxy(process, directory + '/mitmweb.ready', '18099', directory + '/late.log')
@@ -197,7 +225,7 @@ elif mode == 'dead':
     # The guest starts only after inner has installed its hold rules. Its wrapper kills the
     # proxy, which never got ready, and allows the monitor to remove the rules before making
     # requests: they go directly.
-    wrapper = 'import os, runpy, signal, subprocess, time; rules = subprocess.check_output(["ip", "rule"], text=True); assert "dport 80" in rules and "dport 443" in rules, rules; os.kill(%d, signal.SIGTERM); time.sleep(0.6); runpy.run_path(%r, run_name="__main__")' % (proxy.process.pid, root+'/tests/fakes/fake-tap-guest')
+    wrapper = 'import os, runpy, signal, subprocess, time; rules = subprocess.check_output(["ip", "rule"], text=True); assert "ipproto tcp blackhole" in rules and "ipproto udp blackhole" in rules, rules; os.kill(%d, signal.SIGTERM); time.sleep(0.6); runpy.run_path(%r, run_name="__main__")' % (proxy.process.pid, root+'/tests/fakes/fake-tap-guest')
 if mode != 'dead':
     wrapper = 'import runpy; runpy.run_path(%r, run_name="__main__")' % (root+'/tests/fakes/fake-tap-guest')
 def stop_when_done():
@@ -210,19 +238,18 @@ try:
     result = json.loads(pathlib.Path(directory, 'results').read_text())
     assert status == 0, status
     assert '200 OK' in result['http'].get('data', ''), result
+    assert 'direct-ok' in result['http']['data'], result
     if mode == 'late':
         # held, not refused or reset: it waited for the proxy (TCP sent its SYN again) and was
-        # answered by it, not by the server beyond the uplink
-        assert 'proxy-ok' in result['http']['data'], result
+        # then carried through its device
         assert result['http']['seconds'] >= 1.0, result
-    else:
-        assert 'direct-ok' in result['http']['data'], result
+        assert int(pathlib.Path(directory, 'tun-packets').read_text()) > 0
     rules = subprocess.check_output(['ip', 'rule'], text=True)
     assert 'blackhole' not in rules, rules  # the hold is gone either way
     if mode == 'late':  # intercepting still (the namespace ends with the VM)
-        assert 'dport 80 lookup' in rules and 'dport 443 lookup' in rules, rules
+        assert 'ipproto tcp lookup 101' in rules and 'ipproto udp lookup 101' in rules, rules
     else:
-        assert 'dport 80' not in rules and 'dport 443' not in rules, rules
+        assert 'ipproto' not in rules, rules
     print('http', result['http']['seconds'], 's', file=sys.stderr)
 finally:
     server.terminate()

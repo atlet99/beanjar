@@ -10,8 +10,8 @@ first request, shared by the next ones, ended IDLE seconds after the last one fi
 shutdown, and when the inspector stops answering (a VM restarted: a new password; a shared
 connection that ended: no forward), after which the request is tried once more with a new one.
 
-The pinned mitmweb (mitmproxy 12.2.3, host/helpers/network/requirements.txt) has no base path
-option and needs none: its page asks for everything relative to itself (./static/..., its API
+mitmweb (the user's own, 12.0.1 or newer: host/core/beanjar/mitmtool.py; 12.2.3 and 12.3.1 read
+for what follows, and the same) has no base path option and needs none: its page asks for everything relative to itself (./static/..., its API
 through a helper that makes /flows ./flows, the WebSocket at the page's path + /updates), so the
 requests are passed on as they are, below the prefix. The exceptions are File > Save and Save
 filtered, location.replace("/flows/dump..."), made relative in its script (DUMP_FROM, DUMP_TO).
@@ -379,7 +379,8 @@ class Inspectors:
 
     async def status(self, request):
         """/vm/HOST/NAME/inspector.json: `beanjar mitm show --json` without the URL or password
-        file: {mode, status, ready}."""
+        file: {mode, status, ready, problem}, problem why a started mitm VM's inspector is off (no
+        usable mitmweb: what to install) or null."""
         spec = self.server.spec(request)
         rc, out, err = await self.server.run(["mitm", "show", "--json", spec], 60)
         from .server import error_text
@@ -389,6 +390,7 @@ class Inspectors:
         try:
             data = json.loads(out)
             answer = {k: data[k] for k in ("mode", "status", "ready")}
+            answer["problem"] = (data.get("mitmweb") or {}).get("problem")
         except (ValueError, KeyError, TypeError):
             return web.json_response({"error": "beanjar mitm show printed no state"}, status=502)
         return web.json_response(answer, headers={"Cache-Control": "no-store"})

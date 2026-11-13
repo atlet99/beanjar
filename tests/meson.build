@@ -50,7 +50,7 @@ endforeach
 
 # area: [seconds, what its tests run]
 integration_depends = {
-  'network': [180, [relay] + (have_mitmproxy ? [mitmproxy_venv] : [])],
+  'network': [180, [relay]],
   'ui': [300, have_gtk ? [manager_gresource] : []],
   'media-helper': [180, [media_helper]],
   'vnc': [600, have_vnc ? [vnc, viewer_headless, media_helper] : []],
@@ -71,12 +71,8 @@ foreach area, spec : integration_depends
       depends: spec[1], timeout: spec[0], suite: ['integration', area])
   endif
 endforeach
-# mitm_addon.py's tests need mitmproxy, which only the pinned venv has: its Python, with the
-# system's pytest after the venv's own packages.
-if have_mitmproxy
-  test('integration-mitm-addon', env_prog,
-    args: [mitmproxy_python, '-c',
-           'import sys; sys.path.append("/usr/lib/python3/dist-packages"); import pytest; sys.exit(pytest.main())',
-           '-q', '--no-header', tests_dir / 'integration/network/test_mitm_addon.py'],
-    env: pytest_env, depends: mitmproxy_venv, timeout: 300, suite: ['integration', 'network'])
-endif
+# mitm_addon.py's tests need mitmproxy, the user's own: run-mitm-addon.py runs them with the Python
+# of the mitmweb mitmtool.py finds (a pipx venv's), as the test starts, or skips (77) saying why.
+test('integration-mitm-addon', python,
+  args: [tests_dir / 'integration/network/run-mitm-addon.py'],
+  env: pytest_env, timeout: 300, suite: ['integration', 'network'])

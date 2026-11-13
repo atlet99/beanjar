@@ -68,12 +68,15 @@ loadVm().then((vm) => {
 
 // More's Traffic Inspector: mitmweb through the server (/vm/HOST/NAME/mitm/), shown only while
 // the VM's inspector is ready (`beanjar mitm show`), asked again every 15 s until it is, then
-// every minute
+// every minute. An inspector that is off for good (no usable mitmweb: its problem says what to
+// install) shows that, dimmed, in the link's place; one still starting shows nothing.
 function watchInspector() {
   inspectorLink.href = `${base}/mitm/`;
   const check = () => fetch(`${base}/inspector.json`).then((r) => r.json()).then((s) => {
     inspectorLink.hidden = !s.ready;
-  }).catch(() => { inspectorLink.hidden = true; })
+    inspectorOff.hidden = !!s.ready || !s.problem;
+    inspectorOffWhy.textContent = s.problem || "";
+  }).catch(() => { inspectorLink.hidden = inspectorOff.hidden = true; })
     .finally(() => setTimeout(check, inspectorLink.hidden ? 15000 : 60000));
   check();
 }
@@ -172,6 +175,8 @@ const statsButton = document.getElementById("stats-button");
 const statsPanel = document.getElementById("stats-overlay");
 const fullscreenButton = document.getElementById("full");
 const inspectorLink = document.getElementById("inspector");
+const inspectorOff = document.getElementById("inspector-off"); // its place while it is off for good
+const inspectorOffWhy = document.getElementById("inspector-off-why");
 const fullRemote = document.getElementById("full-remote");
 const inputMenu = document.getElementById("input-menu"); // a touch screen's Remote button
 const inputRemote = document.getElementById("input-remote");
@@ -180,7 +185,7 @@ const shotButton = document.getElementById("shot");
 const remoteWindowItem = document.getElementById("remote-window"); // More's Remote in a Window
 const floatEl = document.getElementById("remote-float"); // the desktop's floating remote
 const moreItems = [qualityButton, planesButton, shotButton, statsButton, rotateButton, fullRemote,
-  inspectorLink, remoteWindowItem, fullscreenButton, document.getElementById("stop-vm")];
+  inspectorLink, inspectorOff, remoteWindowItem, fullscreenButton, document.getElementById("stop-vm")];
 const menuItems = () => moreItems.filter((item) => item.parentElement === morePop && !item.hidden && !item.disabled);
 
 function placePopover(pop, anchor) {
@@ -234,7 +239,8 @@ morePop.addEventListener("keydown", (event) => {
     moreButton.focus();
   }
 });
-for (const item of moreItems) item.addEventListener("click", () => {
+// (not the inspector's note: a click there may be selecting its install command to copy)
+for (const item of moreItems) if (item !== inspectorOff) item.addEventListener("click", () => {
   if (morePop.matches(":popover-open")) morePop.hidePopover();
 });
 qualityPop.addEventListener("keydown", (event) => {

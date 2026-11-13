@@ -28,8 +28,10 @@ ONOFF = ("on", "off")
 
 
 # mitm_flows (qemu.py MITM_FLOWS): how many flows the mode=mitm inspector keeps, 0 for all of them;
-# the default is not written out
-MITM_FLOWS = 1000
+# the default is not written out. A kept flow costs mitmweb about 2.5 MB per 1000 for DNS, 7.5 MB
+# per 1000 for HTTP(S) with a few KB of body, 19 MB per 1000 for HTTPS on a new TLS connection each
+# (docs/research/network-proxy.md): 5000 bounds the last at about 100 MB.
+MITM_FLOWS = 5000
 # mitm_flow_bytes (qemu.py MITM_FLOW_BYTES): the bytes of bodies those flows may hold, as "200M";
 # unset (the default) is no limit
 

@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """mitmproxy addon for NET=mitm: live capture of the guest's HTTP(S), with no host treated specially.
 
-The NET=mitm namespace (host/core/beanjar/netns.py) loads it into the transparent mitmweb. The
-guest resolves names with real DNS, so every tcp/80 and tcp/443 connection routed here still
-carries its real destination (mitm_transparent.py reads it), and mitmproxy forwards it there
-itself. There is no host list, no stub response and no relay. This addon only adds generic
-behaviours:
+The NET=mitm namespace (host/core/beanjar/netns.py) loads it into mitmweb, which runs in tun mode
+(`--mode tun:mitm0`, the user's own mitmproxy 12.0.1 or newer: host/core/beanjar/mitmtool.py). Every
+TCP and UDP packet of the guest is routed into mitmweb's TUN device, which reads each connection's
+real destination from its packets, and mitmproxy forwards it there itself. There is no host list,
+no stub response and no relay. This addon only adds generic behaviours:
 
 - No upstream verification. The proxy is a debug tool: netns.py sets ssl_insecure, so a server's
   certificate is accepted whatever its root or names (LG's *.lgtvsdp.com is CN-only, from a
@@ -22,9 +22,14 @@ behaviours:
   unknown length that are not textual, are streamed rather than buffered; the flow stays in
   mitmweb without its body.
 - A bounded history (FlowLimit): mitmweb keeps at most max_flows flows (vm.toml's
-  network.mitm_flows, default 1000, 0 for no limit) and, if max_flow_bytes is set (vm.toml's
+  network.mitm_flows, default 5000, 0 for no limit) and, if max_flow_bytes is set (vm.toml's
   network.mitm_flow_bytes, off by default), at most that many bytes of bodies, and drops the oldest
   finished flows beyond either, from memory and from the web view. Without it mitmweb grew by about 200 MB an hour.
+- Ready (Ready): the file netns.py waits for (NETNS_MITM_READY) once mitmweb's servers run, after
+  mitmproxy's UDP idle timeout is raised (tun_udp_timeout).
+
+Where it depends on mitmproxy's internals it checks the feature, not the version
+(tun_udp_timeout).
 """
 
 import collections
@@ -96,7 +101,7 @@ class Capture:
             return
         logging.warning(f"netstub: {why} for {key}")
         log("tls-failed", key, why.replace(" ", "-"))
-        # NextLayer in pinned mitmproxy 12.2.3 matches unbracketed host:port,
+        # NextLayer (mitmproxy 12.2.3 and 12.3.1) matches unbracketed host:port,
         # including IPv6, case-insensitively against address, SNI and Host header.
         pattern = "^" + re.escape(key) + "$"
         patterns = list(ctx.options.ignore_hosts)
@@ -174,7 +179,7 @@ class FlowLimit:
         loader.add_option(
             "max_flows",
             int,
-            1000,
+            5000,  # beanjar's vmsettings.MITM_FLOWS; netns.py always passes it
             "Flows mitmweb keeps; the oldest finished ones are dropped beyond it. 0: no limit.",
         )
         loader.add_option(
@@ -226,4 +231,55 @@ class FlowLimit:
     websocket_message = websocket_end = _add
 
 
-addons = [Capture(), WebPassword(), FlowLimit()]
+# How long an idle UDP flow is kept (s). mitmproxy's Python side closes an idle UDP flow
+# after mitmproxy.proxy.server.UDP_TIMEOUT (20 s in 12.3.1) while its TUN side keeps that 5-tuple,
+# so a client that reuses one UDP socket loses every datagram after a pause of 20 s or more, until
+# it has been silent long enough for the TUN side to let go. connman's DNS proxy is such a client:
+# its upstream socket to 10.0.2.3:53 lives as long as the guest, so the guest's every lookup timed
+# out. Measured on a guest (one socket, a query after each idle gap): with 20 s, the query after 30 s
+# idle was lost while those after 0 s, 10 s and 65 s were answered; with 600 s, those after 30, 65
+# and 130 s were all answered, and connman's lookups worked again. The same applies to any UDP port
+# (an NTP query on one socket after 30 s and 65 s idle was answered with 600 s).
+TUN_UDP_TIMEOUT = 600
+
+
+def tun_udp_timeout(server=None):
+    """Raise mitmproxy's UDP idle timeout to TUN_UDP_TIMEOUT (a feature check: the module
+    attribute must exist and be a number); a warning naming the version and False if it cannot."""
+    import mitmproxy.version
+
+    if server is None:
+        try:
+            import mitmproxy.proxy.server as server
+        except ImportError:
+            server = None
+    current = getattr(server, "UDP_TIMEOUT", None)
+    if isinstance(current, bool) or not isinstance(current, (int, float)):
+        logging.warning(
+            f"netstub: mitmproxy {mitmproxy.version.VERSION} has no proxy.server.UDP_TIMEOUT; "
+            "idle UDP flows (the guest's DNS) may stop working"
+        )
+        return False
+    if current < TUN_UDP_TIMEOUT:
+        server.UDP_TIMEOUT = TUN_UDP_TIMEOUT
+    return True
+
+
+class Ready:
+    """The ready file netns.py waits for (NETNS_MITM_READY), written once mitmweb's servers run,
+    after the UDP timeout is raised when it serves a TUN device (tun_udp_timeout): netns.py routes
+    nothing into the device before that file exists."""
+
+    def running(self) -> None:
+        from mitmproxy import ctx
+
+        modes = [m for m in ctx.options.mode if m.startswith("tun")]
+        if modes:
+            tun_udp_timeout()
+        ready = os.environ.get("NETNS_MITM_READY")
+        if ready:
+            with open(ready, "w") as f:
+                f.write(f"{len(modes)}\n")
+
+
+addons = [Capture(), WebPassword(), FlowLimit(), Ready()]

@@ -58,12 +58,16 @@ python3 -m beanjar --help
 python3 -m beanjar_ui.manager
 ```
 
-The rest of these pages write `beanjar`; from a checkout that is `python3 -m beanjar`. The host
-build also makes the mitmproxy environment that a VM's default network uses.
+The rest of these pages write `beanjar`; from a checkout that is `python3 -m beanjar`.
 
 ## From the Debian packages
 
-No packages are published yet; they are built from a checkout after the host and guest builds:
+Released packages are on the [releases page](https://github.com/mariotaku/beanjar/releases):
+the host packages in the newest `host-<version>` release, and `beanjar-guest` in the
+`guest-<version>` release its notes name. Install the downloaded files with
+`sudo apt install ./beanjar_*.deb ./beanjar-ui_*.deb ./beanjar-guest_*.deb`.
+
+To build them from a checkout instead, after the host and guest builds:
 
 ```sh
 python3 packaging/debian/build.py
@@ -78,14 +82,16 @@ is `beanjar-qemu`, the patched QEMU (without it the VMs run on Debian's); see th
 
 The packages install the commands `beanjar` (the CLI; without arguments it opens the manager
 window), `beanjar-ui` (the manager window), `beanjar-viewer`, and with the optional packages
-`beanjar-vnc` and `beanjar-web`. A VM's default network records its web traffic through
-mitmproxy, which an installed Beanjar downloads into your user data once, when you agree:
+`beanjar-vnc` and `beanjar-web`. A VM's default network records its traffic through your own
+mitmproxy, 12.0.1 or newer, which Debian does not package; install it with pipx:
 
 ```sh
-beanjar mitm setup --install
+sudo apt install pipx
+pipx install mitmproxy
 ```
 
-A VM with `mode=direct` (see [network](vms.md#network)) does not need it.
+Without it the VM still starts, uninspected, and says so. A VM with `mode=direct` (see
+[network](vms.md#network)) does not need it.
 
 ## Where things are kept
 

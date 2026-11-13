@@ -443,8 +443,8 @@ class ManagerTest(unittest.TestCase):
         self.cli("settings", "tv1", "set", "link=nat", "mode=mitm")
         cfg = tload(os.path.join(self.lib_dir, "vms", "tv1", "vm.toml"))
         self.assertEqual((cfg["link"], cfg["mode"], "address" in cfg), ("nat", "mitm", False))
-        # the inspector's flow history: 1000 by default, in status, the default not written out
-        self.assertEqual(self.info("tv1")["mitm_flows"], 1000)
+        # the inspector's flow history: vmsettings.MITM_FLOWS by default, in status, the default not written out
+        self.assertEqual(self.info("tv1")["mitm_flows"], vmsettings.MITM_FLOWS)
         self.cli("settings", "tv1", "set", "mitm_flows=200")
         self.assertEqual(
             tload(os.path.join(self.lib_dir, "vms", "tv1", "vm.toml"))["mitm_flows"], 200
@@ -453,12 +453,12 @@ class ManagerTest(unittest.TestCase):
         self.assertIn(
             "0 for no limit", self.cli("settings", "tv1", "set", "mitm_flows=-5", ok=False)
         )
-        self.cli("settings", "tv1", "set", "mitm_flows=1000")
+        self.cli("settings", "tv1", "set", f"mitm_flows={vmsettings.MITM_FLOWS}")
         self.assertNotIn("mitm_flows", tload(os.path.join(self.lib_dir, "vms", "tv1", "vm.toml")))
         self.cli("settings", "tv1", "set", "mitm_flows=50")
         self.cli("settings", "tv1", "unset", "mitm_flows")
         self.assertNotIn("mitm_flows", tload(os.path.join(self.lib_dir, "vms", "tv1", "vm.toml")))
-        self.assertEqual(self.info("tv1")["mitm_flows"], 1000)
+        self.assertEqual(self.info("tv1")["mitm_flows"], vmsettings.MITM_FLOWS)
         self.assertIn(
             "unset mitm_flows", self.cli("settings", "tv1", "set", "mitm_flows=", ok=False)
         )
@@ -3385,7 +3385,7 @@ class CliParseTest(unittest.TestCase):
                 settings.cmd_host_config,
                 {"verb": "unset"},
             ),
-            (["mitm", "setup", "--install"], mitm.cmd_mitm_setup, {"install": True}),
+            (["mitm", "show", "tv1"], mitm.cmd_mitm_show, {"name": "tv1"}),
         ):
             with self.subTest(argv):
                 a = self.parse(*argv)
@@ -3409,6 +3409,7 @@ class CliParseTest(unittest.TestCase):
             ["new-identity", "tv1"],
             ["model-key", "tv1"],
             ["mitm-setup"],
+            ["mitm", "setup"],  # mitmproxy is the user's own (mitmtool.py): nothing to set up
             ["config"],
             ["config", "--global"],
             ["vnc", "password", "tv1", "--show"],

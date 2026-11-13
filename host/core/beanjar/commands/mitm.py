@@ -1,22 +1,8 @@
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""The mode=mitm traffic inspector's tool: mitm setup, show, connect, clear."""
+"""The mode=mitm traffic inspector's tool: mitm show, connect, clear."""
 
-from ..core import Error
 from .common import emit
-
-
-def cmd_mitm_setup(lib, a):
-    from .. import mitmsetup, paths
-
-    try:
-        mitmsetup.ensure(paths.TREE, a.install)
-        # every successful setup, not only one that installs: the earlier versions' environments
-        mitmsetup.prune_unused(paths.TREE)
-    except mitmsetup.Error as exc:
-        raise Error(str(exc)) from None
-    exe = mitmsetup.executable(paths.TREE)
-    return emit(a, {"ready": True, "executable": str(exe)}, f"MITM ready: {exe}")
 
 
 def cmd_mitm_show(lib, a):
@@ -47,16 +33,14 @@ def mitm_cleared(a, data):
 def register(cli):
     command, group, vm_name = cli.command, cli.group, cli.vm_name
     g = group("mitm", "the mode=mitm traffic inspector's tool")
-    s = command(g, "setup", "install the pinned user-local MITM tool", cmd_mitm_setup)
-    s.add_argument(
-        "--install", action="store_true", help="authorize downloading the pinned dependencies"
-    )
     s = command(
         g,
         "show",
         "the traffic inspector (mitmweb) of a running mode=mitm VM: its status, whether it is "
         "ready, its URL (with link lan the LAN one, and local_url, the VM's host's way in) and "
-        "the file with its password; with --password the password too",
+        "the file with its password, and mitmweb: the version and path this start found, or the "
+        "problem that kept the inspector off (no mitmweb, older than 12.0.1); with --password "
+        "the password too",
         cmd_mitm_show,
     )
     vm_name(s)

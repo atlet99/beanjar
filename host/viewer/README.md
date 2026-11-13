@@ -12,8 +12,8 @@ audio and the media audio play through SDL audio. The same core without a window
 
 ## Build and run
 
-On Debian, install `libsdl2-dev libglib2.0-dev libegl-dev libgles-dev pkg-config`,
-`python3-venv` and a C compiler. The per-VM media helper decodes with the private FFmpeg that the
+On Debian, install `libsdl2-dev libglib2.0-dev libegl-dev libgles-dev pkg-config`
+and a C compiler. The per-VM media helper decodes with the private FFmpeg that the
 host build downloads (`packaging/vendor.toml`, docs/dev/guides/build.md, "The prebuilt programs");
 the viewer has no FFmpeg dependency. SDL 2.26 or newer is required. The window needs GTK 4 and libadwaita for
 Python: `python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 blueprint-compiler` (GTK 4.12 and libadwaita 1.7 or newer; Debian 13

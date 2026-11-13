@@ -20,7 +20,7 @@ these two replaced, are historical.
 
 | `link` | `mode` | Guest connection | Host implementation |
 |---|---|---|---|
-| `nat` | `mitm` | NAT to the internet, with TCP ports 80 and 443 passing through mitmweb | Rootless network namespace, TAP, routing and slirp4netns uplink |
+| `nat` | `mitm` | NAT to the internet, every TCP and UDP connection passing through mitmweb (tun mode); ICMP direct | Rootless network namespace, TAP, routing into mitmweb's TUN device and slirp4netns uplink |
 | `nat` | `direct` | NAT without the proxy | QEMU user networking |
 | `lan` | `direct` | *Planned.* On the host's wired LAN as a TV of its own: the guest takes its own DHCP lease, SSDP works, nothing is intercepted | QEMU attaches the guest to `lan_parent` with macvtap, with the VM's MAC |
 | `lan` | `mitm` | On the LAN at its own address and MAC, with SSDP/mDNS discovery and best-effort web capture | A LAN namespace gets a macvlan on `lan_parent` with the VM's MAC and its DHCP lease or static `address`; the private guest sits behind it, with service and discovery relays (below) |
@@ -45,19 +45,31 @@ it, "link=lan with mode=direct is not implemented yet". The guest's kernel comma
 
 ## The proxy's start
 
-mitmweb starts beside QEMU, not before it: the launcher does not wait for it to listen. Until it
-does, the guest's tcp/80 and tcp/443 are held by policy rules of the inner namespace that drop them
-(`blackhole`, `netns._hold`), and once mitmweb listens the interception rules are added and then
-the hold removed (`netns._wait_guest`). A connection the guest opens meanwhile is not refused and
+mitmweb is the user's own mitmproxy, 12.0.1 or newer (`host/core/beanjar/mitmtool.py`:
+`NETNS_MITMWEB`, else `mitmweb` on `PATH`, else `~/.local/bin/mitmweb`, pipx's default; the version
+from the package metadata beside it, else `mitmweb --version`, once per start). It runs as
+`mitmweb --mode tun:mitm0` with `connection_strategy=eager` and `mitm_addon.py`, and makes the TUN
+device `mitm0` itself in the inner namespace. Once it is ready the policy rules `iif tap0 ipproto
+tcp` and `iif tap0 ipproto udp` look up a table whose one route is `default dev mitm0`: all of the
+guest's TCP and UDP, every port, DNS included, and nothing else (ICMP goes to slirp). mitmweb's own
+upstream connections do not arrive on the TAP and leave by the main table. What the start found
+(version, path, and the problem when it cannot serve) is written to `run/mitmweb.json`, which
+`beanjar mitm show` and the manager read.
+
+mitmweb starts beside QEMU, not before it: the launcher does not wait for it to be ready. Until it
+is (its addon's ready file, its web port and `mitm0` all there), the guest's TCP and UDP are held
+by policy rules of the inner namespace that drop them (`blackhole`, `netns._hold`), and once it is
+the route and interception rules are added and then the hold removed (`netns._wait_guest`). A connection the guest opens meanwhile is not refused and
 not reset: its SYN is dropped, TCP sends it again (after 1 s, 3 s, 7 s, ...), and a retransmission
 after mitmweb is up is accepted by it. Letting such a connection go directly instead would get it
 reset when interception starts, since its later packets would then be delivered to a mitmweb that
-has no such connection. A mitmweb that exits, or has not listened within 60 s (`PROXY_WAIT`), has
-the hold removed and the guest's web traffic goes directly, as with no inspector.
+has no such connection. A mitmweb that exits, or is not ready within 60 s (`PROXY_WAIT`), has
+the hold removed and the guest's traffic goes directly, as with no inspector; so does a start with
+no mitmweb or one older than 12.0.1, whose reason is printed and recorded.
 
-`tests/integration/network/test_netns_failopen.py` shows it (mode `late`): a stand-in proxy listens only 1.5 s
-after the fake guest has its lease and opens its HTTP connection, which completes about 2 s after
-it was opened, answered by the proxy. On an RK3399 board mitmweb took about 10 s to listen; the
+`tests/integration/network/test_netns_failopen.py` shows it (mode `late`): a stand-in makes its TUN
+device only 1.5 s after the fake guest has its lease and opens its HTTP connection, which is
+carried through the device once it is there and completes about 2 s after it was opened. On an RK3399 board mitmweb took about 10 s to listen; the
 guest's network is up some 30 s after QEMU starts, so in practice nothing is held, and the start no
 longer waits those 10 s.
 
@@ -126,7 +138,8 @@ host ── VM_ADDRESS relay (127.0.1.N: service ports, inspector)
 ## Ownership and interception
 
 `host/core/beanjar/netns.py` owns the namespace and networking helpers. The `mitm` path
-uses routing rather than netfilter. The proxy's inspector is available at the configured
+uses routing rather than netfilter, and mitmweb's own tun mode rather than any mitmproxy
+internals. The proxy's inspector is available at the configured
 host port (normally the VM's address, `127.0.1.<slot>:18083`, and with `link = "lan"` the VM's LAN
 address too), behind a password made for each
 start (or `BEANJAR_MITM_PASSWORD`), which the VM's owner-only `run/mitmweb.password` holds and the
@@ -138,8 +151,8 @@ manager shows ([inspect emulator traffic](../../user/inspect-emulator-traffic.md
 proxy startup leaves the routed guest network usable without interception. The
 ingress interception rules are installed only after proxy readiness; if that
 process exits, the rules are removed while the guest continues running. Existing
-connections may fail and require a client retry. Starting a VM does not download
-the optional proxy; `beanjar mitm setup --install` explicitly installs it.
+connections may fail and require a client retry. Beanjar does not install the
+optional proxy; the user does (`pipx install mitmproxy`).
 
 TLS handshake failures also allow later connections to the same endpoint through
 undecrypted. The failed connection is not replayed. These automatic bypasses are
@@ -153,7 +166,7 @@ the proxy is unavailable.
 exchange framed messages and fixed-guest service tunnels over a private Unix
 socket. Namespace startup waits for each helper's readiness. Their lifetime is
 the VM's, independently of mitmweb; the system `python3-dnspython` package supplies
-the DNS codec without the optional proxy environment.
+the DNS codec without the optional proxy.
 
 SSDP searches and mDNS queries cross in both directions. Temporary query sockets
 correlate private replies with the requesting client; normal mDNS multicast,

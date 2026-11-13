@@ -32,9 +32,11 @@ names another one (a guest build's, an arm64 host build's). What a build does no
 with the reason (`pytest -ra` lists them). Under Meson, a test whose every case skipped shows as
 SKIP, as an exit status 77 does.
 
-`tests/integration/network/test_mitm_addon.py` needs mitmproxy, which only the pinned venv has:
-Meson runs it with `build/mitmproxy-venv/bin/python` (`integration-mitm-addon`); under the
-system Python it is skipped.
+`tests/integration/network/test_mitm_addon.py` needs mitmproxy, the developer's own (`pipx install
+mitmproxy`, 12.0.1 or newer): Meson runs it through `run-mitm-addon.py` (`integration-mitm-addon`),
+with the Python of the mitmweb `mitmtool.py` finds (the interpreter its shebang names), or skips
+saying why; under the system Python it is skipped. `test_netns.py` and the web `check-mitm.py` run
+that mitmweb and skip without it.
 
 ## Layout
 

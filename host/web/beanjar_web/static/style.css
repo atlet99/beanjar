@@ -93,6 +93,16 @@ body.viewer #input-menu [aria-checked="true"]::after { content: "✓"; margin-le
 body.viewer #viewer-more .menu-sep { width: 100%; height: 1px; margin: 4px 0; border: 0; background: #ffffff1f; }
 body.viewer #viewer-more .menu-sep[hidden] { display: none; }
 body.viewer #viewer-more button.destructive { color: #ff8b7c; }
+/* More's note in the Traffic Inspector's place while it is off (no usable mitmweb): dimmed, not
+   an action, its reason (with what to install) in small selectable text below */
+body.viewer #viewer-more .menu-note { display: flex; gap: 10px; align-items: flex-start; padding: 10px;
+  color: var(--dim); font-size: 16px; cursor: default; user-select: text; border-radius: 6px; }
+body.viewer #viewer-more .menu-note[hidden] { display: none; }
+body.viewer #viewer-more .menu-note .bi { margin-top: 1px; }
+body.viewer #viewer-more .menu-note:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.menu-note-title { display: block; font-size: 14px; }
+.menu-note-detail { display: block; margin-top: 2px; font-size: 12px; line-height: 1.35;
+  overflow-wrap: anywhere; }
 body.viewer #viewer-more button { white-space: nowrap; }
 body.viewer #viewer-more { width: 230px; }
 /* the desktop's floating remote (viewer.js): over the picture, the remote's own body its frame,

@@ -209,7 +209,7 @@ Without `--hosts` nothing changes: one `beanjar list --json` of every host, and 
 | `/vm/HOST/NAME/layout.json` | `beanjar remote layout HOST/NAME --json` |
 | `/vm/HOST/NAME/screenshot.png` | `beanjar screenshot HOST/NAME -` |
 | `/vm/HOST/NAME/screenshot.png?thumbnail=1` | a shared 384×216 card preview (`beanjar screenshot HOST/NAME - --size 384x216`); cached pictures return immediately, refreshing in the background after 5 s; a first picture may wait; eligibility uses the shared VM list, returning 204 unless Running with beanjar-vnc or Off (its kept `--last` thumbnail, fetched once per state, or 204) |
-| `/vm/HOST/NAME/inspector.json` | `beanjar mitm show --json HOST/NAME` without the URL and password file: `{mode, status, ready}`; the manager's failure 502 |
+| `/vm/HOST/NAME/inspector.json` | `beanjar mitm show --json HOST/NAME` without the URL and password file: `{mode, status, ready, problem}` (problem: why a started VM's inspector is off, no usable mitmweb, with what to install; else null); the manager's failure 502 |
 | `/vm/HOST/NAME/mitm/...` | the VM's traffic inspector (mitmweb), every method and its `/updates` WebSocket ([below](#the-traffic-inspector)); `/vm/HOST/NAME/mitm` redirects to it with the slash |
 | `/remote.html?vm=HOST/NAME` | the popup remote |
 | `/api/session` | `{"auth": MODE}`: the list shows Log Out for `password` |
@@ -329,8 +329,8 @@ the browser never sees the inspector's password.
   the next remote run on that machine cancels (`ares.sweep_homes`). The manager refuses a VM
   without mitm, not running, or whose inspector is not ready (`inspector.probe`): 409 with its
   message; no answer within 90 s is 502.
-- **Under a prefix as it is.** The pinned mitmweb (mitmproxy 12.2.3,
-  `host/helpers/network/requirements.txt`) has no base-path option and honours no
+- **Under a prefix as it is.** mitmweb (the user's own, 12.0.1 or newer, `mitmtool.py`; read in
+  12.2.3 and 12.3.1, which do not differ in what follows) has no base-path option and honours no
   `X-Forwarded-Prefix`, but its page needs neither: `index.html` loads `./static/...`, the API
   helper turns `/flows` into `./flows`, content downloads are `./flows/...`, the WebSocket is the
   page's path plus `/updates`, and its routing is in the fragment (`#/flows/...`). So requests are
@@ -338,8 +338,9 @@ the browser never sees the inspector's password.
   exception is File > Save and Save filtered, `location.replace("/flows/dump...")`: in the page's
   script (`static/index-*.js`, asked for uncompressed) those two literals become `./flows/dump`,
   a plain byte replacement (`mitm.rewrite_script`); a later mitmweb without them is passed on
-  unchanged. `check-mitm` counts the two against the pinned one.
-- **The login.** mitmweb 12.2.3 (`tools/web/app.py`, `webaddons.WebAuth`) lets a request in with
+  unchanged. `check-mitm` counts the two against the installed one.
+- **The login.** mitmweb (`tools/web/app.py`, `webaddons.WebAuth`; `web_password` and the Bearer
+  check are why 12.0.1 is the floor) lets a request in with
   its signed session cookie `mitmproxy-auth-PORT`, or else checks `Authorization: Bearer PASSWORD`
   (or `?token=`) against `web_password` (an argon2 hash, `mitm_addon.WebPassword`) and sets that
   cookie. Every request here carries the Bearer password and the cookie once mitmweb gave it,
@@ -361,10 +362,13 @@ the browser never sees the inspector's password.
   `X-Forwarded-*` or `Authorization` of the browser's, and passes `Sec-Fetch-Site` on.
 - **The viewer's link.** More has Traffic Inspector (`binoculars`), opening `/vm/HOST/NAME/mitm/`
   in a new tab, for a Running VM whose list row says mitm, once `inspector.json` says it is ready
-  (asked every 15 s until it is, then every minute; hidden again when it is not).
+  (asked every 15 s until it is, then every minute; hidden again when it is not). While it is off
+  for good (`problem`), a dimmed "Traffic Inspector off" item takes its place with the problem
+  below it in small selectable text; it is a disabled menu item, reached with the arrow keys and
+  read with its text, and a click leaves the menu open. While it is only starting, nothing shows.
 
 Not done: rewriting anything else in mitmweb's pages (a later mitmweb that adds absolute URLs
-would need it here; the pin changes only with `requirements.txt`), and the CSP mitmweb sends
+would need it here; `check-mitm` against the installed mitmweb is where it would show), and the CSP mitmweb sends
 (`connect-src 'self' ws:`) is passed on as it is, which allows the WebSocket at `wss:` behind
 HTTPS too (CSP Level 3's `'self'`).
 
@@ -861,8 +865,8 @@ from the PATH; from the checkout, `host/web/bin/beanjar-web` runs the checkout's
   refusals (no mitm, not running, not ready, a bad or older answer) add no forward; a killed run's
   forward is cancelled by the next. `MitmShowTest`: `mitm show`'s fields and the password only
   with `--password`; a local `mitm connect` at the VM's own address.
-- `check-mitm` (`tests/integration/web/check-mitm.py`): the same route against the real pinned mitmweb
-  (`beanjar mitm setup`'s environment; skipped without it) run with `mitm_addon.py`'s password as
+- `check-mitm` (`tests/integration/web/check-mitm.py`): the same route against the real mitmweb
+  (the user's own, as `mitmtool.py` finds it; skipped without one of 12.0.1 or newer) run with `mitm_addon.py`'s password as
   a regular proxy on loopback: the page and its assets, File > Save rewritten twice, `/options`
   read and set with the XSRF cookie from `/updates`, a request through the proxy arriving over
   `/updates` and in `/flows`; and headless Chromium (skipped without it) showing that flow in the

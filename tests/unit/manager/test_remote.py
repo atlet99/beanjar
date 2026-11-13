@@ -1285,7 +1285,8 @@ class MitmShowTest(unittest.TestCase):
             data = inspector.show(vm)
             self.assertEqual(data, {"name": "tv", "mode": "mitm", "status": "Running",
                                     "ready": True, "url": "http://127.0.1.5:18083/",
-                                    "local_url": None, "password_file": "/run/p"})  # fmt: skip
+                                    "local_url": None, "password_file": "/run/p",
+                                    "mitmweb": None})  # fmt: skip
             self.assertEqual(inspector.show(vm, password=True)["password"], "pw")
         with mock.patch.object(inspector, "snapshot",
                                return_value=inspector.State("direct", "Not running")):  # fmt: skip

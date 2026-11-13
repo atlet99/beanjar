@@ -6,8 +6,8 @@ target and the host build:
 | Directory     | Machine                         | Builds                                                   |
 |---------------|---------------------------------|----------------------------------------------------------|
 | `build/guest-<chip>-<release>` (WT1H: `build/guest-h13-afro`) | cross, `meson/cross/webos-sdk.ini` for webOS/SimpleSmart or `meson/cross/lgtv-sdk.ini` for NetCast 4.5 (x86_64 SDKs), `-Dsoc=<chip> -Dwebos=<release>` | target-specific 32-bit ARM layers and tools (webOS: common, soc, webos, gl with Mesa and optional layers; SimpleSmart: simplesmart; NetCast 4.5: netcast45 with Mesa); and the arm64 kernel with its modules (lgemu.ko, lg115x.ko, mstar-utopia.ko, rtk.ko, btmtk_usb.ko, webos_tv.ko, lgfs.ko), busybox and initramfs |
-| `build/host`  | native (x86_64 or the Pi's aarch64) | the viewer, the GTK layouts (viewer, VM manager), the firmware cache, the mitmproxy venv, the unit tests; the prebuilt QEMU, FFmpeg and neatvnc published beside them |
-| `build/host-arm64` | cross on the x86_64 PC, `meson/cross/debian-arm64.ini` (Debian's aarch64 GCC and Debian's arm64 libraries, multiarch) | the host build's programs for arm64, published to `build/publish-arm64` for the arm64 packages; its tests are built, not run; no firmware cache or mitmproxy venv |
+| `build/host`  | native (x86_64 or the Pi's aarch64) | the viewer, the GTK layouts (viewer, VM manager), the firmware cache, the network helpers, the unit tests; the prebuilt QEMU, FFmpeg and neatvnc published beside them |
+| `build/host-arm64` | cross on the x86_64 PC, `meson/cross/debian-arm64.ini` (Debian's aarch64 GCC and Debian's arm64 libraries, multiarch) | the host build's programs for arm64, published to `build/publish-arm64` for the arm64 packages; its tests are built, not run; no firmware cache |
 
 ## Commands
 
@@ -146,8 +146,7 @@ the launchers and any host sync use it: `build/Image`, `build/{lgemu,lg115x,msta
 `beanjar_ui/viewer/`, `beanjar-viewer.gresource`, `libbeanjar-viewer-core.so`, `viewer-headless`),
 `build/manager/beanjar.gresource`, and the prebuilt `build/qemu`, `build/ffmpeg` and `build/neatvnc`. Files are replaced by a rename and trees by an atomic exchange (the previous tree
 waits in `build/.publish-old/`), so a running QEMU or viewer keeps the files it has open.
-`-Dpublish_dir=DIR` publishes elsewhere. The mitmproxy venv cannot be moved, so the host build
-makes it in place, `build/mitmproxy-venv`, only when `host/helpers/network/requirements.txt` changes.
+`-Dpublish_dir=DIR` publishes elsewhere.
 This is not `meson install`: an install copies over files in place and never removes one that a
 layer no longer has, where a layer must be replaced as a whole.
 
@@ -155,7 +154,7 @@ Useful targets: `kernel`, `lgemu`, `busybox`, `initramfs`, `<name>-layer` (commo
 gl, headless, rootssh, devmode, tcg-perf), `mesa`, `ssh-bin`,
 `guest-tests`, `fetch-<wrap>`; `beanjar-viewer-core`, `viewer-headless`, `beanjar-viewer-ui`
 and `beanjar-ui` (the layouts, compiled), `qemu`,
-`firmware-cache`, `mitmproxy-venv`, `check-cursor`. A
+`firmware-cache`, `check-cursor`. A
 target alone does not publish; `publish` (the default build) does. The tests are pytest's, in
 tiers: `tests/unit` needs no build, `tests/integration` this build's outputs ([testing](testing.md)).
 `meson test --suite unit` (`integration`, or an area: `manager`, `vnc`, `viewer`, `regress`, ...) runs
@@ -777,7 +776,6 @@ firmware exclusion concerns LG binaries and paks, not those images; raw captures
 | Raw screenshots and recordings | `build/*.png`, `*.jpg`, `*.ppm`, `*.wav`, `*.bin` (input recordings), `build/tmp`, `build/vm-osd`, `build/walk`, `build/media-check`, `build/video-app` | unreviewed captures of the firmware's screens and sounds |
 | Test keys and leftovers | `build/test-keys`, `build/authorized_keys.test-bak`, `build/fake`, `build/devmode-tests/*.log`, `build/boot-times`, `build/tcg-perf/<run>` | keys, or of one machine |
 | References and scratch | `build/ref` (cloned repos), `scratch/`, the old `build/securestore`, `build/video` | not this project's, or not built any more |
-| Environments | `build/mitmproxy-venv` (cannot be moved; the host build makes it) | not relocatable |
 
 The netproxy layer, the one guest artefact made from a CA of one install, is gone from the build
 and the initramfs. `packaging/shippable.py` (in `meson test -C build/host --suite packaging`) checks the
@@ -830,8 +828,7 @@ packaging/debian/build-deps.sh host
 sudo apt install ./build/packages/beanjar-build-deps-host_*_all.deb
 ```
 
-- Build: Meson 1.7 and Ninja; `patch` applies the wraps' `diff_files`; `python3-venv` makes the
-  mitmproxy venv (below).
+- Build: Meson 1.7 and Ninja; `patch` applies the wraps' `diff_files`.
 - The viewer: SDL2, GLib, EGL and GLES. The per-VM media helper uses the private FFmpeg 7.1 for
   video/audio decoding and resampling; the role has the Debian libraries its `BUILDINFO` names
   (the codec libraries, VA-API, VDPAU and the rest), which linking against it and running it need,
@@ -903,14 +900,12 @@ sudo apt install ./build/packages/beanjar-build-deps-readers_*_all.deb
 
 What is not a package, and why:
 
-- **mitmproxy** (`mode = "mitm"`) is in a venv, `build/mitmproxy-venv`, pinned with its whole
-  dependency closure in `host/helpers/network/requirements.txt`: Debian 13 has no mitmproxy package
-  (`apt-cache policy mitmproxy` shows no candidate on either machine). The
-  pin is 12.2.3, the latest stable release on 2026-10-12; since 11.1 mitmweb requires a password,
-  which `host/core/beanjar/netns.py` gives each VM's inspector
-  ([inspect emulator traffic](../../user/inspect-emulator-traffic.md#the-password)). `beanjar mitm setup`
-  installs the same pins for an installed beanjar. The venv's other packages are mitmproxy's own
-  closure; they are not mixed with Debian's.
+- **mitmproxy** (`mode = "mitm"`) is the developer's or user's own, 12.0.1 or newer, neither
+  built nor vendored: Debian 13 has no mitmproxy package (`apt-cache policy mitmproxy` shows no
+  candidate on either machine), so it is `pipx install mitmproxy` (12.3.1 on 2026-11-13).
+  `host/core/beanjar/mitmtool.py` finds it and checks the version; mitmweb runs in its own venv's
+  interpreter, never mixed with Debian's packages. Without it a mitm VM goes out directly, and the
+  tests that need it skip ([testing](testing.md)).
 - **QEMU** 10.0.2, for its patches (below), **FFmpeg** 7.1.5, for the V4L2 Request API
   hwaccels Debian's lacks, and **neatvnc** 1.0.4 with **aml** 1.0, which trixie does not have:
   beanjar-vendor's prebuilt tarballs (above, "The prebuilt programs"). Their patches, build

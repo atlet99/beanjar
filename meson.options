@@ -23,8 +23,6 @@ option('uapi_headers', type: 'string', value: '/usr/arm-linux-gnueabi/include',
 # host
 option('firmware_cache', type: 'feature', value: 'auto',
   description: 'Uncompressed firmware paks for ROOTFS=uncompressed (build/firmware-cache); auto: when the firmware and squashfs-tools are present')
-option('mitmproxy', type: 'feature', value: 'enabled',
-  description: 'The pinned mitmproxy venv for mode=mitm (build/mitmproxy-venv)')
 option('virtcam', type: 'feature', value: 'auto',
   description: 'The virtual USB camera (host/helpers/virtcam, beanjar io usb plug --camera): usbipdcpp built from source (cmake, libspdlog-dev, libasio-dev), libusbredirparser; auto: where they are found, required in the arm64 cross build')
 option('kernel_debug', type: 'boolean', value: false,

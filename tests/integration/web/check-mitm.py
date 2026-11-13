@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""beanjar-web's traffic inspector route against the real pinned mitmweb (the user-local one
-`beanjar mitm setup` installs; skipped, 77, without it): mitmweb run as netns.py runs it but as a
+"""beanjar-web's traffic inspector route against the real mitmweb (the user's own, as
+mitmtool.py finds it; skipped, 77, without one of 12.0.1 or newer): mitmweb run as netns.py runs it but as a
 regular proxy on loopback, with mitm_addon.py's password, and beanjar-web in front of it with a
 stand-in manager whose `mitm connect` answers with mitmweb's address and password.
 
@@ -31,13 +31,15 @@ try:
 except ImportError:
     print("python3-aiohttp is not installed: skipped")
     sys.exit(77)
-from beanjar import mitmsetup, paths  # noqa: E402
+from beanjar import mitmtool  # noqa: E402
 from beanjar_web import access, server  # noqa: E402
 
-MITMWEB = mitmsetup.executable(paths.TREE)
-if not os.access(MITMWEB, os.X_OK):
-    print("the pinned mitmweb is not installed (beanjar mitm setup --install): skipped")
+TOOL = mitmtool.check()
+if not TOOL.usable:
+    print(f"{TOOL.problem}: skipped")
     sys.exit(77)
+MITMWEB = TOOL.path
+print(f"check-mitm: mitmproxy {TOOL.version} ({MITMWEB})")
 CHROME = shutil.which("chromium")
 PASSWORD = "e2e-password"
 

@@ -43,8 +43,9 @@ the defaults (sound as the display has it, free page reporting off). Network has
 address (or LAN address) with its forwarded ports and a copy button, the connection mode, where the
 service ports listen, and the traffic inspector's retention and body size limit. The Traffic
 Inspector card has its status, its URL, Copy URL and Open, and folded under them its password, LAN
-details, mitmproxy's installation and the proxy's last lines; while the VM is off it is one line,
-"Starts with the VM (MITM)". A VNC card of the same shape appears while `beanjar vnc` serves the
+details, which mitmproxy it runs (or why it cannot, and how to install it) and the proxy's last lines; while the VM is off it is one line,
+"Starts with the VM (MITM)", or, without a usable mitmproxy, "Off: mitmproxy not installed" (or too
+old) with the reason and the install command under it. A VNC card of the same shape appears while `beanjar vnc` serves the
 VM. "Files and runtime details" opens the VM's folder and its logs, and shows the firmware's
 location, the systemd unit, the QEMU and viewer process IDs, and how often the guest restarted.
 
@@ -111,8 +112,8 @@ Two settings decide a VM's network ([guest networking](../dev/architecture/netwo
 
 - `link`: `nat` (the default, behind this host), `lan` (on the host's wired LAN with its own MAC
   and DHCP lease, after `beanjar library config set lan_parent=eth0`) or `off`.
-- `mode`: `mitm` (the default), which records the guest's web traffic in a traffic inspector, or
-  `direct`. See [Inspect emulator traffic](inspect-emulator-traffic.md).
+- `mode`: `mitm` (the default), which records the guest's TCP and UDP traffic, DNS included, in a
+  traffic inspector (your own mitmproxy 12.0.1 or newer, `pipx install mitmproxy`), or `direct`. See [Inspect emulator traffic](inspect-emulator-traffic.md).
 
 Each VM has its own loopback address, `127.0.1.N`, and its services are on the TV's own port
 numbers there: SSAP 3000 and 3001, root SSH 6622, Developer Mode 9922 and its key server 9991, the

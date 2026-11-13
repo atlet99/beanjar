@@ -5,7 +5,6 @@ add, remove, list, prune-layer-images)."""
 
 import argparse
 import os
-import sys
 
 from .. import capacity, core, hostconfig, paths, remote, vmsettings
 from ..core import Error
@@ -85,7 +84,7 @@ def cmd_settings(lib, a):
     vm = changed[0] if changed else lib.vm(a.name)
     emit(a, settings_view(vm), none="(default)")
     if changed and (a.verb or "show") == "set":
-        offer_mitm(vm, a)
+        warn_mitm(vm)
     return 0
 
 
@@ -111,22 +110,15 @@ def settings_help():
     return "\n".join(lines)
 
 
-def offer_mitm(vm, a):
-    from .. import paths, mitmsetup
+def warn_mitm(vm):
+    """Say so when a mode=mitm VM will start without its traffic inspector (mitmtool.py)."""
+    from .. import mitmtool
 
-    if (
-        paths.TREE.installed
-        and vmsettings.guest_net(vm.config.get("link"), vm.config.get("mode")) == "mitm"
-        and not mitmsetup.available(paths.TREE)
-    ):
-        if sys.stdin.isatty() and not a.json:
-            try:
-                mitmsetup.ensure(paths.TREE)
-            except mitmsetup.Error as exc:
-                progress(str(exc))
-        else:
+    if vmsettings.guest_net(vm.config.get("link"), vm.config.get("mode")) == "mitm":
+        tool = mitmtool.check()
+        if not tool.usable:
             progress(
-                "MITM setup pending: run beanjar mitm setup --install before starting this VM."
+                f"{vm.name}: the traffic inspector is off, the guest goes out directly: {tool.problem}"
             )
 
 

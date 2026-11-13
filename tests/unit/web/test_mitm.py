@@ -35,6 +35,8 @@ SCRIPT = (
     b'"/flows/dump")}fetch("./flows")'
 )
 
+NO_MITMWEB = "mitmweb not found. Install mitmproxy 12.0.1 or newer: pipx install mitmproxy"
+
 # the stand-in manager: `mitm connect --json SPEC` and `mitm show --json SPEC`, from state.json
 FAKE_BEANJAR = r"""
 import json, os, sys
@@ -50,7 +52,7 @@ if words[:2] == ["mitm", "show"]:
         sys.exit(1)
     print(json.dumps({"name": "tv", "mode": vm["mode"], "status": vm["status"],
                       "ready": vm["status"] == "Running", "url": vm["url"], "local_url": None,
-                      "password_file": "/secret/path"}))
+                      "password_file": "/secret/path", "mitmweb": vm.get("mitmweb")}))
     sys.exit(0)
 assert words[:3] == ["mitm", "connect", "--json"], words
 if vm is None or vm["mode"] != "mitm" or vm["status"] != "Running":
@@ -150,6 +152,12 @@ class Test(unittest.IsolatedAsyncioTestCase):
             "local/tv": {"mode": "mitm", "status": "Running", "url": url, "password": "pw1"},
             "local/direct": {"mode": "direct", "status": "Not running", "url": None},
             "local/off": {"mode": "mitm", "status": "Not running", "url": None},
+            "local/nomitm": {
+                "mode": "mitm",
+                "status": f"Inspector off: {NO_MITMWEB}",
+                "url": None,
+                "mitmweb": {"version": None, "path": None, "problem": NO_MITMWEB},
+            },
         }
         self.save()
         self.beanjar = [sys.executable, script]
@@ -269,10 +277,24 @@ class Test(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_s.inspectors.upstreams, {}, "a failure is not kept")
         # the state the viewer asks for, without the URL or the password file
         r = await c.get("/vm/local/tv/inspector.json")
-        self.assertEqual(await r.json(), {"mode": "mitm", "status": "Running", "ready": True})
+        self.assertEqual(
+            await r.json(), {"mode": "mitm", "status": "Running", "ready": True, "problem": None}
+        )
         r = await c.get("/vm/local/direct/inspector.json")
         self.assertEqual(
-            await r.json(), {"mode": "direct", "status": "Not running", "ready": False}
+            await r.json(),
+            {"mode": "direct", "status": "Not running", "ready": False, "problem": None},
+        )
+        # started without a usable mitmweb: why, with what to install, for the viewer to show
+        r = await c.get("/vm/local/nomitm/inspector.json")
+        self.assertEqual(
+            await r.json(),
+            {
+                "mode": "mitm",
+                "status": f"Inspector off: {NO_MITMWEB}",
+                "ready": False,
+                "problem": NO_MITMWEB,
+            },
         )
         r = await c.get("/vm/local/nope/inspector.json")
         self.assertEqual((r.status, await r.json()), (502, {"error": "no VM named x"}))

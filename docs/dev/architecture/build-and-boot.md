@@ -44,7 +44,7 @@ and `guest/layers/gl/test`. SimpleSmart instead enters `guest/layers/simplesmart
 `initramfs`; NetCast enters `guest/layers/gl/mesa`, `guest/layers/netcast45`, `kernel` and `initramfs`.
 On the host build it enters `host/viewer`, `host/helpers/kvm`, `host/helpers/media-helper`,
 `host/ui` (the GTK windows' layouts),
-`host/scripts` (the firmware cache), `host/helpers/network` (the mitmproxy venv) and the unit tests
+`host/scripts` (the firmware cache), `host/helpers/network` (the port relay and the LAN helper) and the unit tests
 `tests/{netstub,securestore,input,viewer,manager}`. `meson/meson.build` holds the helpers: the build's scripts
 (the Python ones share `meson/common.py`: stamps written only when they change, depfiles, locks, tree hashes),
 the source trees of the wraps and, in the host build, the prebuilt programs (`vendor`, `vendor_deps`). Layer directories without a `meson.build` (normal)

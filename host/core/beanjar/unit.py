@@ -150,6 +150,7 @@ ENV_NAMES = frozenset(
         "NETNS_TAP",
         "NETNS_LOG_DIR",
         "NETNS_SOCK_DIR",
+        "NETNS_MITMWEB",
         "NET_LAN_PARENT",
         "NET_LAN_MAC",
         "NET_LAN_HOSTNAME",

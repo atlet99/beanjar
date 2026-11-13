@@ -41,6 +41,27 @@ def test_runtime_endpoint_overrides_edited_config_and_wildcard_binding(tmp_path)
     assert inspector.snapshot(vm).url == ""
 
 
+def test_inspector_off_says_why(tmp_path):
+    """No usable mitmweb at start (netns.py's run/mitmweb.json): the status says why and how to
+    install it, and mitm show reports the found path and version."""
+    vm = mock.Mock(config={"link": "nat", "mode": "mitm"}, run_dir=str(tmp_path))
+    vm.name = "tv"
+    vm.pid.return_value = 123
+    env = {"NET_LINK": "nat", "NET_MODE": "mitm", "VM_ADDRESS": "127.0.1.3"}
+    problem = "mitmproxy 11.1.3 at /m is too old. Install mitmproxy 12.0.1 or newer: pipx install mitmproxy"
+    (tmp_path / "mitmweb.json").write_text(
+        f'{{"version": "11.1.3", "path": "/m", "problem": "{problem}"}}'
+    )
+    with mock.patch.object(inspector.hostprocs, "proc_env", return_value=env):
+        assert inspector.snapshot(vm).status == f"Inspector off: {problem}"
+        data = inspector.show(vm)
+    assert data["mitmweb"] == {"version": "11.1.3", "path": "/m", "problem": problem}
+    assert not data["ready"]
+    (tmp_path / "mitmweb.json").unlink()
+    with mock.patch.object(inspector.hostprocs, "proc_env", return_value=env):
+        assert inspector.snapshot(vm).status == "Inspector is not ready"
+
+
 def test_password_from_the_vm_file_and_login_url(tmp_path):
     directory = str(tmp_path)
     marker = Path(directory) / "ready"

@@ -136,6 +136,17 @@ def tcp(host, port, send=b"", timeout=5):
         return {"error": type(e).__name__}
 
 
+def udp(host, port, send=b"", timeout=5):
+    """What a UDP client sees: the first datagram received in reply to send, or the error."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as c:
+            c.settimeout(timeout)
+            c.sendto(send, (host, port))
+            return {"data": c.recv(4096).decode("latin-1")}
+    except (OSError, socket.timeout) as e:
+        return {"error": type(e).__name__}
+
+
 def https(host, port, sni, cafile, timeout=5):
     ctx = ssl.create_default_context(cafile=cafile)
     try:
@@ -170,7 +181,14 @@ def main():
     for name, probe in spec.items():
         start = time.monotonic()
         kind = probe.pop("kind")
-        if kind == "tcp":
+        if kind == "udp":
+            r = udp(
+                probe["host"],
+                probe["port"],
+                probe.get("send", "").encode(),
+                probe.get("timeout", 5),
+            )
+        elif kind == "tcp":
             r = tcp(
                 probe["host"],
                 probe["port"],

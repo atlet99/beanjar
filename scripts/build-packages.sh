@@ -58,11 +58,10 @@ host() {
 	apt-get install -y --no-install-recommends "$TOP"/build/packages/beanjar-build-deps-host_*_all.deb
 	t2=$(date +%s)
 
-	# The packages do not ship the mitmproxy venv, and there is no firmware for the cache; the
-	# virtual camera is packaged, so it is required.
+	# There is no firmware for the cache; the virtual camera is packaged, so it is required.
 	step "host build"
 	[ -f "$OUT/host/build.ninja" ] || meson setup "$OUT/host" "$TOP" -Dpublish_dir="$OUT/publish" \
-		-Dmitmproxy=disabled -Dfirmware_cache=disabled -Dvirtcam=enabled
+		-Dfirmware_cache=disabled -Dvirtcam=enabled
 	meson compile -C "$OUT/host"
 	t3=$(date +%s)
 

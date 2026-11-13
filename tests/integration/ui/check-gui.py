@@ -168,6 +168,12 @@ def main():
         "guest/layers/webos/afro",
     ):
         open(os.path.join(repo, d, "meson.build"), "w").close()
+    # a usable mitmweb (mitmtool.py), whatever this host has; the Summary's no-mitmweb case
+    # points NETNS_MITMWEB elsewhere
+    mitmweb = os.path.join(tmp, "mitmweb")
+    with open(mitmweb, "w") as f:
+        f.write("#!/bin/sh\necho 'Mitmproxy: 12.3.1'\n")
+    os.chmod(mitmweb, 0o755)
     epk = os.path.join(tmp, "fw.epk")
     with open(epk, "wb") as f:
         f.write(b"EPK2" * 1000)
@@ -178,6 +184,7 @@ def main():
         FAKE_UNIT_PREFIX=testunits.PREFIX,
         FAKE_BOOT_DELAY="1.5",
         PYTHONDONTWRITEBYTECODE="1",
+        NETNS_MITMWEB=mitmweb,
     )
     lib = core.Library(lib_dir, repo)
 
@@ -1116,7 +1123,7 @@ def main():
             and view.values["address"] == address
             and shown("address")
             and not shown("lan_address")
-            and view.fields["mitm_flows"].get_text() == "the last 1000 flows"
+            and view.fields["mitm_flows"].get_text() == f"the last {vmsettings.MITM_FLOWS} flows"
             and view.fields["mitm_flow_bytes"].get_text() == "no limit"
             and shown("mitm_flows"),
             f"Network: the host address with its ports, copied without them, and the inspector's "
@@ -1437,6 +1444,29 @@ def main():
             and not m.inspector.details.get_visible()
             and m.inspector.password.get_text() == "—",
             "a stopped VM's inspector is one line, Starts with the VM (MITM): no stale URL",
+        )
+        # without a usable mitmweb it says the inspector will be off, why and what to install
+        os.environ["NETNS_MITMWEB"] = os.path.join(tmp, "no-mitmweb")
+        m.inspector.next_check = 0
+        m.refresh()
+        yield lambda: m.inspector.problem.get_visible()
+        check(
+            m.inspector.status.get_text() == "Off: mitmproxy not installed"
+            and "pipx install mitmproxy" in m.inspector.problem.get_text()
+            and m.inspector.status.get_tooltip_text() == m.inspector.problem.get_text()
+            and not m.inspector.details.get_visible(),
+            "no mitmweb: Off: mitmproxy not installed, and the install command below it",
+        )
+        if a.shots:
+            yield 0.5
+            shot(m.inspector, f"{a.shots}-inspector-off.png")
+        os.environ["NETNS_MITMWEB"] = mitmweb
+        m.inspector.next_check = 0
+        m.refresh()
+        yield lambda: not m.inspector.problem.get_visible()
+        check(
+            m.inspector.status.get_text() == inspector_ui.OFF_TEXT,
+            "a usable mitmweb again: Starts with the VM (MITM)",
         )
         lib.configure("tv2", mode="direct")
         m.refresh()

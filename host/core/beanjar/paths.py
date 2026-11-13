@@ -4,7 +4,7 @@
 
 Tree(top) is a checkout: its source files (src: the guest-side scripts shared with the guest over
 9p, the layers, host/helpers/network) and the build's published artefacts under
-build/ (build: the kernel, initramfs, layers, patched QEMU, mitmproxy venv, firmware cache, and the
+build/ (build: the kernel, initramfs, layers, patched QEMU, firmware cache, and the
 checkout VM's runtime files). TREE is the checkout this package lives in; the launcher, the unit
 and the network wrappers take everything from it, so moving to an install prefix is a change here.
 
@@ -511,13 +511,6 @@ class Tree:
     def virtcam(self):
         """The virtual USB camera (host/helpers/virtcam; BEANJAR_VIRTCAM: another build's)."""
         return os.environ.get("BEANJAR_VIRTCAM") or self.build("virtcam", "beanjar-virtcam")
-
-    def mitmweb(self):
-        if self.installed:
-            from . import mitmsetup
-
-            return mitmsetup.executable(self)
-        return self.build("mitmproxy-venv", "bin", "mitmweb")
 
     def layer(self, target, *p):
         """A layer the guest build of target published: build/layers/<chip>-<release>/..."""

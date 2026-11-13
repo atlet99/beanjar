@@ -35,7 +35,10 @@ import testunits
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOP = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 PKG = os.path.join(TOP, "host", "core")
-MITMWEB = os.path.join(TOP, "build", "mitmproxy-venv", "bin", "mitmweb")
+sys.path.insert(0, PKG)
+from beanjar import mitmtool  # noqa: E402
+
+MITMWEB = mitmtool.check()
 SBIN = os.environ.get("PATH", os.defpath) + ":/usr/sbin:/sbin"
 SERVER, LEASE = "192.0.2.1", "192.0.2.50"
 MAC = "02:42:be:00:00:42"
@@ -47,8 +50,8 @@ def unavailable():
     for tool in ("unshare", "ip", "slirp4netns", "busybox"):
         if not shutil.which(tool, path=SBIN):
             return f"{tool} not found"
-    if not os.access(MITMWEB, os.X_OK):
-        return "no build/mitmproxy-venv (scripts/build.sh host)"
+    if not MITMWEB.usable:
+        return MITMWEB.problem
     if not os.access("/dev/net/tun", os.R_OK | os.W_OK):
         return "no /dev/net/tun"
     if subprocess.run(["unshare", "-rn", "true"], stderr=subprocess.DEVNULL).returncode != 0:
@@ -178,6 +181,7 @@ class Lan(unittest.TestCase):
             FAKE_GUEST_STOP=f"{t}/stop",
             FAKE_GUEST_PORT=str(GUEST_PORT),
             BEANJAR_MITM_PASSWORD="pw",
+            NETNS_MITMWEB=MITMWEB.path,
         )
         with open(f"{t}/out.log", "w") as out:
             cls.proc = subprocess.Popen(
@@ -415,6 +419,7 @@ class LanCrash(unittest.TestCase):
             FAKE_GUEST_STOP=f"{t}/stop",
             FAKE_GUEST_PORT=str(GUEST_PORT),
             BEANJAR_MITM_PASSWORD="pw",
+            NETNS_MITMWEB=MITMWEB.path,
         )
         with open(f"{t}/out.log", "w") as out:
             proc = subprocess.Popen(

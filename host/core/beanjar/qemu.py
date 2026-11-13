@@ -48,19 +48,20 @@ Environment (both):
   NET_MODE  mitm (default) or direct (vm.toml's network.mode), with NET_LINK=nat:
               mitm    the internet through a rootless network namespace (netns.py; needs unshare,
                       ip and slirp4netns): DHCP, real DNS and NAT as with direct, except that
-                      every tcp/80 and tcp/443 connection is routed into a transparent mitmweb
-                      that records it and forwards it live (host/helpers/network/mitm_addon.py). Inspector
+                      every TCP and UDP connection is routed into mitmweb's TUN device (tun
+                      mode; the user's own mitmproxy 12.0.1 or newer, mitmtool.py, NETNS_MITMWEB),
+                      which records it and forwards it live (host/helpers/network/mitm_addon.py);
+                      without a usable mitmweb the guest goes out directly. Inspector
                       on NETSTUB_WEB_HOST:NETSTUB_WEB_PORT (default VM_ADDRESS:18083). The proxy's
                       CA is NETSTUB_CA (default IDENTITY_DIR/ca, the development library's ca/; a --dir
                       VM's is its library's <library>/ca); its certificate goes into the per-VM
                       layer, and the guest adds it to the firmware's trust stores at boot. The
-                      proxy verifies upstream servers against mitmproxy's default roots (certifi's
-                      public ones); one it cannot verify (LG's private roots) is passed through
-                      undecrypted from then on (mitm_addon.py).
+                      proxy does not verify upstream servers (ssl_insecure); a TLS failure has
+                      later connections to that endpoint passed through undecrypted (mitm_addon.py).
               direct  the internet through QEMU's user-mode NAT (slirp: DHCP, DNS at 10.0.2.3)
   NET_ADDRESS  NET_LINK=lan only: dhcp (default) or A.B.C.D/NN,GATEWAY (vm.toml's network.address)
   MITM_FLOWS  NET_MODE=mitm only: how many flows the inspector keeps (vm.toml's network.mitm_flows,
-            default 1000, 0 for all of them); the oldest finished ones are dropped
+            default 5000, 0 for all of them); the oldest finished ones are dropped
             (mitm_addon.py's FlowLimit)
   MITM_FLOW_BYTES  NET_MODE=mitm only: how many bytes of bodies the kept flows may hold
             (vm.toml's network.mitm_flow_bytes: bytes or K, M, G, e.g. 200M; default 0, no limit);
@@ -504,7 +505,7 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
         p.wrap = "mitm"
         if not dry and not os.access(tree.relay(), os.X_OK):
             raise Error(f"NET_MODE=mitm needs {tree.relay()} (scripts/build.sh host)")
-        flows = _get(env, "MITM_FLOWS", "1000")
+        flows = _get(env, "MITM_FLOWS", str(vmsettings.MITM_FLOWS))
         if not flows.isdigit():
             raise Error(f"MITM_FLOWS={flows}: a number, 0 for no limit")
         p.env["MITM_FLOWS"] = str(int(flows))

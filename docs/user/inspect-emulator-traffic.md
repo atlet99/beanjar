@@ -1,21 +1,56 @@
 # Inspect emulator traffic (`mode = "mitm"`)
 
-`mode = "mitm"` (the launcher's `NET_MODE=mitm`), the default, runs **mitmweb in transparent mode** inside the emulator's network
-namespace. Every guest connection to tcp/80 or tcp/443 goes through it, whatever the host (LG's
-included): it is recorded, decrypted when the guest trusts our CA, and forwarded live to its real
-destination. Nothing is answered locally and no host is special. Everything else the guest sends
-(other ports, UDP, DNS) goes out directly, as with `mode = "direct"`. The settings are in
+`mode = "mitm"` (the launcher's `NET_MODE=mitm`), the default, runs **mitmweb in tun mode** inside
+the emulator's network namespace. Every TCP and UDP packet the guest sends, on any port and to any
+host (LG's included), goes through it: each connection is recorded, decrypted when it is TLS and
+the guest trusts our CA, and forwarded live to its real destination. DNS lookups and other UDP show
+as flows too. Nothing is answered locally and no host is special. Only ICMP (ping) goes out
+directly, as with `mode = "direct"`. The settings are in
 [docs/dev/architecture/network.md](../dev/architecture/network.md). Started with
 `NETSTUB_WEB_HOST=0.0.0.0` (below), the inspector is at **http://HOST-ADDRESS:18083/** (with its
 password, below).
+
+## Install mitmproxy
+
+Beanjar does not ship mitmproxy: the inspector runs your own, **mitmproxy 12.0.1 or newer**.
+Debian 13 has no package of it; install it with pipx:
+
+```sh
+sudo apt install pipx
+pipx install mitmproxy
+```
+
+Beanjar runs `NETNS_MITMWEB` if that is set in the environment of the start, else `mitmweb` on
+`PATH`, else `~/.local/bin/mitmweb` (where pipx puts it, which a systemd user unit's `PATH` often
+lacks). Each start reads its version. Without mitmweb, or with one older than 12.0.1, the VM
+still starts and its guest goes out directly, uninspected; the reason, with the line above, is
+printed by `beanjar start`, shown by `beanjar mitm show NAME` (`status`, and `mitmweb.problem` in
+`--json`) and in the manager's Traffic Inspector card. `beanjar mitm show --json` reports the
+running mitmweb's `version` and `path` too. A directory `~/.local/share/beanjar/mitmproxy` left
+by an earlier Beanjar is no longer used and can be deleted.
+
+## What the guest sees differently
+
+Because every connection goes through mitmweb, which opens its own connection to the server as
+soon as the guest connects:
+
+- **A closed port looks open for a moment.** The guest's connection is accepted, then closed at
+  once when the server refuses mitmweb's; an unreachable server makes the guest's connection hang
+  until the guest's own timeout. No flow is listed for either.
+- **DNS is slower.** Lookups through the inspector took about 2.5 to 3.7 times as long as direct
+  ones, and about 1% of them were lost under a flood of lookups (1200 in a row); ordinary use
+  retries them unnoticed.
+- **Lookups fill the flow list.** Every DNS query is a flow, so the 5000 kept flows hold fewer web
+  requests than the number suggests.
+- **ping is not inspected** (ICMP goes out directly).
 
 Open the inspector before launching the screens you want to see. Useful filters: `~d lgtvsdp.com`
 for SDP, `~u authentication` for authentication calls, `~d lge.com` for LG services. Select a
 flow to see its request and response headers and body. The inspector keeps flows in memory for the
 current VM run, and restarting the VM clears them; `beanjar mitm clear NAME` empties the list
-without a restart. It keeps the last 1000 flows: beyond that the
+without a restart. It keeps the last 5000 flows: beyond that the
 oldest finished ones are dropped, from memory and from the view (`beanjar settings NAME set mitm_flows=N`
-while the VM is off, `0` for all of them, `unset mitm_flows` for 1000 again; `MITM_FLOWS` for `vm-launcher`). `mitm_flow_bytes=200M`
+while the VM is off, `0` for all of them, `unset mitm_flows` for 5000 again; `MITM_FLOWS` for `vm-launcher`). `mitm_flow_bytes=200M`
 also bounds the bytes of bodies they hold (off by default; `MITM_FLOW_BYTES`): beyond it the
 oldest finished flows go too. Live updates use the same web port.
 
@@ -84,7 +119,8 @@ is set once per start: restarting the VM makes a new one unless `BEANJAR_MITM_PA
 
 ## Troubleshooting
 
-- `build/netstub-mitm.log`: transparent mitmweb startup and proxy errors.
+- `build/netstub-mitm.log`: mitmweb's startup and proxy errors. The VM's own log
+  (`build/qemu.out`) says which mitmweb and version a start found, or why the inspector is off.
 - `build/netns-relay.log`: the host-side port relay (the inspector and the forwarded ports),
   including a port it could not bind.
 - `build/netns-relay-inner.log`: the namespace-side relay (connections to mitmweb and the guest).
@@ -94,6 +130,6 @@ is set once per start: restarting the VM makes a new one unless `BEANJAR_MITM_PA
 - `build/qemu.out`: VM launcher output, including the inspector bind address and the password
   file's path.
 
-The launcher checks the proxy and web listeners before starting QEMU and aborts
-if mitmweb fails to start. Guest SSH/developer ports retain their loopback-only
-bindings.
+The inspector is optional: a missing, too old or failing mitmweb leaves the guest going out
+directly, and mitmweb exiting later does the same from then on. Guest SSH/developer ports retain
+their loopback-only bindings.
