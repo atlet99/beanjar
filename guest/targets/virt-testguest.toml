@@ -4,6 +4,8 @@
 # build/testguest/image: rootfs.pak (the image) and manifest.toml naming this target.
 # Not a model of LG's: the name a firmware directory of it is known by
 models = ["TESTGUEST"]
+# Out of regress's default set: its own runner is scripts/testguest-check
+bring_up = ["TESTGUEST"]
 
 [soc]
 # Words for the namespace's /proc/cmdline, read on the host from the test guest's overlay

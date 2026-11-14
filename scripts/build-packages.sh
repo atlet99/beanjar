@@ -106,6 +106,8 @@ guest() {
 from beanjar import targets
 print(*(targets.name(t) for t in targets.all_targets()))' "$TOP/host/core")
 	for target in $targets; do
+		# the test guest's userland is Buildroot's and not packaged (guest/testguest, built by CI)
+		[ "$target" != virt-testguest ] || continue
 		step "guest $target"
 		case $target in *-netcast45) cross=lgtv-sdk.ini ;; *) cross=webos-sdk.ini ;; esac
 		dir=$OUT/guest-$target

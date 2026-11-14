@@ -136,6 +136,7 @@ class SelectTest(unittest.TestCase):
                 "o24-queue",
                 "o24n-ponytail",
                 "o24n-queue",
+                "virt-testguest",
             ],
         )
         self.assertEqual(dict(sel)["h13-afro"], WT1H)  # the default firmware among several
@@ -885,10 +886,11 @@ class DryRunTest(unittest.TestCase):
 
 class GlTest(unittest.TestCase):
     def test_targets_with_gl(self):
-        # From the chip tables: vendor stand-ins or standard EGL ABI; lm14 has no soc layer
+        # From the chip tables: vendor stand-ins or standard EGL ABI; lm14 and the test guest's
+        # virt have no soc layer
         self.assertEqual(
             {p: regress.gl_expected(p) for p in regress.all_targets()},
-            {p: p != "lm14-netcast45" for p in regress.all_targets()},
+            {p: p not in ("lm14-netcast45", "virt-testguest") for p in regress.all_targets()},
         )
 
     def test_table_parsed(self):
