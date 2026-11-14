@@ -192,8 +192,14 @@ class Error(Exception):
     pass
 
 
+KVM_DEVICE = "/dev/kvm"
+
+
 def default_accel():
-    return "kvm" if platform.machine() == "aarch64" else "tcg"
+    """kvm on an aarch64 host whose /dev/kvm this user may open, else tcg."""
+    if platform.machine() == "aarch64" and os.access(KVM_DEVICE, os.R_OK | os.W_OK):
+        return "kvm"
+    return "tcg"
 
 
 def vm_accel(env):
