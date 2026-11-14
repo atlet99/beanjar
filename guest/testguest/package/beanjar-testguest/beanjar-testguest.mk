@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The test programs, built from guest/testguest/src with its Makefile.
+BEANJAR_TESTGUEST_VERSION = 1
+BEANJAR_TESTGUEST_SITE = $(BR2_EXTERNAL_BEANJAR_TESTGUEST_PATH)/src
+BEANJAR_TESTGUEST_SITE_METHOD = local
+BEANJAR_TESTGUEST_LICENSE = GPL-2.0-or-later
+BEANJAR_TESTGUEST_LICENSE_FILES = COPYING
+BEANJAR_TESTGUEST_DEPENDENCIES = mesa3d
+
+define BEANJAR_TESTGUEST_BUILD_CMDS
+	$(TARGET_MAKE_ENV) $(MAKE) -C $(@D) $(TARGET_CONFIGURE_OPTS) \
+		BEANJAR_INCLUDE=$(BR2_EXTERNAL_BEANJAR_TESTGUEST_PATH)/../../include
+endef
+
+define BEANJAR_TESTGUEST_INSTALL_TARGET_CMDS
+	$(TARGET_MAKE_ENV) $(MAKE) -C $(@D) $(TARGET_CONFIGURE_OPTS) \
+		DESTDIR=$(TARGET_DIR) install
+endef
+
+$(eval $(generic-package))

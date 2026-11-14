@@ -1,0 +1,10 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Runs the test guest's checks once, in the background, at the end of the boot (tg-run).
+case "$1" in
+start)
+	echo "Starting the test guest's checks (tg-run)"
+	tg-run > /dev/console 2>&1 &
+	;;
+esac

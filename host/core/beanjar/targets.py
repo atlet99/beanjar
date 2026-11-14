@@ -46,7 +46,9 @@ from . import memory, paths
 # LG's platforms, as LG names them: a VM's platform (vm.toml's platform, the viewer's title) is its
 # target's release's (Release.platform), and so is the version it is shown with (Release.version: LG's
 # marketing version, e.g. webOS 4.5; None where it is not known, the platform's name alone).
-PLATFORMS = ("webOS", "NetCast", "SimpleSmart")
+# "Test" is not LG's: the open test guest (guest/testguest, docs/dev/architecture/test-guest.md), a
+# Buildroot userland of ours that CI boots without LG firmware.
+PLATFORMS = ("webOS", "NetCast", "SimpleSmart", "Test")
 
 # The always-used layers of a target, highest priority first (as LAYERS): its release's
 # (Release.always_layers). A webOS release's are generated per target from guest/layers/webos/<release>,
@@ -487,7 +489,7 @@ RELEASE_KEYS = {
 }
 RELEASE_REQUIRED = (
     "platform", "init_system", "cap_last_cap", "ddr_sizes", "paks", "state_disks", "nvm_disks",
-    "emmc_disks", "partmap", "nvm", "partitions",
+    "emmc_disks", "partitions",
 )  # fmt: skip
 # what a release row stated whole without these keys has
 RELEASE_OPTIONAL = {
@@ -497,6 +499,9 @@ RELEASE_OPTIONAL = {
     "trust_hash_dir": None,
     "trust_bundles": (),
     "pak_lowers": (),
+    # a release without LG's board data (the test guest's): no eMMC partition map, no NVM EEPROM
+    "partmap": None,
+    "nvm": None,
 }
 
 
@@ -997,10 +1002,16 @@ def platform(target):
     return release(target).platform
 
 
+def board_data(target):
+    """Whether the target's VMs have LG's board data, an eMMC partition map and an NVM EEPROM
+    (prepare.py): every LG release; not the test guest's (Release.partmap None)."""
+    return release(target).partmap is not None
+
+
 def takes_power_off(target):
     """Whether the target's guest can take the power-off signal of `beanjar stop` (tvpowerd's forced powerOff): every webOS release has tvpowerd; NetCast 4.5 and
-    SimpleSmart have none."""
-    return platform(target) == "webOS"
+    SimpleSmart have none. The test guest takes BusyBox's poweroff (poweroff.power_off_call)."""
+    return platform(target) in ("webOS", "Test")
 
 
 def platform_title(target):
@@ -1097,7 +1108,9 @@ def pak_files(target, fw=None):
     r = release(target, fw)
     src = r.partmap
     more = (
-        [src.pak]
+        []
+        if src is None
+        else [src.pak]
         if isinstance(src, (PartmapFile, PartmapImage))
         else [src.header.pak]
         + [p.size[1] for p in src.parts if not isinstance(p.size, int) and p.size[0] == "pak"]
@@ -1473,10 +1486,14 @@ def boot_conf(target, layers, derived=None, part_nodes=(), vm=None, fw=None, bro
             "read-write partitions, by serial",
         ),
         ("NVM_DISKS", _words(n for n, _ in r.nvm_disks), "tvservice's raw NVM disks, by serial"),
-        ("NVM_EEPROM", _words([r.nvm.eeprom]), "the NVM disk behind lgemu.ko's I2C EEPROM"),
+        (
+            "NVM_EEPROM",
+            _words([r.nvm.eeprom] if r.nvm else []),
+            "the NVM disk behind lgemu.ko's I2C EEPROM",
+        ),
         (
             "PARTINFO_DISK",
-            _words(["partinfo"]),
+            _words(["partinfo"] if board_data(target) else []),
             "the disk with the eMMC partition map, lgemu.ko's /proc/partinfo",
         ),
         (

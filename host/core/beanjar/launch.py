@@ -118,6 +118,7 @@ import socket
 import subprocess
 import sys
 import time
+import tomllib
 
 from . import (
     compat,
@@ -572,14 +573,25 @@ class Bg:
             say("power-off: no serial console")
             return core.STOP_REFUSED
         else:
+            # the platform this launch runs (its vm-info.toml): the test guest's call is its own
+            try:
+                with open(os.path.join(self.run_dir, paths.VM_INFO), "rb") as f:
+                    platform = tomllib.load(f).get("platform")
+            except (OSError, ValueError):
+                platform = None
+            call = poweroff.power_off_call(platform)
             with open(sent, "w") as f:
                 f.write(f"{pid}\n")
             for attempt in range(1, core.POWER_OFF_TRIES + 1):
-                text = console.send(poweroff.POWER_OFF_CALL, 10, self.sock, self.log)
+                text = console.send(call, 10, self.sock, self.log)
                 reply = re.findall(r"\{[^{}]*returnValue[^{}]*\}", text)  # among the kernel's lines
-                print(
-                    f"power-off: sent; tvpowerd: {reply[-1] if reply else 'no reply'}", flush=True
-                )
+                if call == poweroff.POWER_OFF_CALL:
+                    print(
+                        f"power-off: sent; tvpowerd: {reply[-1] if reply else 'no reply'}",
+                        flush=True,
+                    )
+                else:
+                    print(f"power-off: sent ({call})", flush=True)
                 if not poweroff.power_off_busy(text) or attempt == core.POWER_OFF_TRIES:
                     break
                 say(

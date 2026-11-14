@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Boot the open test guest through the normal launcher and report its checks
+(docs/dev/architecture/test-guest.md): what CI runs where no LG firmware may be.
+
+  scripts/testguest-check [--firmware DIR] [--name NAME] [--display egl-headless|none]
+                          [--timeout S] [--keep] [--library DIR]
+
+Creates the VM NAME (default testguest-check, which must not exist) on the test guest's image
+(default build/testguest/image, guest/testguest/build.sh), starts it, sends keys to its virtio
+keyboard over QMP once the guest's input check is waiting, waits for the guest's results file
+(out share, testguest/results.txt), stops the VM with `beanjar stop --no-fallback` (the guest's own
+power-off) and deletes it (unless --keep). Prints every result, key=value, the guest's and the
+host's own (host.*), and exits 0 when all passed, 1 when one failed, 2 when the run itself failed
+(the VM did not start, or no results within the timeout). No judgement: numbers and pass/fail."""
+
+import argparse
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
+import time
+
+TOP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def beanjar(args, library, check=True, timeout=600):
+    """`beanjar ARGS` of this checkout; its output (stdout and stderr) as text."""
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join([f"{TOP}/host/core", f"{TOP}/host/ui"]))
+    lib = ["--library", library] if library else []
+    r = subprocess.run(
+        [sys.executable, "-m", "beanjar", *lib, *args],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=timeout,
+    )
+    if check and r.returncode:
+        raise RuntimeError(f"beanjar {' '.join(args)} failed ({r.returncode}):\n{r.stdout}")
+    return r.returncode, r.stdout
+
+
+def qmp_keys(path, keys=("a",)):
+    """Press and release each key on the VM's keyboard: QMP input-send-event, the device the
+    viewer's and VNC's keys reach. False if QMP did not answer (another client holds it)."""
+    s = socket.socket(socket.AF_UNIX)
+    s.settimeout(2)
+    try:
+        s.connect(path)
+        f = s.makefile("rw")
+        json.loads(f.readline())
+        cmds = [{"execute": "qmp_capabilities"}]
+        for k in keys:
+            for down in (True, False):
+                cmds.append(
+                    {
+                        "execute": "input-send-event",
+                        "arguments": {
+                            "events": [
+                                {
+                                    "type": "key",
+                                    "data": {"down": down, "key": {"type": "qcode", "data": k}},
+                                }
+                            ]
+                        },
+                    }
+                )
+        for c in cmds:
+            f.write(json.dumps(c) + "\n")
+            f.flush()
+            while True:
+                reply = json.loads(f.readline())
+                if "return" in reply or "error" in reply:
+                    break
+        return True
+    except (OSError, ValueError):
+        return False
+    finally:
+        s.close()
+
+
+def read_results(path):
+    out = []
+    with open(path) as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if "=" in line:
+                k, v = line.split("=", 1)
+                out.append((k, v))
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--firmware", default=os.path.join(TOP, "build/testguest/image"))
+    ap.add_argument("--name", default="testguest-check")
+    ap.add_argument(
+        "--display",
+        default="egl-headless",
+        choices=("egl-headless", "none"),
+        help="egl-headless (default): virtio-gpu with virgl, no window; none: no GPU (its check fails)",
+    )
+    ap.add_argument("--timeout", type=float, default=600, help="seconds for the guest's results")
+    ap.add_argument("--keep", action="store_true", help="keep the VM afterwards")
+    ap.add_argument("--library", help="the Beanjar library (default: beanjar's)")
+    ap.add_argument("--tag", action="append", default=[], help="a tag for the VM (repeatable)")
+    a = ap.parse_args()
+
+    tags = [x for t in a.tag for x in ("--tag", t)]
+    beanjar(
+        ["create", a.name, "--firmware", os.path.abspath(a.firmware), "--display", a.display,
+         "--mode", "direct", *tags],
+        a.library,
+    )  # fmt: skip
+    _, info = beanjar(["info", a.name, "--json"], a.library)
+    vm_dir = json.loads(info)["dir"]
+    run = os.path.join(vm_dir, "run")
+    out = os.path.join(run, "share", "out", "testguest")
+    results = os.path.join(out, "results.txt")
+    host = []
+    rc = 2
+    try:
+        t0 = time.monotonic()
+        code, text = beanjar(["start", a.name, "--reason", "testguest-check"], a.library, False)
+        if code:
+            print(text, file=sys.stderr)
+            print("result=fail\nhost.error=the VM did not start")
+            return 2
+        host.append(("host.start_s", f"{time.monotonic() - t0:.1f}"))
+        keys_sent = 0
+        while not os.path.isfile(results):
+            if time.monotonic() - t0 > a.timeout:
+                print(f"result=fail\nhost.error=no results within {a.timeout:g} s")
+                return 2
+            if os.path.isfile(os.path.join(out, "input-ready")):
+                keys_sent += qmp_keys(os.path.join(run, "qmp.sock"))
+                time.sleep(0.5)
+            else:
+                time.sleep(0.2)
+        host.append(("host.results_s", f"{time.monotonic() - t0:.1f}"))
+        host.append(("host.keys_sent", str(keys_sent)))
+        guest = read_results(results)
+        # the micom port (webos.micom), the initramfs's IR pump's other direction: a status line
+        try:
+            with open(os.path.join(run, "micom-status")) as f:
+                micom = f.read().split("\n")[0]
+        except OSError:
+            micom = ""
+        host.append(("host.micom_status", micom or "-"))
+        host.append(("host.micom_port", "pass" if "standby=" in micom else "fail"))
+        # the guest's own power-off, the normal way (no fallback to stopping QEMU)
+        t1 = time.monotonic()
+        code, text = beanjar(["stop", a.name, "--force", "--no-fallback"], a.library, False)
+        m = re.search(r"QEMU exited (\d+) s after the call", text)
+        host.append(("host.poweroff_s", f"{time.monotonic() - t1:.1f}"))
+        host.append(("host.poweroff", "pass" if code == 0 and m else "fail"))
+        if code:
+            print(text, file=sys.stderr)
+            beanjar(["stop", a.name, "--force"], a.library, False)
+        for k, v in guest + host:
+            if k != "result":
+                print(f"{k}={v}")
+        ok = dict(guest).get("result") == "pass" and all(
+            v == "pass" for k, v in host if k in ("host.micom_port", "host.poweroff")
+        )
+        print(f"result={'pass' if ok else 'fail'}")
+        rc = 0 if ok else 1
+        return rc
+    finally:
+        beanjar(["stop", a.name, "--force", "--unplug"], a.library, False)
+        if not a.keep:
+            beanjar(["delete", a.name], a.library, False)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

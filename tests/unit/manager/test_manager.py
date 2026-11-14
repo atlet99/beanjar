@@ -3706,10 +3706,14 @@ class PowerOffTest(unittest.TestCase):
         for target in targets.all_targets():
             with self.subTest(target):
                 self.assertEqual(
-                    targets.takes_power_off(target), targets.platform(target) == "webOS"
+                    targets.takes_power_off(target), targets.platform(target) in ("webOS", "Test")
                 )
         self.assertTrue(targets.takes_power_off(H13_AFRO))
         self.assertFalse(targets.takes_power_off(("lm14", "netcast45")))
+        # the test guest: BusyBox's poweroff, typed as webOS's call is, with no micom to wait for
+        self.assertTrue(targets.takes_power_off(("virt", "testguest")))
+        self.assertEqual(poweroff.power_off_call("Test"), poweroff.TEST_POWER_OFF_CALL)
+        self.assertEqual(poweroff.power_off_call("webOS"), poweroff.POWER_OFF_CALL)
         self.assertFalse(targets.takes_power_off(("m2", "simplesmart")))
 
     def test_refusals(self):

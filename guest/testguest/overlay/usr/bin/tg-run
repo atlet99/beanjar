@@ -1,0 +1,63 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The test guest's runner, started once at boot (/etc/init.d/S99testguest): runs each check and
+# writes the results, key=value lines, to the out share as testguest/results.txt (renamed into
+# place when complete, so the host never reads half a file) and to the console. Each check's lines
+# are its program's (gpu.*, ports.*, input.*, shares.*) and <check>=pass or fail; result= is pass
+# when every check passed. The host's test command (scripts/testguest-check) waits for the file.
+out=/mnt/host/out/testguest
+mkdir -p "$out" || { echo "tg-run: no out share at /mnt/host/out" >&2; exit 1; }
+rm -f "$out/results.txt" "$out/input-ready"
+tmp=$out/results.tmp
+: > "$tmp"
+failed=0
+
+uptime_ms() { awk '{ printf "%d", $1 * 1000 }' /proc/uptime; }
+
+# check NAME COMMAND...: the command's key=value lines, then NAME=pass or fail by its status
+check() {
+	name=$1; shift
+	echo "tg-run: $name"
+	if "$@" >> "$tmp" 2>> "$out/$name.err"; then
+		echo "$name=pass" >> "$tmp"
+	else
+		echo "$name=fail" >> "$tmp"
+		failed=$((failed + 1))
+	fi
+}
+
+# The 9p shares: the read-only host share (the boot manifest the launcher wrote), a write there
+# refused, and a file written to and read back from the read-write out share, with its rate
+shares() {
+	grep -q '^TARGET="virt-testguest"' /mnt/host/boot.conf || { echo "shares.error=no boot.conf"; return 1; }
+	echo "shares.host_read=yes"
+	if touch /mnt/host/tg-write-test 2>/dev/null; then
+		echo "shares.host_readonly=no"; return 1
+	fi
+	echo "shares.host_readonly=yes"
+	t0=$(uptime_ms)
+	dd if=/dev/zero of="$out/blob" bs=1M count=32 2>/dev/null && sync
+	t1=$(uptime_ms)
+	sum=$(md5sum < "$out/blob")
+	t2=$(uptime_ms)
+	size=$(wc -c < "$out/blob")
+	rm -f "$out/blob"
+	[ "$size" = 33554432 ] || { echo "shares.error=wrote $size bytes"; return 1; }
+	[ "$sum" = "$(head -c 33554432 /dev/zero | md5sum)" ] || { echo "shares.error=read back differs"; return 1; }
+	echo "shares.out_bytes=$size"
+	echo "shares.out_write_ms=$((t1 - t0))"
+	echo "shares.out_read_ms=$((t2 - t1))"
+}
+
+echo "boot.uptime_ms=$(uptime_ms)" >> "$tmp"
+echo "guest.kernel=$(uname -r) $(uname -m)" >> "$tmp"
+echo "guest.machine=$(uname -m) $(ls /lib/ld-linux*.so.* 2>/dev/null)" >> "$tmp"
+check gpu tg-gpu
+check ports tg-ports
+check shares shares
+check input tg-input "$out/input-ready" 60
+if [ $failed = 0 ]; then echo "result=pass" >> "$tmp"; else echo "result=fail" >> "$tmp"; fi
+echo "checks.failed=$failed" >> "$tmp"
+mv "$tmp" "$out/results.txt"
+sed 's/^/tg-result: /' "$out/results.txt"

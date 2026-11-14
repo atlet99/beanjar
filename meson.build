@@ -101,6 +101,11 @@ if guest_lane
   # guest/layers/netcast45, built with the NetCast SDK (meson/cross/lgtv-sdk.ini); it links nothing of
   # the firmware.
   netcast45 = webos == 'netcast45'
+  # The open test guest (webos 'testguest', docs/dev/architecture/test-guest.md): its userland is
+  # Buildroot's (guest/testguest/build.sh), so this build makes only the arm64 pieces every target
+  # shares, with Buildroot's toolchain as the 32-bit cross compiler it never uses
+  # (build/testguest/cross.ini): CI's way to the kernel and initramfs without LG's SDK.
+  testguest = webos == 'testguest'
   guest_target = soc + '-' + webos
   # What the shim rules and links ask of the target's firmware (guest/targets/meson.build): fw_path
   # (a rootfs path: whether the firmware's rootfs image has it), fw_version, fw_stubs (a firmware
@@ -112,7 +117,7 @@ if guest_lane
   # order (targets.WEBOS_ORDER), so a rule only a release can decide is "'queue' in webos_reached" and
   # later releases inherit it.
   webos_reached = []
-  if not simplesmart and not netcast45
+  if not simplesmart and not netcast45 and not testguest
     foreach r : run_command(files('host/scripts/vm-launcher'), 'config', 'RELEASES',
                             check: true).stdout().strip().split('\n')
       if webos not in webos_reached
@@ -128,7 +133,7 @@ if guest_lane
   # and files in the layer), then the directory's own, which set what differs and add or replace
   # files. soc_dirs and webos_dirs: the chain, the base first.
   axis_dirs = {}
-  foreach axis, leaf : (simplesmart or netcast45) ? {} : {'soc': soc, 'webos': webos}
+  foreach axis, leaf : (simplesmart or netcast45 or testguest) ? {} : {'soc': soc, 'webos': webos}
     chain = ['guest/layers' / axis / leaf]
     foreach i : range(8)
       if fs.is_file(top / chain[0] / 'base')
@@ -154,7 +159,8 @@ if guest_lane
   glibc_max = {'afro': '2.14.1', 'beehive': '2.19', 'dreadlocks': '2.19', 'dreadlocks2': '2.19',
                'goldilocks': '2.24', 'goldilocks2': '2.24', 'jhericurl': '2.28',
                'kisscurl': '2.28', 'mullet': '2.31', 'number1': '2.31', 'ombre': '2.35',
-               'ponytail': '2.35', 'queue': '2.39', 'spacebuns': '2.39', 'simplesmart': '2.19', 'netcast45': '2.16'}[webos]
+               'ponytail': '2.35', 'queue': '2.39', 'spacebuns': '2.39', 'simplesmart': '2.19', 'netcast45': '2.16',
+               'testguest': '2.41'}[webos]
   # stage.py for 32-bit ARM trees: strip, and check the glibc ceiling.
   arm_stage = [python, stage_py, '--strip', strip, '--readelf', readelf, '--glibc-max', glibc_max]
   layers_dir = meson.project_build_root() / 'stage/layers'   # the assembled layer trees
@@ -210,6 +216,8 @@ if guest_lane
     guest_modules = ['guest/layers/simplesmart', 'guest/kernel', 'guest/initramfs']
   elif netcast45
     guest_modules = ['guest/layers/gl/mesa', 'guest/layers/netcast45', 'guest/kernel', 'guest/initramfs']
+  elif testguest
+    guest_modules = ['guest/kernel', 'guest/initramfs']
   endif
   foreach module : guest_modules
     if module in ['guest/layers/gl/test', 'tests/regress/virgl'] and not gl_built

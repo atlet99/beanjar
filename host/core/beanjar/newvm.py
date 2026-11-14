@@ -188,6 +188,13 @@ def check(lib, name, fw=None, place=True, **settings):
                 "fw",
             )
         firmware.target_of(fw_dir)
+    # the test guest (targets platform "Test") takes none of the webOS layers by default
+    if (
+        settings.get("layers") is None
+        and fw_dir
+        and targets.platform(firmware.target_of(fw_dir)) == "Test"
+    ):
+        cfg["layers"] = []
     cfg["mac"], cfg["serial"] = lib.new_identity()  # the TV's own
     return {"kind": kind, "fw_dir": fw_dir, "epk": epk, "cfg": cfg}
 

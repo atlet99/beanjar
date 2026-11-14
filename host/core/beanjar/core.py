@@ -555,7 +555,7 @@ class VM:
             return "it is in standby"
         if st not in (None, "running"):  # None: QMP busy with another client
             return f"QEMU is {st}"
-        if not poweroff.micom_ready(self.run_dir):
+        if targets.platform(target) == "webOS" and not poweroff.micom_ready(self.run_dir):
             return "webOS is still starting"
         return None
 

@@ -446,7 +446,7 @@ class BootConfTest(unittest.TestCase):
             )
             init = (
                 "sysvinit"
-                if target[1] in ("simplesmart", "netcast45")
+                if target[1] in ("simplesmart", "netcast45", "testguest")
                 else "systemd"
                 if systemd
                 else "upstart"
@@ -553,6 +553,8 @@ class BootConfTest(unittest.TestCase):
             "k24n-queue": base | {"ftdi_sio", "ch341", "cp210x"},
         }
         for target in targets.all_targets():
+            if targets.platform(target) == "Test":
+                continue  # the test guest: none of a stock kernel's
             name = targets.name(target)
             mods = targets.release(target).peripherals
             if name in expect:
@@ -591,7 +593,7 @@ class BootConfTest(unittest.TestCase):
         """Every webOS release the targets use is in WEBOS_ORDER, each after the release it is _after,
         and config RELEASES prints the order (meson.build's webos_reached)."""
         for target in targets.all_targets():
-            if target[1] not in ("simplesmart", "netcast45"):
+            if target[1] not in ("simplesmart", "netcast45", "testguest"):
                 self.assertIn(target[1], targets.WEBOS_ORDER)
         order = targets.WEBOS_ORDER
         for older, newer in (("ombre", "spacebuns"), ("ponytail", "queue"), ("queue", "spacebuns")):
@@ -1265,6 +1267,7 @@ class BootConfTest(unittest.TestCase):
                 "o24-queue",
                 "o24n-ponytail",
                 "o24n-queue",
+                "virt-testguest",
             ],
         )
         self.assertEqual(targets.of_firmware("W24G", "spacebuns"), ("o22n2", "spacebuns"))
@@ -1352,6 +1355,7 @@ class BootConfTest(unittest.TestCase):
                 "o24n-ponytail": 2560,
                 "o22n3-ponytail": 2560,
                 "o24n-queue": 2560,
+                "virt-testguest": 512,
                 "o22n3-queue": 2560,
             },
         )

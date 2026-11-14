@@ -426,7 +426,8 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
         try:
             p.prepared = prepare.ensure(prepare.Job(env, tree), say)
             p.partmap = p.prepared.partmap
-            sizes = partmap.disk_sizes(partmap.read(p.partmap), p.target)
+            if p.partmap:
+                sizes = partmap.disk_sizes(partmap.read(p.partmap), p.target)
         except (prepare.Error, nvm.Error) as e:
             raise Error(str(e)) from None
         except (partmap.Error, OSError) as e:
@@ -1435,6 +1436,8 @@ def part_nodes(p):
     """[(N, serial)]: the /dev/mmcblk0pN nodes of the plan's VM, from its own partinfo disk (what
     lgemu.ko reads; the guest may have rewritten it, as a set's update and factory reset do). Error if
     its partitions are not those of the firmware's map, which the disks were made for."""
+    if not targets.board_data(p.target):
+        return []
     own = os.path.join(p.state_dir, "partinfo.img")
     try:
         m = partmap.read(own)
@@ -1451,6 +1454,8 @@ def part_nodes(p):
 def prepare_nvm(p, say):
     """The state's I2C EEPROM image as the VM's board says, before QEMU starts (nvm.prepare: a new
     one becomes the VM's prepared chip, else its tool options and serial are brought in line)."""
+    if not targets.release(p.target).nvm:
+        return
     img = os.path.join(p.state_dir, targets.release(p.target).nvm.eeprom + ".img")
     try:
         debug_mode = nvm.debug_mode_number(p.env.get("DEBUG_MODE"))

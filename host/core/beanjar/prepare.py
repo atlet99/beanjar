@@ -166,7 +166,8 @@ def stale(job):
             p for p in now if now[p] != recorded.get(p)
         )
         return "made from other files (" + ", ".join(os.path.basename(p) for p in diff[:3]) + ")"
-    for name in [PARTINFO] + [n for n in (EEPROM, RECORDS) if record.get(n)]:
+    own = [PARTINFO] if targets.board_data(job.target) else []
+    for name in own + [n for n in (EEPROM, RECORDS) if record.get(n)]:
         if not os.path.isfile(os.path.join(job.dir, name)):
             return f"missing its {name}"
     return None
@@ -177,7 +178,10 @@ class Prepared:
 
     def __init__(self, job, record):
         self.dir = job.dir
-        self.partmap = os.path.join(job.dir, PARTINFO)
+        # None for a target without LG's board data (the test guest's): no partition map
+        self.partmap = (
+            None if record.get("board_data") is False else os.path.join(job.dir, PARTINFO)
+        )
         self.local_key = record.get("local_key")
         self.panel_hz = record.get("panel_hz") or DEFAULT_PANEL_HZ
         self.derived_params = {k: tuple(v) for k, v in (record.get("derived_params") or {}).items()}
@@ -232,6 +236,14 @@ def make(job, say=print):
 
 
 def _make(job, new, say):
+    if not targets.board_data(job.target):
+        # the test guest: no partition map, no EEPROM, nothing derived from a firmware
+        return {
+            "board_data": False,
+            "panel_hz": DEFAULT_PANEL_HZ,
+            "inputs": job.inputs(),
+            "files": job.stamps(job.base_files()),
+        }
     try:
         src = partmap.build(job.fw, job.target, job.cache, job.tree)
         shutil.copyfile(src, os.path.join(new, PARTINFO))

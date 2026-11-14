@@ -1,0 +1,4 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+name: BEANJAR_TESTGUEST
+desc: Beanjar's open test guest (a 32-bit ARM userland for CI)

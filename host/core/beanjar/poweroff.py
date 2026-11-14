@@ -61,6 +61,16 @@ POWER_OFF_CALL = (
 )
 
 
+# The test guest's (targets platform "Test", guest/testguest): BusyBox's poweroff inside the
+# namespace, whose init's shutdown ends in reboot(2) as webOS's does.
+TEST_POWER_OFF_CALL = "timeout 30 webos-enter poweroff </dev/null"
+
+
+def power_off_call(platform):
+    """The power-off signal typed on the console for a guest of the platform (targets.platform)."""
+    return TEST_POWER_OFF_CALL if platform == "Test" else POWER_OFF_CALL
+
+
 POWER_OFF_SENT = "power-off"  # run/power-off: QEMU's pid, once the signal was sent to it
 
 
