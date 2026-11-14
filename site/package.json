@@ -1,19 +1,29 @@
 {
   "name": "beanjar-site",
   "private": true,
-  "description": "Builds the Beanjar landing page into build/site with a trimmed, self-hosted stylesheet",
+  "description": "Builds the Beanjar landing page into build/site with a trimmed, self-hosted stylesheet, and serves it for previews",
   "license": "GPL-2.0-or-later",
   "type": "module",
   "scripts": {
-    "build": "node build.mjs",
-    "serve": "python3 -m http.server --bind 127.0.0.1 --directory ../build/site"
+    "build": "webpack --mode production",
+    "dev": "webpack serve --mode development"
   },
   "devDependencies": {
     "bootstrap": "5.3.8",
     "browserslist": "4.29.5",
+    "copy-webpack-plugin": "14.0.0",
+    "css-loader": "7.1.5",
+    "css-minimizer-webpack-plugin": "8.0.0",
+    "html-webpack-plugin": "5.6.8",
     "lightningcss": "1.33.0",
-    "purgecss": "9.1.0",
-    "sass": "1.108.2"
+    "mini-css-extract-plugin": "2.10.2",
+    "purgecss-webpack-plugin": "9.1.0",
+    "sass": "1.108.2",
+    "sass-loader": "17.1.0",
+    "webpack": "5.112.2",
+    "webpack-cli": "7.3.1",
+    "webpack-dev-server": "6.1.0",
+    "webpack-remove-empty-scripts": "1.1.1"
   },
   "browserslist": [
     "defaults"
