@@ -42,7 +42,7 @@ beanjar.launch with host/core on PYTHONPATH).
                                    (qemu.tcg_rendernode; the host build's `qemu` option asks it)
 
 The kernel cmdline words go to the guest. ACCEL (tcg or kvm) picks the machine; the default is kvm
-on an aarch64 host (the Pi) and tcg elsewhere (qemu.py).
+on an aarch64 host whose /dev/kvm the user can open (the Pi) and tcg elsewhere (qemu.py).
 
 The guest sees only its runtime tree, RUN_DIR/share (share.py): the per-VM layer, a read-only
 host/ that each launch assembles (the layers, binds.conf, guest/scripts/{save-logs,check-m1,time-boot}.sh
@@ -59,7 +59,8 @@ does, a guest power-off included, and that `stop` ends as a whole.
   systemctl --user status beanjar.slice      every VM's processes, by library (beanjar-<tag>.slice)
   journalctl --user -u beanjar-vm-<tag>-<name>   one VM's output (<tag>: its library's, vmunits.library_tag)
 Without a usable user systemd (or with VM_SYSTEMD=0) the same processes run in a session of their own
-(RUN_DIR/launcher.pid), and `stop` kills that session.
+(RUN_DIR/launcher.pid), and `stop` kills that session. Which of the two is the runner's choice
+(runner.py: BEANJAR_RUNNER, or the machine's runner setting, may name one).
 Env: SAVE_LOGS  0 to skip saving the logs on stop; LOG_TAG names them (default "stop")
      BUILD  0 to boot what is built as it is, instead of running scripts/build.sh guest first
             (the default on the Pi, which does not build the guest)
@@ -133,6 +134,7 @@ from . import (
     prepare,
     qemu,
     rotation,
+    runner,
     share,
     tuner,
     unit,
@@ -518,10 +520,9 @@ class Bg:
         )
 
     def running(self):
-        """The VM's processes are up (the unit active or activating, or the setsid session)."""
-        if any(self.unit_state(u) in ("active", "activating", "reloading") for u in self.units()):
-            return True
-        return unit.alive(core.read_pid(os.path.join(self.run_dir, "launcher.pid")))
+        """The VM's processes are up, by any runner (the unit active or activating, or the
+        session's leader alive)."""
+        return any(r.running(self) for r in runner.every())
 
     def save_logs(self):
         """Through the serial console, if the VM is up (guest/scripts/save-logs.sh, in the guest)."""
@@ -606,38 +607,10 @@ class Bg:
             print(f"logs saved: {d}", flush=True)
 
     def stop(self):
-        """Stop the VM: its unit, or the setsid fallback's session; SIGKILL if it does not exit."""
-        for name in self.units():
-            st = self.unit_state(name)
-            if st in unit.UP:
-                # ExecStop syncs the guest (unit.py sync), then SIGTERM, SIGKILL after 20 s.
-                vmunits.systemctl("stop", f"{name}.service", timeout=120)
-            elif st == "failed":
-                vmunits.systemctl("reset-failed", f"{name}.service")
-        # The setsid fallback: sync, then the launcher's session (QEMU, the mode=mitm helpers, the
-        # bus), QEMU, the console bridge.
-        launcher_pid = os.path.join(self.run_dir, "launcher.pid")
-        if os.path.exists(launcher_pid) or os.path.exists(self.pidfile):
-            unit.sync_guest(self.paths)
-        for f in (self.sock + ".in.pid", launcher_pid, self.pidfile):
-            pid = core.read_pid(f)
-            if pid is None:
-                if os.path.exists(f):
-                    os.unlink(f)
-                continue
-            if f == self.pidfile and not unit.comm(pid).startswith("qemu-system"):
-                os.unlink(f)
-                continue
-            unit.kill_session(pid)
-            for _ in range(5):
-                if not unit.alive(pid):
-                    break
-                time.sleep(1)
-            unit.kill_session(pid, 9)
-            try:
-                os.unlink(f)
-            except FileNotFoundError:
-                pass
+        """Stop the VM by every runner (runner.every: its unit, its session; SIGKILL if it does not
+        exit), whichever it was started with."""
+        for r in runner.every():
+            r.stop(self)
         self.harvest()
         for f in (self.password_file, os.path.join(self.run_dir, poweroff.POWER_OFF_SENT)):
             try:  # the password: netns.py removes it, unless killed
@@ -668,6 +641,10 @@ class Bg:
 
     def start(self, words):
         env = self.env
+        try:
+            how = runner.get(runner.choose(env))
+        except core.Error as e:
+            raise Error(str(e)) from None
         if self.use_unit and vmunits.unit_show(self.unit).get("ActiveState") in unit.UP:
             desc = vmunits.unit_show(self.unit).get("Description", "")
             raise Error(f"{self.unit}.service runs another VM ({desc}); stop it first")
@@ -734,14 +711,10 @@ class Bg:
         # its lock until the unit is up, where the next start's count sees it.
         with core.running_lock() as lock:
             self.refuse_beyond_limit(lock.limit)
-            if self.use_unit:
-                if not unit.start(self.unit, env, words, mem=qemu.vm_mem(env), keep=self.keep):
-                    raise Error(f"could not start {self.unit}.service")
-                with open(os.path.join(self.run_dir, "unit"), "w") as f:
-                    f.write(self.unit + "\n")
-            else:
-                with open(os.path.join(self.run_dir, "launcher.pid"), "w") as f:
-                    f.write(f"{unit.spawn(env, words, keep=self.keep)}\n")
+            try:
+                how.start(self, env, words, mem=qemu.vm_mem(env))
+            except core.Error as e:
+                raise Error(str(e)) from None
         # Until the initramfs shell is up, the launcher fails, or 120 s pass.
         time.sleep(1)
         for _ in range(60):
@@ -752,10 +725,7 @@ class Bg:
             sys.stdout.buffer.write(f.read())
         sys.stdout.flush()
         if not self.running():
-            raise Error(
-                "the VM is not running"
-                + (f" (journalctl --user -u {self.unit})" if self.use_unit else "")
-            )
+            raise Error(f"the VM is not running (see {how.where(self)})")
 
 
 def booted(log):

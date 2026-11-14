@@ -1095,9 +1095,9 @@ class Library:
         reason = vmunits.reason_text(reason)
         if reason:
             vmunits.reason_text(by, "label", vmunits.REASON_BY_MAX)
-            from . import unit
+            from . import runner
 
-            if not unit.available():
+            if runner.choose() != runner.SYSTEMD:
                 raise Error(
                     "--reason needs a user systemd: a reason lasts as long as the VM's unit, and "
                     "without one the VM would run in a session of its own"

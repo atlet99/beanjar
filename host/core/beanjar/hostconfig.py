@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
 """This machine's settings, every library's (config.toml in the user's config
-directory): max_running, firmware_dirs, memory_headroom_mib."""
+directory): max_running, firmware_dirs, memory_headroom_mib, runner."""
 
 import os
 
@@ -18,8 +18,9 @@ from . import tomlfile
 # max_running: how many VMs may run at once on this host; unset, no limit. firmware_dirs: the host's
 # firmware collections (paths.firmware_dirs), where create --firmware NAME and the launcher look a
 # firmware up; unset, /srv/beanjar/firmware. memory_headroom_mib: the memory reserved beyond each
-# VM's RAM, shared by admission and its KVM unit's soft memory limit; unset, 1024 MiB.
-GLOBAL_KEYS = ("max_running", "firmware_dirs", "memory_headroom_mib")
+# VM's RAM, shared by admission and its KVM unit's soft memory limit; unset, 1024 MiB. runner: how VMs
+# run here (runner.py: systemd or session); unset or auto, systemd where a user systemd runs.
+GLOBAL_KEYS = ("max_running", "firmware_dirs", "memory_headroom_mib", "runner")
 
 
 GLOBAL_HEADER = "Beanjar's settings for this machine, every library's (beanjar host config)."
@@ -75,6 +76,13 @@ def global_config():
             cfg["memory_headroom_mib"] = parse_memory_headroom_mib(cfg["memory_headroom_mib"])
         except Error as e:
             raise Error(f"{global_config_path()}: {e}") from None
+    if "runner" in cfg:
+        from . import runner
+
+        try:
+            cfg["runner"] = runner.parse(cfg["runner"])
+        except Error as e:
+            raise Error(f"{global_config_path()}: {e}") from None
     return cfg
 
 
@@ -86,6 +94,10 @@ def set_global_option(key, value):
         value = parse_max_running(value)
     elif key == "memory_headroom_mib":
         value = parse_memory_headroom_mib(value)
+    elif key == "runner":
+        from . import runner
+
+        value = runner.parse(value)
     else:
         try:
             value = paths.parse_firmware_dirs(value) or None

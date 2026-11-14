@@ -147,6 +147,7 @@ def cmd_host_config(lib, a):
         "max_running": shown.get("max_running"),
         "firmware_dirs": shown.get("firmware_dirs") or list(paths.DEFAULT_FIRMWARE_DIRS),
         "memory_headroom_mib": shown.get("memory_headroom_mib") or capacity.START_HEADROOM_MIB,
+        "runner": shown.get("runner") or "auto",
     }
     text = "\n".join(
         [
@@ -155,6 +156,8 @@ def cmd_host_config(lib, a):
             + ("" if "firmware_dirs" in shown else " (not set: the default)"),
             f"memory_headroom_mib: {data['memory_headroom_mib']}"
             + ("" if "memory_headroom_mib" in shown else " (not set: the default)"),
+            f"runner: {data['runner']}"
+            + ("" if "runner" in shown else " (not set: systemd where it runs, else a session)"),
         ]
     )
     return emit(a, data, text)
@@ -255,7 +258,9 @@ def register_config(cli):
         "memory_headroom_mib=N, positive MiB reserved beyond each VM's RAM for admission and "
         "the KVM soft memory limit (default 1024). "
         "firmware_dirs=DIR[:DIR...], the host's firmware collections, where create --firmware NAME, "
-        "the launcher and regress look a firmware up (default /srv/beanjar/firmware)",
+        "the launcher and regress look a firmware up (default /srv/beanjar/firmware). "
+        "runner=auto|systemd|session, how VMs run here (default auto: a systemd user service "
+        "where a user systemd runs, else a session of their own; BEANJAR_RUNNER overrides)",
         cmd_host_config,
         usage="beanjar host config [show | set KEY=VALUE... | unset KEY...] [--json]",
     )

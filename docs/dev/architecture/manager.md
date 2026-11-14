@@ -38,6 +38,20 @@ The launcher resolves the target, layers and disks, assembles the host share and
 and owns QEMU and its helper processes. The host runtime uses a systemd user unit where
 available, with a process-session fallback.
 
+Which of the two holds a VM's processes is the runner (`host/core/beanjar/runner.py`). Both run the
+same main process, `python3 -m beanjar.unit run`, with the same environment; a runner only starts
+it, says whether it is up, and stops it, and `launch.Bg` drives every runner through those three
+calls. A start uses the chosen runner; a stop and the running check ask every runner, since a VM
+is stopped by the one it was started with. The choice is automatic (systemd where a user systemd
+runs, else a session; `VM_SYSTEMD=0` turns systemd off), unless the machine's setting
+`beanjar host config set runner=systemd|session` or `BEANJAR_RUNNER`, which wins, names one. A
+named runner that cannot run here fails the start rather than falling back, so a forced choice
+is never silently ignored. The seam exists for runners other than these two, such as a container
+or a native macOS host, which would supply the same three calls.
+
+QEMU's default accelerator is KVM only on an aarch64 host whose `/dev/kvm` the user can open;
+otherwise TCG (an aarch64 container or board without KVM no longer picks KVM and fails).
+
 A manager VM and its viewer have separate lifetimes. The viewer attaches to the VM's D-Bus
 display and runtime sockets and may close without stopping the TV. Stopping the VM collects
 logs, then asks webOS to power the set off (tvpowerd's forced `powerOff`)
