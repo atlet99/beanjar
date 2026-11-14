@@ -73,3 +73,13 @@ path = [
 precedence = "aggregate"
 SPDX-FileCopyrightText = "Mariotaku <git@mariotaku.me> and the Beanjar contributors"
 SPDX-License-Identifier = "GPL-2.0-or-later"
+
+# The landing page's viewer shot shows a frame of Big Buck Bunny playing on the TV.
+[[annotations]]
+path = "site/images/viewer-window.png"
+precedence = "aggregate"
+SPDX-FileCopyrightText = [
+  "Mariotaku <git@mariotaku.me> and the Beanjar contributors",
+  "Big Buck Bunny (c) copyright 2008, Blender Foundation, www.bigbuckbunny.org",
+]
+SPDX-License-Identifier = "GPL-2.0-or-later AND CC-BY-3.0"
