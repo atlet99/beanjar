@@ -5,7 +5,8 @@
 (docs/dev/architecture/test-guest.md): what CI runs where no LG firmware may be.
 
   scripts/testguest-check [--firmware DIR] [--name NAME] [--display egl-headless|none]
-                          [--timeout S] [--keep] [--library DIR]
+                          [--timeout S] [--keep] [--library DIR] [--logs DIR] [--tag TAG]
+                          [--reason TEXT]
 
 Creates the VM NAME (default testguest-check, which must not exist) on the test guest's image
 (default build/testguest/image, guest/testguest/build.sh), starts it, sends keys to its virtio
@@ -19,6 +20,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -108,6 +110,8 @@ def main():
     ap.add_argument("--keep", action="store_true", help="keep the VM afterwards")
     ap.add_argument("--library", help="the Beanjar library (default: beanjar's)")
     ap.add_argument("--tag", action="append", default=[], help="a tag for the VM (repeatable)")
+    ap.add_argument("--reason", help="why the VM runs (beanjar reason; needs a user systemd)")
+    ap.add_argument("--logs", help="copy the VM's logs and the guest's output here before it goes")
     a = ap.parse_args()
 
     tags = [x for t in a.tag for x in ("--tag", t)]
@@ -125,7 +129,8 @@ def main():
     rc = 2
     try:
         t0 = time.monotonic()
-        code, text = beanjar(["start", a.name, "--reason", "testguest-check"], a.library, False)
+        reason = ["--reason", a.reason] if a.reason else []
+        code, text = beanjar(["start", a.name, *reason], a.library, False)
         if code:
             print(text, file=sys.stderr)
             print("result=fail\nhost.error=the VM did not start")
@@ -172,6 +177,11 @@ def main():
         return rc
     finally:
         beanjar(["stop", a.name, "--force", "--unplug"], a.library, False)
+        if a.logs:
+            shutil.rmtree(a.logs, ignore_errors=True)
+            shutil.copytree(os.path.join(vm_dir, "logs"), os.path.join(a.logs, "logs"))
+            if os.path.isdir(out):
+                shutil.copytree(out, os.path.join(a.logs, "testguest"))
         if not a.keep:
             beanjar(["delete", a.name], a.library, False)
 

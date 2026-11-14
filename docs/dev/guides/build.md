@@ -33,6 +33,12 @@ meson compile -C build/guest-lm14-netcast45
 preconfigure NetCast as above before using that helper. It reuses an existing build directory.
 SimpleSmart uses the webOS SDK with `-Dsoc=m2 -Dwebos=simplesmart`.
 
+The open test guest (`virt-testguest`, [test guest](../architecture/test-guest.md)) is not built by
+Meson: `guest/testguest/build.sh` builds its Buildroot userland into `build/testguest/image`, and
+`scripts/testguest-check` boots it and runs its checks. Its own kernel and initramfs build, for a
+machine without the webOS SDK, is `meson setup --cross-file build/testguest/cross.ini
+build/guest-virt-testguest -Dsoc=virt -Dwebos=testguest`.
+
 The guest build reads no firmware: what it asks of its target's firmware is checked in as the
 target's firmware facts (below), so a clone without any firmware builds every target.
 

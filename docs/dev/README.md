@@ -44,6 +44,8 @@ The guest and the firmware:
 - [Systemd-era webOS targets](architecture/webos5.md): webOS 5 and 6.
 - [NetCast 4.5](architecture/netcast45.md) and [SimpleSmart](architecture/simplesmart.md): the
   legacy platforms.
+- [The open test guest](architecture/test-guest.md): a Buildroot userland of ours that CI boots
+  without LG firmware, its checks and the CI job.
 
 ## Elsewhere in the tree
 
