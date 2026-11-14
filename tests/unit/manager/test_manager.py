@@ -1947,6 +1947,7 @@ class ManagerTest(unittest.TestCase):
                 "max_running": None,
                 "firmware_dirs": ["/srv/beanjar/firmware"],
                 "memory_headroom_mib": capacity.START_HEADROOM_MIB,
+                "runner": "auto",
             },
         )
         where = self.cli_json("vnc", "password", "a")
