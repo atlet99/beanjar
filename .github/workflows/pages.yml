@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Build site/ into build/site (npm run build) and deploy it to GitHub Pages. Runs in the
-# public repository only (Settings > Pages > Source: GitHub Actions); in any other
-# repository the job is skipped.
+# Build site/ into build/site (npm run build) and deploy it to GitHub Pages, in every
+# repository that has it: the public one for the site, this one for a preview. Each needs
+# Settings > Pages > Source: GitHub Actions, or the deploy step fails.
 name: Pages
 
 on:
@@ -20,7 +20,6 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.repository == 'mariotaku/beanjar'
     runs-on: ubuntu-24.04
     permissions:
       contents: read   # the job's permissions replace the workflow's; a private checkout needs it
