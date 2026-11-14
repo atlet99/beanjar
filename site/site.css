@@ -1,56 +1,266 @@
 /*
- * Bootstrap 5.3 Cover example (cover.css), without the unused button rules.
+ * SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * Beanjar site: a thin layer over Bootstrap 5.3 (from the CDN). The page is built from
+ * Bootstrap's own cards, list groups, badges, buttons and utilities; this file gives them
+ * the app icon's colours through Bootstrap's variables, and adds what Bootstrap has no word
+ * for: the hero's jar and its bird, and the screenshots' cut-outs.
  */
 
+/* The jar's palette. */
+:root {
+  --jar: #B9E1DB;
+  --jar-light: #E4F6F3;
+  --jar-deep: #3F726D;
+  --charcoal: #1D2223;
+  --beak: #FFBE32;
+  --ink: #102624;
+  --metal: linear-gradient(180deg, #3E4849, #2C3334 45%, var(--charcoal));
+  color-scheme: dark;
+  accent-color: var(--jar);
+}
+
+/* Dark is the page's only mode; Bootstrap's dark theme, in the app icon's colours. */
+[data-bs-theme="dark"] {
+  --bs-body-bg: #000;
+  --bs-body-bg-rgb: 0, 0, 0;
+  --bs-body-color: #E9EEEE;
+  --bs-body-color-rgb: 233, 238, 238;
+  --bs-emphasis-color: #fff;
+  --bs-secondary-color: rgba(233, 238, 238, .68);
+  --bs-secondary-bg: var(--charcoal);
+  --bs-tertiary-bg: #0D1212;
+  --bs-tertiary-bg-rgb: 13, 18, 18;
+  --bs-primary: var(--jar);
+  --bs-primary-rgb: 185, 225, 219;
+  --bs-primary-text-emphasis: var(--jar);
+  --bs-primary-bg-subtle: #12292A;
+  --bs-primary-border-subtle: var(--jar-deep);
+  --bs-secondary-rgb: 154, 164, 163;
+  --bs-warning: var(--beak);
+  --bs-warning-rgb: 255, 190, 50;
+  --bs-link-color: var(--jar);
+  --bs-link-color-rgb: 185, 225, 219;
+  --bs-link-hover-color: var(--jar-light);
+  --bs-link-hover-color-rgb: 228, 246, 243;
+  --bs-code-color: var(--jar);
+  --bs-border-color: rgba(185, 225, 219, .18);
+  --bs-border-color-translucent: rgba(185, 225, 219, .18);
+  --bs-box-shadow-lg: 0 1.5rem 4rem rgba(0, 0, 0, .7), 0 0 4rem rgba(185, 225, 219, .1);
+  color-scheme: dark;
+}
+
+.btn-primary {
+  --bs-btn-color: #000;
+  --bs-btn-bg: var(--jar);
+  --bs-btn-border-color: var(--jar);
+  --bs-btn-hover-color: #000;
+  --bs-btn-hover-bg: var(--jar-light);
+  --bs-btn-hover-border-color: var(--jar-light);
+  --bs-btn-active-color: #000;
+  --bs-btn-active-bg: #9CCCC5;
+  --bs-btn-active-border-color: #9CCCC5;
+}
+
+html {
+  /* Section links land below the sticky header. */
+  scroll-padding-top: 4.5rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
 body {
-  text-shadow: 0 .05rem .1rem rgba(0, 0, 0, .5);
-  box-shadow: inset 0 0 5rem rgba(0, 0, 0, .5);
+  overflow-x: clip;
 }
 
-.cover-container {
-  max-width: 42em;
+/* One focus ring everywhere. */
+:where(a, button, .btn):focus-visible {
+  outline: 3px solid var(--jar);
+  outline-offset: 3px;
+  box-shadow: none;
 }
 
-.nav-masthead .nav-link {
-  color: rgba(255, 255, 255, .5);
-  border-bottom: .25rem solid transparent;
+.skip-link {
+  position: absolute;
+  z-index: 1100;
+  top: .5rem;
+  left: .5rem;
+  border-radius: .5rem;
+  background: var(--jar);
+  color: #000;
 }
 
-.nav-masthead .nav-link:hover,
-.nav-masthead .nav-link:focus {
-  border-bottom-color: rgba(255, 255, 255, .25);
+figure {
+  margin: 0;
 }
 
-.nav-masthead .nav-link + .nav-link {
-  margin-left: 1rem;
-}
-
-.nav-masthead .active {
-  color: #fff;
-  border-bottom-color: #fff;
+h2 {
+  letter-spacing: -.02em;
+  text-wrap: balance;
 }
 
 /*
- * The sleeping bean bird. Static (the logo) unless motion is allowed.
+ * The top bar and footer follow webosbrew.org's: the same Bootstrap navbar and footer, in
+ * Beanjar's colours. Phones show the brand and GitHub only; the page is one short scroll.
+ */
+.site-header {
+  --bs-navbar-padding-y: .75rem;
+  --bs-navbar-brand-padding-y: 0;
+}
+
+/*
+ * Hero: the jar, then the title over the light it throws.
  */
 
-.beanbird {
-  height: min(80vh, 110vw);
-  overflow: visible;
-  opacity: .85;
-  /* The jar centred across the page; its bird's widest point (y 280) at mid-height. */
-  transform: translate(-50%, -54.2%);
+.hero {
+  padding: 2.5rem 0 4rem;
+  background: radial-gradient(ellipse 70% 55% at 50% 22%, rgba(185, 225, 219, .16), transparent 70%);
+  isolation: isolate;
 }
 
-/* Bootstrap's h1 size, also capped by height so the title fits the bird on short screens. */
-main h1 {
-  font-size: min(calc(1.375rem + 1.5vw), 2.5rem, 4.4vh);
+/* Narrow screens: the jar first, at about 60% of the width, centred above the text. */
+.beanbird {
+  display: block;
+  width: 60%;
+  max-width: 300px;
+  height: auto;
+  margin: 0 auto;
+  overflow: visible;
+  position: relative;
+  z-index: -1;
 }
+
+/* From lg: two columns, text left, the jar right and vertically centred. */
+@media (min-width: 992px) {
+  .hero {
+    padding: 4rem 0 5rem;
+    background: radial-gradient(ellipse 45% 70% at 72% 50%, rgba(185, 225, 219, .16), transparent 70%);
+  }
+
+  .beanbird {
+    width: 100%;
+    max-width: none;
+    max-height: min(70vh, 520px);
+  }
+
+  .hero-text {
+    padding-right: 2rem;
+  }
+}
+
+.hero h1 {
+  letter-spacing: -.02em;
+  text-shadow: 0 .1rem .6rem rgba(0, 0, 0, .7);
+}
+
+.hero-pitch {
+  color: var(--jar-light);
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+/*
+ * The picture card has a faint light in one corner.
+ */
+
+.glow {
+  --bs-card-bg: var(--bs-tertiary-bg);
+  background-image: radial-gradient(ellipse 80% 70% at 85% 0%, rgba(185, 225, 219, .14), transparent 70%);
+}
+
+.uses {
+  --bs-list-group-bg: transparent;
+}
+
+.icon {
+  width: 3rem;
+  height: 3rem;
+}
+
+/*
+ * The viewer and its remote are each a window rendered with a transparent background, so
+ * they sit on the card as they are: their own rounded corners, a shadow drawn around the
+ * shape, and a faint rim where a dark window meets the dark card.
+ */
+
+.shot {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 0 .5px rgba(255, 255, 255, .35)) drop-shadow(0 .75rem 1.25rem rgba(0, 0, 0, .55));
+}
+
+.stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(3.25rem, 15%, 7.5rem);
+  gap: clamp(.75rem, 3vw, 2rem);
+  align-items: center;
+}
+
+/* A little askew, as a remote left on the desk. */
+.shot-remote {
+  rotate: 4deg;
+}
+
+.term {
+  --bs-card-bg: #000;
+}
+
+.term pre {
+  line-height: 1.9;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.term pre code {
+  color: var(--bs-body-color);
+}
+
+.term-dots {
+  width: .75rem;
+  height: .75rem;
+  margin-right: 2.5rem;
+  border-radius: 50%;
+  background: var(--beak);
+  box-shadow: 1.25rem 0 var(--jar), 2.5rem 0 #3E4849;
+}
+
+/*
+ * Things rise into place as they scroll in. Decoration only: where scroll-driven
+ * animations are missing, or motion is not wanted, everything is simply there.
+ */
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports ((animation-timeline: view()) and (animation-range: entry)) {
+    @keyframes rise-in {
+      from {
+        opacity: 0;
+        translate: 0 2.5rem;
+      }
+    }
+
+    .reveal {
+      animation: rise-in auto linear backwards;
+      animation-timeline: view();
+      animation-range: entry 0% entry 55%;
+    }
+  }
+}
+
+/*
+ * The bean bird in the hero's jar. Static (the logo) unless motion is allowed.
+ */
 
 .beanbird .bird-body,
 .beanbird .hip,
 .beanbird .leg,
-.beanbird .bubble {
+.beanbird .bubble,
+.beanbird .eyes {
   transform-box: view-box;
 }
 
@@ -86,6 +296,12 @@ main h1 {
 
   .beanbird .hip-r {
     animation: hip-r 8s ease-in-out infinite;
+  }
+
+  /* Awake: the bird blinks now and then. */
+  .beanbird .eyes {
+    transform-origin: 284px 212px;
+    animation: blink 7s ease-in-out 1.5s infinite;
   }
 
   .beanbird .bubble {
@@ -161,4 +377,9 @@ main h1 {
 @keyframes hip-r {
   0%, 100% { transform: translateX(3.08px); }
   50% { transform: translateX(-3.08px); }
+}
+
+@keyframes blink {
+  0%, 94%, 100% { transform: scaleY(1); }
+  96.5% { transform: scaleY(.1); }
 }
