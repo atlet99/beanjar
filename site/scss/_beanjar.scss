@@ -2,10 +2,10 @@
  * SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
- * Beanjar site: a thin layer over Bootstrap 5.3 (from the CDN). The page is built from
- * Bootstrap's own cards, list groups, badges, buttons and utilities; this file gives them
- * the app icon's colours through Bootstrap's variables, and adds what Bootstrap has no word
- * for: the hero's jar and its bird, and the screenshots' cut-outs.
+ * Beanjar site: a thin layer over Bootstrap 5.3 (imported before it by site.scss). The page
+ * is built from Bootstrap's own cards, list groups, buttons and utilities; this file gives
+ * them the app icon's colours through Bootstrap's variables, and adds what Bootstrap has no
+ * word for: the hero's jar and its bird, and the screenshots' cut-outs.
  */
 
 /* The jar's palette. */
