@@ -12,11 +12,14 @@ block ranges into owned named paks (superpak.py), without unpacking SquashFS.
 The supplied directory is never normalized in place.
 
 New VM (newvm.py) fills firmware/ from a directory of extracted paks, hard-linked where it is on
-the filesystem of the library (nothing writes a pak), else copied, or, only in the GUI, from a .epk:
-epk2extract -c -n runs in a scratch directory inside the new VM's own scratch (so a rename moves
-the paks into firmware/) on a symlink to the .epk, so nothing is written next to the source. -n
-keeps it from unpacking rootfs/: the guest boots from the paks, and the extracted rootfs is only
-for linking guest code on the build machine. Everything but the paks is dropped with the scratch.
+the filesystem of the library (nothing writes a pak), else copied, or from a .epk: epk2extract -c
+-n runs in a scratch directory inside the new VM's own scratch (so a rename moves the paks into
+firmware/) on a symlink to the .epk, so nothing is written next to the source. -n keeps it from
+unpacking rootfs/: the guest boots from the paks, and the extracted rootfs is only for linking
+guest code on the build machine. A VM reads only its target's paks (targets.pak_files: those it
+attaches and those its partition map is made of) and manifest.toml from firmware/; only those
+paks are moved there, and everything else (the other paks, such as kernel, tzfw and lxboot, and
+kernel.pak's unpacked intermediates) is dropped with the scratch.
 """
 
 import errno

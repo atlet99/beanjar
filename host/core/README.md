@@ -14,17 +14,19 @@ export PYTHONPATH=host/core:host/ui     # from the checkout: the core package an
 python3 -m beanjar create tv1 --firmware 05.06.10.01-HE_DTV_WT1H_AFAAABAA  # from firmware_dirs, in place
 python3 -m beanjar create tv2 --firmware /srv/beanjar/firmware/05.06.10.01-HE_DTV_WT1H_AFAAABAA
 python3 -m beanjar create tv3 --firmware ./my-paks --import   # any directory of paks, made the VM's own
+python3 -m beanjar create tv4 --firmware ./firmware.epk       # extracted; only its target's paks kept
 python3 -m beanjar start tv1          # returns at the initramfs shell; the VM runs on
 python3 -m beanjar start tv2 --reason "camera bisect" --by agent-3   # why it runs, until it stops
 python3 -m beanjar viewer open tv1 --remote  # the viewer, options passed through
 python3 -m beanjar list
 python3 -m beanjar stop tv1           # logs saved, webOS powers the set off; --unplug: kill at once
-python3 -m beanjar_ui.manager         # the window; its New VM also takes a .epk
+python3 -m beanjar_ui.manager         # the window
 ```
 
-A firmware `.epk` is extracted only by the GUI's New VM. The CLI takes firmware that is extracted
-already: a firmware of the host's collections, used in place, or with `--import` any directory of
-paks (`epk2extract` output, or another VM's `firmware/`), which become the VM's own (see Firmware).
+`--firmware` is a firmware of the host's collections, used in place; with `--import`, any directory
+of paks (`epk2extract` output, or another VM's `firmware/`), which become the VM's own; or a `.epk`
+(a path ending in `.epk`, with or without a `/`), extracted into the VM's own `firmware/` (see
+Firmware).
 
 The supported targets are listed in the [project README](../../README.md#supported-firmware).
 Build the guest artifacts for the imported firmware's target before starting it. webOS and
@@ -337,15 +339,19 @@ A VM boots either a firmware used in place or one of its own.
   `name`, `chip` and `release` (other keys, such as `paks`, are ignored), and the target's paks:
   `create` refuses it otherwise, so its target is never guessed from the rootfs. A `super.pak`
   firmware cannot be used in place; import it. Deleting the VM leaves the firmware alone.
-- **Its own** (`create --firmware DIR --import`, or a `.epk` in the GUI): `vms/<name>/firmware/`,
+- **Its own** (`create --firmware DIR --import`, or `create --firmware FILE.epk`, `--import` or
+  not; the GUI's New VM the same): `vms/<name>/firmware/`,
   with the paks, `manifest.toml` and `cache/` (the partition map); deleting the VM deletes it.
   - a directory of extracted paks: its paks are hard links in the VM's `firmware/` when the
     directory is on the library's filesystem (no more space: nothing writes a pak), else copies.
     Another VM's `firmware/` is such a directory.
-  - a firmware file (`.epk`, the GUI only): `epk2extract -c -n` (on `PATH`, `~/.local/bin`,
-    `BEANJAR_EPK2EXTRACT`, or `config.toml`'s `epk2extract`) runs in the new VM's scratch directory,
-    the extracted paks go straight into its `firmware/`, with the `.epk`'s name, size and sha256 in
-    `manifest.toml`.
+  - a firmware file (`.epk`): `epk2extract -c -n` (on `PATH`, `~/.local/bin`,
+    `BEANJAR_EPK2EXTRACT`, or `config.toml`'s `epk2extract`) runs in the new VM's scratch directory.
+    Only the target's paks (`targets.pak_files`: those the VM attaches and those its partition map
+    is made of) are moved into its `firmware/`, with the `.epk`'s name, size and sha256 in
+    `manifest.toml`; everything else epk2extract wrote (other paks such as `kernel`, `tzfw` and
+    `lxboot`, `kernel.pak`'s unpacked intermediates) is deleted with the scratch before the VM is
+    published, so a failure or Ctrl-C leaves nothing either.
 
 An imported firmware is resolved to its firmware target first, by its manifest or else by the model
 code in its name and its release. webOS uses the rootfs's `etc/starfish-release`; legacy firmware
@@ -369,7 +375,7 @@ command shows what it manages. `beanjar --help` and `beanjar COMMAND --help` des
 | Command | What it does |
 |---|---|
 | `list [--all] [--local \| --host HOST] [--tag TAG ...]` | With hosts configured (see Several machines), every machine's VMs, under a `HOST` column (`local` for this machine). Each VM's state: Off, Starting (until `debug shell` is on the serial console), Running or Stopping, with a QMP run state other than running (e.g. `paused`, or `standby`: Quick Start+'s, the guest's `webos.standby` port open) and `+viewer`, its network (`nat+mitm`, `nat+direct`, `lan+direct`, `off`, ...), its address, and while it runs its `GPU`: the busiest engine's percent, `on` without usage counters, or `off` (as `info`'s `gpu`), its `TAGS`, and its `REASON` (see Why a VM runs), cut to 32 characters (`--json`'s `reason` has it whole). `--tag` lists only the VMs that have that tag, every one given when repeated (see Tags). Stale pidfiles and stale start locks are removed. |
-| `create NAME --firmware NAME\|PATH [--import] [--mem --smp --layers --link --mode --display --audio] [--tag TAG ...]` | `--firmware` is a firmware of the host's collections (`firmware_dirs`) or, with a `/`, a directory of extracted paks, used in place (it needs a `manifest.toml`); with `--import` its paks become the VM's own `firmware/` (hard links, or a copy). See Firmware. `platform` is its target's. `--layers` is comma-separated. Defaults: no `mem`, the VM has its firmware's model's RAM at each launch (`nvm.board_ram`: 1.25 GB for WT1H, W15M and W16R, 1.5 GB for W17H, W18R and W19P), 4 CPUs, `normal,gl`, link `nat` and mode `mitm`, `dbus`, and audio `dbus` (`none` without the dbus display). |
+| `create NAME --firmware NAME\|PATH [--import] [--mem --smp --layers --link --mode --display --audio] [--tag TAG ...]` | `--firmware` is a firmware of the host's collections (`firmware_dirs`) or, with a `/`, a directory of extracted paks, used in place (it needs a `manifest.toml`); with `--import` its paks become the VM's own `firmware/` (hard links, or a copy). A `.epk` file is extracted into the VM's own `firmware/`, keeping only the paks it uses. See Firmware. `platform` is its target's. `--layers` is comma-separated. Defaults: no `mem`, the VM has its firmware's model's RAM at each launch (`nvm.board_ram`: 1.25 GB for WT1H, W15M and W16R, 1.5 GB for W17H, W18R and W19P), 4 CPUs, `normal,gl`, link `nat` and mode `mitm`, `dbus`, and audio `dbus` (`none` without the dbus display). |
 | `start NAME [cmdline words] [--reason TEXT [--by LABEL]]` | Checks the host's free memory (`MemAvailable` covers the VM's RAM and `memory_headroom_mib`, default 1 GiB), takes the VM's start lock and boots it, beside any others. The launcher's output is progress, on stderr. `--reason` says why it runs (see Why a VM runs). |
 | `tag NAME [+TAG \| -TAG ...]` | The VM's tags: shown, or `+TAG` (or a bare `TAG`) added and `-TAG` removed, whether it runs or not. See Tags. |
 | `reason NAME [TEXT] [--by LABEL]` | Why a running VM runs: shown, set to `TEXT`, or cleared with an empty `TEXT` (`''`). See Why a VM runs. |

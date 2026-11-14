@@ -251,7 +251,7 @@ def cmd_create(lib, a):
         a.name = name
     elif host is not None and host in remote.hosts():
         raise Usage(
-            "create makes a VM on this machine only (its firmware is a directory here): "
+            "create makes a VM on this machine only (its firmware is a file or directory here): "
             f"run beanjar create {name} on the host"
         )
     vm = lib.create(a.name, fw=a.firmware, place=not a.import_, out=progress, **settings_of(a))
@@ -427,27 +427,23 @@ def inspector_info(vm):
     }
 
 
-def create_arguments(p, epk=False):
-    """create's arguments; with epk, --epk too (newvm.py, the GUI's New VM)."""
+def create_arguments(p):
+    """create's arguments (the CLI's, and newvm.py's: the GUI's New VM)."""
     p.add_argument("name")
-    src = p.add_mutually_exclusive_group() if epk else p
-    src.add_argument(
+    p.add_argument(
         "--firmware",
         metavar="NAME|PATH",
         help="the firmware: a name in the host's firmware collections (beanjar host config's "
-        "firmware_dirs), or a directory of extracted paks (any value with a '/'); used in place, "
-        "never written (it needs a manifest.toml), unless --import",
+        "firmware_dirs), a directory of extracted paks (any value with a '/'), used in place, "
+        "never written (it needs a manifest.toml), unless --import; or a .epk file, extracted "
+        "with epk2extract into the VM's own firmware/, keeping only the paks the VM uses",
     )
-    if epk:
-        src.add_argument(
-            "--epk", help="a firmware file to extract into the VM's firmware/ (epk2extract)"
-        )
     p.add_argument(
         "--import",
         dest="import_",
         action="store_true",
-        help="make --firmware the VM's own instead: <vm>/firmware, hard links on the same "
-        "filesystem, else a copy",
+        help="make a directory given as --firmware the VM's own instead: <vm>/firmware, hard "
+        "links on the same filesystem, else a copy (a .epk is always the VM's own)",
     )
     p.add_argument(
         "--mem", type=int, help="MiB (default: the firmware's model's own, at each launch)"
@@ -514,7 +510,7 @@ def register_lifecycle(cli):
         help="only the VMs with this tag (repeatable: with all of them)",
     )
 
-    s = command(sub, "create", "define a VM on extracted firmware", cmd_create)
+    s = command(sub, "create", "define a VM on a firmware: a .epk or extracted paks", cmd_create)
     create_arguments(s)
 
     s = command(

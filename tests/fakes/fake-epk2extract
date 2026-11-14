@@ -5,7 +5,9 @@
 ./<FAKE_EPK_NAME>/ (default 05.06.10.01-HE_DTV_WT1H_AFAAABAA), as the real one names its output.
 FAKE_EPK_MISSING="pak ..." leaves those out; FAKE_EPK_SLEEP=N waits N s half-way (cancellation);
 FAKE_EPK_FAIL=1 exits 1. Like the real one without -c, it also drops a file next to FILE, so the
-test sees whether the manager kept the source's directory clean. rootfs.pak is a real SquashFS,
+test sees whether the manager kept the source's directory clean. Like the real one with -n on a
+WT1H .epk, it also writes paks no VM reads (kernel, tzfw, lxboot) and kernel.pak's unpacked
+intermediates (kernel.pak.unpaked, kernel.pak.unpaked.unlz4). rootfs.pak is a real SquashFS,
 trust-rootfs.pak: an afro rootfs (etc/starfish-release, which import resolves the target by) with two
 trust bundles (tests/unit/launch/test_firmware_cache.py SquashfsCatTest's fixture, read with unsquashfs)."""
 
@@ -34,6 +36,7 @@ paks = [
     "smartkey",
     "kernel",
     "tzfw",
+    "lxboot",
 ]
 for i, p in enumerate(paks):
     if p in missing:
@@ -47,6 +50,10 @@ for i, p in enumerate(paks):
         with open(os.path.join(out, p + ".pak"), "wb") as f:
             f.write(b"hsqs" + p.encode() * 16)
     print(f"#{i + 1}/{len(paks)} saved PAK ({p}) to file {out}/{p}.pak", flush=True)
+    if p == "kernel":
+        for suffix in (".unpaked", ".unpaked.unlz4"):
+            with open(os.path.join(out, p + ".pak" + suffix), "wb") as f:
+                f.write(b"kernel" * 16)
     if i == 2 and os.environ.get("FAKE_EPK_SLEEP"):
         print("sleeping", flush=True)
         time.sleep(float(os.environ["FAKE_EPK_SLEEP"]))

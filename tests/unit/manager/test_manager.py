@@ -5,8 +5,8 @@
 or run directly.
 
 Each test gets a temporary library, a temporary, empty "checkout" and a stand-in for the host's
-free memory (BEANJAR_MEMINFO, which the start's admission reads). A .epk comes in only through the
-GUI's New VM worker, python3 -m beanjar.newvm (newvm()).
+free memory (BEANJAR_MEMINFO, which the start's admission reads). A .epk comes in as --firmware,
+through the CLI's create or the GUI's New VM worker, python3 -m beanjar.newvm (newvm()).
 
 The fake launcher runs the fake QEMU through the real beanjar.unit: where a user systemd runs,
 as real transient units (beanjar-vm-test<pid>-<vm>) with a real private dbus-daemon in each, so the
@@ -241,7 +241,7 @@ class ManagerTest(unittest.TestCase):
         return p.stdout
 
     def newvm(self, *args, ok=True, env=None):
-        """The GUI's New VM worker (python3 -m beanjar.newvm): create's options and --epk."""
+        """The GUI's New VM worker (python3 -m beanjar.newvm): create's options."""
         p = subprocess.run(
             [sys.executable, "-m", "beanjar.newvm", "--repo", self.repo, *args],
             env=env or self.env,
@@ -1165,7 +1165,7 @@ class ManagerTest(unittest.TestCase):
                 [n for n in os.listdir(os.path.join(libs["h2"], "vms")) if n.startswith(".")], []
             )
 
-    # ---------------------------------------------------------------- New VM from a .epk (the GUI's)
+    # ---------------------------------------------------------------- New VM from a .epk
     # ---------------------------------------------------------------- rename
     def tree_files(self, d):
         return {
@@ -1362,7 +1362,7 @@ class ManagerTest(unittest.TestCase):
 
     def test_epk(self):
         before = sorted(os.listdir(self.src))
-        out = self.newvm("tv1", "--epk", self.epk, "--mem", "1024")
+        out = self.newvm("tv1", "--firmware", self.epk, "--mem", "1024")
         self.assertIn("saved PAK", out)  # streamed
         self.assertEqual(
             sorted(os.listdir(self.src)), before, "the source directory was written to"
@@ -1395,7 +1395,7 @@ class ManagerTest(unittest.TestCase):
         )
         self.assertEqual(self.leftovers(), [])
         # the same .epk again: extracted again, into that VM's folder (no store shared between VMs)
-        out = self.newvm("tv2", "--epk", self.epk)
+        out = self.newvm("tv2", "--firmware", self.epk)
         self.assertIn("saved PAK", out)
         d2 = os.path.join(self.lib_dir, "vms", "tv2", "firmware")
         self.assertEqual(sorted(os.listdir(d2)), sorted(["manifest.toml"] + paks))
@@ -1407,16 +1407,70 @@ class ManagerTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.lib_dir, "vms", "tv1")))
         self.assertTrue(all(os.path.isfile(os.path.join(d2, p)) for p in paks))
         self.assertEqual(self.leftovers(), [])
-        # the CLI takes no .epk
-        self.assertIn(
-            "unrecognized arguments", self.cli("create", "tv4", "--epk", self.epk, ok=False)
+        # --epk is gone: a .epk is --firmware's
+        self.assertIn("unrecognized arguments", self.newvm("tv4", "--epk", self.epk, ok=False))
+
+    def test_epk_cli(self):
+        """The CLI's create takes a .epk as --firmware, with or without --import (it is always the
+        VM's own), and keeps only the paks the VM reads: epk2extract's other paks and kernel.pak's
+        intermediates go with the scratch."""
+        before = sorted(os.listdir(self.src))
+        out = self.cli("create", "tv1", "--firmware", self.epk)
+        self.assertIn("saved PAK", out)
+        self.assertIn("created tv1", out)
+        d = os.path.join(self.lib_dir, "vms", "tv1", "firmware")
+        self.assertEqual(sorted(os.listdir(d)), sorted(["manifest.toml"] + PAKS))
+        for gone in ("kernel.pak", "tzfw.pak", "lxboot.pak"):
+            self.assertNotIn(gone, PAKS)  # written by the fake, not needed by an h13-afro VM
+        self.assertFalse(os.path.exists(os.path.join(self.lib_dir, "vms", "tv1", ".import")))
+        self.assertEqual(tload(os.path.join(d, "manifest.toml"))["paks"], PAKS)
+        self.assertNotIn("fw", self.vm_toml("tv1"))
+        self.assertEqual(
+            sorted(os.listdir(self.src)), before, "the source directory was written to"
         )
+        self.assertEqual(self.leftovers(), [])
+        # --import as well; a .epk named without a '/' is a path (here, in the working directory)
+        p = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "beanjar",
+                "--repo",
+                self.repo,
+                "create",
+                "tv2",
+                "--import",
+                "--firmware",
+                "fw.epk",
+            ],
+            env=self.env,
+            cwd=self.src,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(p.returncode, 0, p.stdout)
+        d2 = os.path.join(self.lib_dir, "vms", "tv2", "firmware")
+        self.assertEqual(sorted(os.listdir(d2)), sorted(["manifest.toml"] + PAKS))
+        # refusals, and nothing left of them
+        missing = os.path.join(self.src, "none.epk")
+        self.assertIn(
+            f"no file {missing}", self.cli("create", "tv3", "--firmware", missing, ok=False)
+        )
+        fail = dict(self.env, FAKE_EPK_FAIL="1")
+        self.assertIn(
+            "epk2extract failed",
+            self.cli("create", "tv3", "--firmware", self.epk, env=fail, ok=False),
+        )
+        self.assertFalse(os.path.exists(os.path.join(self.lib_dir, "vms", "tv3")))
+        self.assertEqual(self.leftovers(), [])
 
     def test_epk_refusals(self):
         # a firmware of a target this tree does not boot is refused, not imported with its layers guessed
         for model in ("XXXX", "YYYY"):
             env = dict(self.env, FAKE_EPK_NAME=f"04.06.75.01-HE_DTV_{model}_AFAAABAA")
-            out = self.newvm("a", "--epk", self.epk, env=env, ok=False)
+            out = self.newvm("a", "--firmware", self.epk, env=env, ok=False)
             self.assertIn(
                 f"firmware {model} is not one this tree boots (known: {', '.join(targets.MODELS)})",
                 out.splitlines()[-2],
@@ -1425,7 +1479,7 @@ class ManagerTest(unittest.TestCase):
             self.assertEqual(os.listdir(os.path.join(self.lib_dir, "vms")), [])
         # a known model whose rootfs is of another release (the fake's is afro, W15M is m14-beehive)
         env = dict(self.env, FAKE_EPK_NAME="04.06.75.01-HE_DTV_W15M_AFAAABAA")
-        out = self.newvm("a", "--epk", self.epk, env=env, ok=False)
+        out = self.newvm("a", "--firmware", self.epk, env=env, ok=False)
         self.assertIn(
             "firmware W15M: its rootfs.pak's etc/starfish-release says afro, a release this tree does "
             "not boot on W15M (known: m14-beehive): refused",
@@ -1433,7 +1487,7 @@ class ManagerTest(unittest.TestCase):
         )
         self.assertEqual(os.listdir(os.path.join(self.lib_dir, "vms")), [])
         env = dict(self.env, FAKE_EPK_NAME="05.70.50.01-HE_DTV_W16R_AFAAABAA")
-        out = self.newvm("a", "--epk", self.epk, env=env, ok=False)
+        out = self.newvm("a", "--firmware", self.epk, env=env, ok=False)
         self.assertIn(
             "firmware W16R: its rootfs.pak's etc/starfish-release says afro, a release this tree does "
             "not boot on W16R (known: m2-dreadlocks): refused",
@@ -1449,26 +1503,26 @@ class ManagerTest(unittest.TestCase):
         self.assertIn(
             "no etc/starfish-release in rootfs.pak: its webOS release is unknown: refused", out
         )
-        self.newvm("a", "--epk", self.epk)
+        self.newvm("a", "--firmware", self.epk)
         env = dict(self.env, FAKE_EPK_MISSING="smartkey fonts")
         other = os.path.join(self.src, "other.epk")
         with open(other, "wb") as f:
             f.write(b"EPK2 other" * 100)
-        out = self.newvm("b", "--epk", other, env=env, ok=False)
+        out = self.newvm("b", "--firmware", other, env=env, ok=False)
         self.assertEqual(
             out.splitlines()[-2:],
             ["beanjar: the firmware lacks fonts.pak, smartkey.pak", "beanjar-key: fw"],
         )
-        out = self.newvm("b", "--epk", os.path.join(self.src, "none.epk"), ok=False)
+        out = self.newvm("b", "--firmware", os.path.join(self.src, "none.epk"), ok=False)
         self.assertEqual(
             out.splitlines()[-2:],
             [f"beanjar: no file {os.path.join(self.src, 'none.epk')}", "beanjar-key: fw"],
         )
         self.assertIn(
             "epk2extract failed",
-            self.newvm("b", "--epk", other, env=dict(self.env, FAKE_EPK_FAIL="1"), ok=False),
+            self.newvm("b", "--firmware", other, env=dict(self.env, FAKE_EPK_FAIL="1"), ok=False),
         )
-        self.assertIn("VM a exists", self.newvm("a", "--epk", other, ok=False))
+        self.assertIn("VM a exists", self.newvm("a", "--firmware", other, ok=False))
         self.assertEqual(sorted(os.listdir(os.path.join(self.lib_dir, "vms"))), ["a"])
         self.assertEqual(
             tload(os.path.join(self.lib_dir, "vms", "a", "firmware", "manifest.toml"))["name"], FW
@@ -1501,7 +1555,7 @@ class ManagerTest(unittest.TestCase):
         return "".join(lines) + rest
 
     def test_epk_cancel(self):
-        self.cancel(["tv1", "--epk", self.epk], dict(self.env, FAKE_EPK_SLEEP="30"))
+        self.cancel(["tv1", "--firmware", self.epk], dict(self.env, FAKE_EPK_SLEEP="30"))
         self.assertFalse(os.path.exists(os.path.join(self.lib_dir, "firmware")))
         self.assertEqual(
             self.own_processes("fake-epk2extract"), [], "epk2extract survived the cancel"

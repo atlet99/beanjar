@@ -53,7 +53,7 @@ Run `beanjar` to open the manager. Choose **New VM** and give it your firmware `
 Or from a terminal:
 
 ```sh
-beanjar create tv1 --firmware /path/to/extracted-paks --import
+beanjar create tv1 --firmware /path/to/firmware.epk
 beanjar start tv1
 beanjar viewer open tv1 --remote
 beanjar stop tv1

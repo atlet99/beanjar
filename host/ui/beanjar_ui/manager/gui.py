@@ -1874,8 +1874,7 @@ class Manager:
         try:
             sp = newvm.space(
                 self.lib,
-                fw=value if kind != "epk" else None,
-                epk=value if kind == "epk" else None,
+                fw=value,
                 vm_dir=form.vm_dir,
                 place=place,
             )
@@ -1984,7 +1983,7 @@ class Manager:
             form.add_fixed_layer(n, line(n))
 
     def _form_values(self, form):
-        """The dialog's values: fw (or, New VM, epk; Settings: "" for the VM's own), then the settings."""
+        """The dialog's values: fw (New VM: a .epk too; Settings: "" for the VM's own), then the settings."""
         f = form.fields
         kind, value = self.fw_source(form)
         if not value and kind != "own":
@@ -1994,7 +1993,7 @@ class Manager:
                 else "give the directory of the firmware's paks",
                 "fw",
             )
-        v = dict(fw=value if kind != "epk" else None, epk=value if kind == "epk" else None)
+        v = dict(fw=value)
         if form.name_group.get_visible():  # New VM: in place, unless imported
             v["place"] = kind != "epk" and not f["fw_import"].get_active()
         mem = int(f["mem"].get_value())
@@ -2042,7 +2041,7 @@ class Manager:
                 v["audio"] = "none"
             plan = newvm.check(self.lib, name, **v)
             if newvm.slow(self.lib, plan):
-                self.create_async(form, name, v)
+                self.create_async(form, name, v, plan["epk"])
                 return self.widgets.STAY
             line = self.output_start(f"new VM {name}", show=False)
             self.lib.create(name, out=line, **v)
@@ -2056,17 +2055,15 @@ class Manager:
         self.say(f"Created {name}")
         self.warn_mitm(name)
 
-    def create_async(self, form, name, v):
+    def create_async(self, form, name, v, epk=None):
         """A New VM that takes time: python3 -m beanjar.newvm with a progress dialog over New VM.
         Done, both close; cancelled or failed (nothing is left of it either way), Close goes back
-        to New VM, whose banner has the refusal."""
+        to New VM, whose banner has the refusal. epk: the .epk it extracts (newvm.check's plan)."""
         args = [
             name,
-            *(
-                ["--epk", v["epk"]]
-                if v["epk"]
-                else ["--firmware", v["fw"], *([] if v.get("place", True) else ["--import"])]
-            ),
+            "--firmware",
+            v["fw"],
+            *([] if v.get("place", True) else ["--import"]),
             *([f"--mem={v['mem']}"] if v["mem"] else []),
             f"--smp={v['smp']}",
             f"--layers={','.join(v['layers'])}",
@@ -2076,9 +2073,7 @@ class Manager:
             f"--audio={v['audio']}",
         ]
         win = self.widgets.ProgressDialog(
-            f"Extracting {os.path.basename(v['epk'])} for {name}"
-            if v["epk"]
-            else f"Creating {name}"
+            f"Extracting {os.path.basename(epk)} for {name}" if epk else f"Creating {name}"
         )
         output = self.output_start(f"new VM {name}")
         buf = win.log.get_buffer()
@@ -2169,7 +2164,6 @@ class Manager:
 
         def ok(form):
             v = self._form_values(form)
-            v.pop("epk")
             change, path = form.model_key_change or (None, None)
             if change == "install":
                 core.read_model_key(path)  # refused before anything is saved

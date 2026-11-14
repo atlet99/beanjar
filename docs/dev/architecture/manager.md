@@ -14,8 +14,9 @@ unknown model/release combinations are refused.
 
 Firmware belongs to the VM unless an external directory is explicitly selected. Paks are
 read-only inputs. An external firmware directory is booted in place; generated cache data
-belongs to the VM, not that directory. The GUI can extract an EPK; the CLI accepts already
-extracted paks. The manager does not build a firmware image or include LG firmware.
+belongs to the VM, not that directory. The GUI and the CLI extract an EPK into the VM's own
+firmware, keeping only the paks its target reads; they also accept already extracted paks. The
+manager does not build a firmware image or include LG firmware.
 
 A VM's name is its folder's name, `vms/<name>`, and nothing else records it: `beanjar rename`
 renames a VM that is off by renaming that folder, the one atomic step that commits it, under the

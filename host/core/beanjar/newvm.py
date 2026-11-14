@@ -15,8 +15,10 @@ Imported (--import), the firmware becomes the VM's own, in its folder (firmware.
 from one of:
 - a directory of extracted paks (kind "dir"): its paks hard-linked (the same filesystem; nothing
   writes a pak) or else copied;
-- a .epk, extracted now (firmware.extract), only from the GUI: its paks go straight into the VM's
-  firmware/.
+- a .epk (kind "epk": --firmware names a file; always imported, --import or not), extracted now
+  (firmware.extract) in the scratch: the target's paks (targets.pak_files) are moved into the VM's
+  firmware/ and everything else epk2extract wrote (the other paks, kernel.pak's unpacked
+  intermediates) is deleted with the scratch before the VM is published.
 The firmware is resolved to its target (chip, release) first (firmware.target_of) and refused if it is
 not one this tree boots. manifest.toml records the target and where the paks came from;
 the platform is derived from that target.
@@ -32,9 +34,9 @@ rename at the end, with SIGINT, SIGTERM and SIGHUP held back for it. Any failure
 (Ctrl-C, SIGTERM or SIGHUP: the GUI's Cancel) kills epk2extract and removes the scratch: nothing is left behind, and nothing is written outside it.
 
 python3 -m beanjar.newvm is the GUI's New VM as a process of its own (gui.Operation, so that Cancel
-is a SIGTERM): create's options and --epk. It is not a command for users: the CLI's create takes
-extracted firmware only. A refusal ends with "beanjar: <message>" and, if it is about one
-setting, "beanjar-key: <vm.toml key>" (the dialog's page to show).
+is a SIGTERM): the CLI's create's options. It is not a command for users. A refusal ends with
+"beanjar: <message>" and, if it is about one setting, "beanjar-key: <vm.toml key>" (the dialog's
+page to show).
 """
 
 import argparse
@@ -66,10 +68,11 @@ def check_name(lib, name):
 
 
 def resolve(fw):
-    """The directory of --firmware's value fw: a path (any value with a '/') as given, made absolute,
-    or a name in the host's firmware collections (paths.firmware_dirs), the first that has it."""
+    """The path of --firmware's value fw: a path (any value with a '/', or ending in .epk) as given,
+    made absolute, or a name in the host's firmware collections (paths.firmware_dirs), the first
+    that has it."""
     v = os.path.expanduser(str(fw).strip())
-    if "/" in v:
+    if "/" in v or v.endswith(".epk"):
         return os.path.abspath(v)
     try:
         dirs = paths.firmware_dirs()
@@ -148,30 +151,37 @@ def logical_root(d):
         return False
 
 
-def check(lib, name, fw=None, epk=None, place=True, **settings):
+def is_epk(path):
+    """Whether --firmware's resolved path is a firmware file to extract: a file, or a name ending
+    in .epk (refused later if there is no such file), not a directory of paks."""
+    return os.path.isfile(path) or (path.endswith(".epk") and not os.path.isdir(path))
+
+
+def check(lib, name, fw=None, place=True, **settings):
     """The refusals of create, before anything is made (the dialog runs it first): a dict of
-    kind ("place": used in place; "dir": imported; "epk"), fw_dir (the directory's absolute path;
-    None for a .epk), epk and cfg (vm.toml's settings; fw for "place"). Raises an Error naming its
-    key."""
+    kind ("place": used in place; "dir": imported; "epk": a .epk, always imported), fw_dir (the
+    directory's absolute path; None for a .epk), epk (its absolute path) and cfg (vm.toml's
+    settings; fw for "place"). Raises an Error naming its key."""
     check_name(lib, name)
     cfg = lib.vm_config(**settings)
-    if epk:
-        epk = os.path.abspath(os.path.expanduser(epk))
-        if not os.path.isfile(epk):
-            raise Error(f"no file {epk}", "fw")
+    if not fw:
+        raise Error(
+            "give --firmware, a firmware's name in the host's collections, its directory or a .epk",
+            "fw",
+        )
+    path, epk = resolve(fw), None
+    if is_epk(path):
+        if not os.path.isfile(path):
+            raise Error(f"no file {path}", "fw")
         if not firmware.find_epk2extract(lib):
             raise Error("epk2extract not found (PATH, ~/.local/bin, or BEANJAR_EPK2EXTRACT)", "fw")
-        kind, fw_dir = "epk", None
-    elif not fw:
-        raise Error(
-            "give --firmware, a firmware's name in the host's collections or its directory", "fw"
-        )
+        kind, fw_dir, epk = "epk", None, path
     elif place:
-        kind, fw_dir = "place", resolve(fw)
+        kind, fw_dir = "place", path
         check_in_place(fw_dir)
         cfg["fw"] = fw_dir
     else:
-        kind, fw_dir = "dir", resolve(fw)
+        kind, fw_dir = "dir", path
         if not firmware.has_root(fw_dir):
             raise Error(
                 f"firmware {fw_dir}: no rootfs.pak, root.pak or mapped rootfs (a directory of extracted paks)",
@@ -189,23 +199,23 @@ def slow(lib, plan):
     return True  # every kind: its board data is prepared (prepare.py), which runs firmware code
 
 
-def space(lib, fw=None, epk=None, vm_dir=None, place=False):
+def space(lib, fw=None, vm_dir=None, place=False):
     """What the choice of firmware costs, for the dialogs: {"free": bytes free in the library,
     "epk": the .epk's size (its paks take about as much), "paks": the paks' size, "copy": what
     they take in the new VM's folder (0: hard links, or used in place)}; what is not known is
-    missing. fw: New VM's firmware as chosen (resolve), or (vm_dir: Settings of that VM) vm.toml's fw."""
+    missing. fw: New VM's firmware as chosen (resolve; a .epk too), or (vm_dir: Settings of that
+    VM) vm.toml's fw."""
     out = {"free": shutil.disk_usage(lib.root).free}
-    if epk:
-        path = os.path.abspath(os.path.expanduser(epk))
-        if os.path.isfile(path):
-            out["epk"] = os.path.getsize(path)
-        return out
     if vm_dir:
         d, _cache = vm_firmware(vm_dir, fw)
     elif fw:
         try:
             d = resolve(fw)
         except Error:
+            return out
+        if is_epk(d):
+            if os.path.isfile(d):
+                out["epk"] = os.path.getsize(d)
             return out
     else:
         return out
@@ -269,11 +279,11 @@ def warn_untested(target, out):
         out(f"warning: {warning}")
 
 
-def create(lib, name, fw=None, epk=None, place=True, out=None, **settings):
-    """The new VM (a core.VM): fw used in place (place) or imported, or epk extracted. out(line)
-    gets the progress, line by line (default: stdout)."""
+def create(lib, name, fw=None, place=True, out=None, **settings):
+    """The new VM (a core.VM): fw used in place (place) or imported, or, a .epk, extracted into it.
+    out(line) gets the progress, line by line (default: stdout)."""
     out = out or (lambda line: print(line, flush=True))
-    plan = check(lib, name, fw=fw, epk=epk, place=place, **settings)
+    plan = check(lib, name, fw=fw, place=place, **settings)
     cfg, kind, fw_dir = plan["cfg"], plan["kind"], plan["fw_dir"]
     # the guest has the components the target needs, before anything is made (compat.py; an .epk's
     # target is known after its extraction)
@@ -406,11 +416,11 @@ def main(argv=None):
     )
     p.add_argument("--library")
     p.add_argument("--repo")
-    create_arguments(p, epk=True)
+    create_arguments(p)
     a = p.parse_args(argv)
     try:
         lib = Library(a.library, a.repo)
-        create(lib, a.name, fw=a.firmware, epk=a.epk, place=not a.import_, **settings_of(a))
+        create(lib, a.name, fw=a.firmware, place=not a.import_, **settings_of(a))
     except Error as e:
         print(f"beanjar: {e}", flush=True)
         if e.key:

@@ -25,11 +25,12 @@ No firmware, keys or model secrets come with Beanjar. You supply an LG firmware 
 directory of its extracted paks, for one of the firmware builds in the
 [support table](../../README.md#supported-firmware). Other models are refused when the VM is made.
 
-- The manager window's **New VM** takes a `.epk` and extracts it with
-  [epk2extract](https://github.com/openlgtv/epk2extract), which must be on `PATH` (or in
-  `~/.local/bin`).
-- The CLI takes extracted paks: `beanjar create NAME --firmware DIR --import` makes them the VM's
-  own (hard links where the directory is on the same filesystem, else a copy).
+- The manager window's **New VM** and `beanjar create NAME --firmware FILE.epk` take a `.epk` and
+  extract it with [epk2extract](https://github.com/openlgtv/epk2extract), which must be on `PATH`
+  (or in `~/.local/bin`). The VM keeps only the paks it uses; the rest of the extraction is
+  deleted.
+- Extracted paks: `beanjar create NAME --firmware DIR --import` makes them the VM's own (hard links
+  where the directory is on the same filesystem, else a copy).
 - A firmware shared by several VMs or hosts can stay in a firmware collection and be used in
   place: each firmware is a directory of paks with a `manifest.toml` naming it, under
   `/srv/beanjar/firmware` by default (`beanjar host config set firmware_dirs=DIR[:DIR...]`).

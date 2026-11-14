@@ -55,7 +55,7 @@ Alt+Return opens Settings, F2 renames, Delete deletes and Ctrl+N makes a new VM.
 ## From the CLI
 
 ```sh
-beanjar create tv1 --firmware /path/to/extracted-paks --import
+beanjar create tv1 --firmware /path/to/firmware.epk
 beanjar start tv1
 beanjar viewer open tv1 --remote
 beanjar list --local
