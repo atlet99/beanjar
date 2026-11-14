@@ -61,7 +61,7 @@ SPDX-License-Identifier = "MIT"
 
 # The Coming soon page's stylesheet is Bootstrap's Cover example without the unused button rules.
 [[annotations]]
-path = "site/coming-soon.css"
+path = "site/scss/_cover.scss"
 precedence = "override"
 SPDX-FileCopyrightText = "2011-2025 The Bootstrap Authors"
 SPDX-License-Identifier = "MIT"

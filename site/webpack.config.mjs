@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// Builds the site into build/site: the Coming soon page (index.html, with coming-soon.css), the
-// new landing page (index-new.html) and images/ as they are, and the new page's site.css compiled
-// from scss/site.scss. A production build (npm run build) drops every selector the new page
-// never matches (PurgeCSS), then prefixes for the browserslist targets in package.json
+// Builds the site into build/site: the Coming soon page (index.html), the new landing page
+// (index-new.html) and images/ as they are, and each page's stylesheet: coming-soon.css from
+// scss/coming-soon.scss, site.css from scss/site.scss. A production build (npm run build) drops
+// every selector a stylesheet's page never matches (PurgeCSS), then prefixes for the browserslist targets in package.json
 // and minifies (Lightning CSS); it emits no JavaScript. A development build (npm run dev)
 // keeps the whole stylesheet unminified and serves the page with live reload.
 
@@ -21,6 +21,7 @@ import RemoveEmptyScriptsPlugin from "webpack-remove-empty-scripts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const page = path.join(here, "index-new.html");
+const comingSoon = path.join(here, "index.html");
 
 // The pages link their stylesheets themselves, so the HTML plugin adds no stylesheet tag. In
 // development it adds the script that carries the dev server's live-reload client; in
@@ -46,7 +47,7 @@ export default (_env, argv) => {
   return {
     mode: production ? "production" : "development",
     context: here,
-    entry: { site: "./scss/site.scss" },
+    entry: { site: "./scss/site.scss", "coming-soon": "./scss/coming-soon.scss" },
     output: {
       path: path.resolve(here, "../build/site"),
       clean: true,
@@ -75,22 +76,26 @@ export default (_env, argv) => {
       ],
     },
     plugins: [
-      new MiniCssExtractPlugin({ filename: "site.css" }),
+      new MiniCssExtractPlugin({ filename: "[name].css" }),
       new HtmlWebpackPlugin({ template: page, filename: "index-new.html", inject: "body", minify: false }),
-      new HtmlWebpackPlugin({ template: "index.html", inject: false, minify: false }),
+      new HtmlWebpackPlugin({ template: comingSoon, inject: false, minify: false }),
       new PageTags(production),
-      new CopyPlugin({ patterns: [{ from: "images", to: "images" }, "coming-soon.css"] }),
+      new CopyPlugin({ patterns: [{ from: "images", to: "images" }] }),
       ...(production
         ? [
             new RemoveEmptyScriptsPlugin(),
-            new PurgeCSSPlugin({
-              paths: [page],
+            ...[
+              ["site", page],
+              ["coming-soon", comingSoon],
+            ].map(([chunk, html]) => new PurgeCSSPlugin({
+              only: [chunk],
+              paths: [html],
               // Keep every custom property and @keyframes, used or not: Bootstrap's :root and
               // [data-bs-theme] variables are read through var() chains PurgeCSS cannot follow.
               variables: false,
               keyframes: false,
               fontFace: false,
-            }),
+            })),
           ]
         : []),
     ],
@@ -113,7 +118,7 @@ export default (_env, argv) => {
       hot: false,
       liveReload: true,
       // Sass imports are watched as build dependencies; the page is watched to reload it.
-      watchFiles: [page, "index.html", "coming-soon.css"],
+      watchFiles: [page, comingSoon],
     },
   };
 };
