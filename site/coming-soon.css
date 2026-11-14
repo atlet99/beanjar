@@ -1,0 +1,164 @@
+/*
+ * Bootstrap 5.3 Cover example (cover.css), without the unused button rules.
+ */
+
+body {
+  text-shadow: 0 .05rem .1rem rgba(0, 0, 0, .5);
+  box-shadow: inset 0 0 5rem rgba(0, 0, 0, .5);
+}
+
+.cover-container {
+  max-width: 42em;
+}
+
+.nav-masthead .nav-link {
+  color: rgba(255, 255, 255, .5);
+  border-bottom: .25rem solid transparent;
+}
+
+.nav-masthead .nav-link:hover,
+.nav-masthead .nav-link:focus {
+  border-bottom-color: rgba(255, 255, 255, .25);
+}
+
+.nav-masthead .nav-link + .nav-link {
+  margin-left: 1rem;
+}
+
+.nav-masthead .active {
+  color: #fff;
+  border-bottom-color: #fff;
+}
+
+/*
+ * The sleeping bean bird. Static (the logo) unless motion is allowed.
+ */
+
+.beanbird {
+  height: min(80vh, 110vw);
+  overflow: visible;
+  opacity: .85;
+  /* The jar centred across the page; its bird's widest point (y 280) at mid-height. */
+  transform: translate(-50%, -54.2%);
+}
+
+/* Bootstrap's h1 size, also capped by height so the title fits the bird on short screens. */
+main h1 {
+  font-size: min(calc(1.375rem + 1.5vw), 2.5rem, 4.4vh);
+}
+
+.beanbird .bird-body,
+.beanbird .hip,
+.beanbird .leg,
+.beanbird .bubble {
+  transform-box: view-box;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .beanbird .bird-body {
+    transform-origin: 245px 275px;
+    animation: float 6s ease-in-out infinite;
+  }
+
+  /* Legs swing a little from the hips; their length never changes. */
+  .beanbird .leg-l {
+    transform-origin: 191px 355px;
+    animation: sway-l 5s ease-in-out infinite;
+  }
+
+  .beanbird .leg-r {
+    transform-origin: 271px 367px;
+    animation: sway-r 6.5s ease-in-out -2s infinite;
+  }
+
+  /*
+   * The bean bends: below the waist (y = 279) the outline is sheared
+   * sideways in proportion to depth, which keeps its length, width and
+   * area. The head's points never move; the hips follow the bend.
+   */
+  .beanbird .body-shape {
+    animation: bend 8s ease-in-out infinite;
+  }
+
+  .beanbird .hip-l {
+    animation: hip-l 8s ease-in-out infinite;
+  }
+
+  .beanbird .hip-r {
+    animation: hip-r 8s ease-in-out infinite;
+  }
+
+  .beanbird .bubble {
+    animation: rise 7s linear var(--delay) infinite;
+  }
+
+  .beanbird .fluid {
+    animation: fluid 9s ease-in-out infinite;
+  }
+
+  .beanbird .glint {
+    animation: shimmer 5s ease-in-out infinite;
+  }
+
+  .beanbird .halo {
+    animation: glow 6s ease-in-out infinite;
+  }
+
+  .beanbird .status {
+    animation: shimmer 4s ease-in-out infinite;
+  }
+}
+
+/* Up and down only: Firefox draws a CSS-rotated group in tiles, whose edges show as moving seams. */
+@keyframes float {
+  0%, 100% { transform: translateY(-6px); }
+  50% { transform: translateY(6px); }
+}
+
+@keyframes rise {
+  0% { transform: translate(0, var(--from)); opacity: 0; }
+  12% { opacity: 1; }
+  50% { transform: translate(-4px, calc((var(--from) + var(--to)) / 2)); }
+  85% { opacity: 1; }
+  100% { transform: translate(0, var(--to)); opacity: 0; }
+}
+
+@keyframes fluid {
+  0%, 100% { fill-opacity: .28; }
+  50% { fill-opacity: .4; }
+}
+
+@keyframes shimmer {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .4; }
+}
+
+@keyframes glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .7; }
+}
+
+@keyframes sway-l {
+  0%, 100% { transform: rotate(-2.5deg); }
+  50% { transform: rotate(2.5deg); }
+}
+
+@keyframes sway-r {
+  0%, 100% { transform: rotate(2deg); }
+  50% { transform: rotate(-2deg); }
+}
+
+@keyframes bend {
+  0%, 100% { d: path("M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 309.12 311C305.485 350 288.325 374 256.43 377C208.605 382 163.31 345 167 279Z"); }
+  50% { d: path("M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 306.88 311C300.515 350 281.675 374 249.57 377C201.395 382 158.69 345 167 279Z"); }
+}
+
+@keyframes hip-l {
+  0%, 100% { transform: translateX(2.66px); }
+  50% { transform: translateX(-2.66px); }
+}
+
+@keyframes hip-r {
+  0%, 100% { transform: translateX(3.08px); }
+  50% { transform: translateX(-3.08px); }
+}

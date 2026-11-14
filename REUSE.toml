@@ -59,6 +59,13 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "Mariotaku <git@mariotaku.me> and the Beanjar contributors"
 SPDX-License-Identifier = "MIT"
 
+# The Coming soon page's stylesheet is Bootstrap's Cover example without the unused button rules.
+[[annotations]]
+path = "site/coming-soon.css"
+precedence = "override"
+SPDX-FileCopyrightText = "2011-2025 The Bootstrap Authors"
+SPDX-License-Identifier = "MIT"
+
 # Data and generated files whose exact bytes matter, or that a header would only clutter.
 [[annotations]]
 path = [

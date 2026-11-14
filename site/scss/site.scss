@@ -3,7 +3,7 @@
 //
 // The site's one stylesheet: the parts of Bootstrap 5.3 the page uses, then the page's own
 // rules (_beanjar.scss). webpack.config.mjs compiles it and, for production, drops the
-// selectors the page never matches and minifies the result into build/site/site.css.
+// selectors index-new.html never matches and minifies the result into build/site/site.css.
 
 // Configuration
 @import "bootstrap/scss/functions";

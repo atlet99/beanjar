@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// Builds the landing page into build/site: index.html and images/ as they are, and site.css
-// compiled from scss/site.scss. A production build (npm run build) drops every selector the
-// page never matches (PurgeCSS), then prefixes for the browserslist targets in package.json
+// Builds the site into build/site: the Coming soon page (index.html, with coming-soon.css), the
+// new landing page (index-new.html) and images/ as they are, and the new page's site.css compiled
+// from scss/site.scss. A production build (npm run build) drops every selector the new page
+// never matches (PurgeCSS), then prefixes for the browserslist targets in package.json
 // and minifies (Lightning CSS); it emits no JavaScript. A development build (npm run dev)
 // keeps the whole stylesheet unminified and serves the page with live reload.
 
@@ -19,9 +20,9 @@ import { PurgeCSSPlugin } from "purgecss-webpack-plugin";
 import RemoveEmptyScriptsPlugin from "webpack-remove-empty-scripts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const page = path.join(here, "index.html");
+const page = path.join(here, "index-new.html");
 
-// index.html links site.css itself, so the HTML plugin adds no stylesheet tag. In
+// The pages link their stylesheets themselves, so the HTML plugin adds no stylesheet tag. In
 // development it adds the script that carries the dev server's live-reload client; in
 // production there is no script to add.
 class PageTags {
@@ -75,9 +76,10 @@ export default (_env, argv) => {
     },
     plugins: [
       new MiniCssExtractPlugin({ filename: "site.css" }),
-      new HtmlWebpackPlugin({ template: page, inject: "body", minify: false }),
+      new HtmlWebpackPlugin({ template: page, filename: "index-new.html", inject: "body", minify: false }),
+      new HtmlWebpackPlugin({ template: "index.html", inject: false, minify: false }),
       new PageTags(production),
-      new CopyPlugin({ patterns: [{ from: "images", to: "images" }] }),
+      new CopyPlugin({ patterns: [{ from: "images", to: "images" }, "coming-soon.css"] }),
       ...(production
         ? [
             new RemoveEmptyScriptsPlugin(),
@@ -111,7 +113,7 @@ export default (_env, argv) => {
       hot: false,
       liveReload: true,
       // Sass imports are watched as build dependencies; the page is watched to reload it.
-      watchFiles: [page],
+      watchFiles: [page, "index.html", "coming-soon.css"],
     },
   };
 };
