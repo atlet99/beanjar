@@ -36,6 +36,18 @@ class BeanjarQemu < Formula
     sha256 "cf09d55b1e85a89576b036aeb71550bfd68320f3f21761ca329eadadad918638"
   end
 
+  # The files of QEMU's data directory that Beanjar's VMs load, and the script that deletes the
+  # rest (edk2, SeaBIOS and the other architectures' firmware, keymaps), as build-macos.sh does
+  resource "share-keep" do
+    url "https://raw.githubusercontent.com/mariotaku/beanjar-vendor/23c54cf31d27a9bd842b49e544137cb3f9cdcd1c/qemu/share-keep"
+    sha256 "2ca33e1f0f2d8b51c0d6a528ec5a3eb34478a90a50c3adaad950127507100823"
+  end
+
+  resource "share-trim" do
+    url "https://raw.githubusercontent.com/mariotaku/beanjar-vendor/23c54cf31d27a9bd842b49e544137cb3f9cdcd1c/qemu/share-trim.sh"
+    sha256 "d135ae583215e55de04ac6b9c1f6472a0288cc8b13498f005abe57d75f11939c"
+  end
+
   # Beanjar's EGL and D-Bus display patches, as beanjar-vendor carries them
   patch do
     url "https://raw.githubusercontent.com/mariotaku/beanjar-vendor/325003ce9244229fa3b63b30531fb11561ef7a6e/qemu/patches/0001-ui-egl-add-a-surfaceless-EGL-display-for-hosts-witho.patch"
@@ -114,8 +126,12 @@ class BeanjarQemu < Formula
       system "make", "V=1"
       system "make", "install"
     end
-    # vhost-user-gpu, the GPU process of the Debian build, is Linux-only
-    rm_r share/"qemu/vhost-user" if (share/"qemu/vhost-user").exist?
+    # Only the data files share-keep lists for aarch64; share-trim.sh fails if one is missing
+    trim = buildpath/"share-trim"
+    trim.mkpath
+    cp resource("share-keep").cached_download, trim/"share-keep"
+    cp resource("share-trim").cached_download, trim/"share-trim.sh"
+    system "sh", trim/"share-trim.sh", share/"qemu", "aarch64"
   end
 
   test do
@@ -136,13 +152,31 @@ class BeanjarQemu < Formula
     system "codesign", "--verify", "--verbose", qemu
     assert_match "com.apple.security.hypervisor", shell_output("codesign -d --entitlements - #{qemu} 2>&1")
 
-    # A VM without a guest (virt machine, D-Bus display in peer-to-peer mode) starts paused and
-    # answers QMP's query-status on a unix socket, then quits
+    # share/qemu holds only what share-keep lists
+    assert_equal ["efi-virtio.rom"], (share/"qemu").children.map { |f| f.basename.to_s }.sort
+
+    # A VM with the launcher's machine and devices but no guest (a -kernel of zeros, the D-Bus
+    # display in peer-to-peer mode) starts paused and answers QMP's query-status on a unix socket,
+    # then quits. Its devices load what they need from share/qemu when they are created:
+    # virtio-net-pci its option ROM
     require "json"
     require "socket"
     sock = testpath/"qmp.sock"
-    pid = spawn qemu.to_s, "-M", "virt", "-cpu", "max", "-m", "256", "-nodefaults", "-S",
-                "-display", "dbus,p2p=yes", "-audiodev", "dbus,id=snd0", "-device", "virtio-gpu-pci",
+    kernel = testpath/"kernel"
+    kernel.binwrite("\0" * 4096)
+    pid = spawn qemu.to_s, "-M", "virt", "-cpu", "max,pauth=off", "-m", "256", "-nodefaults", "-S",
+                "-display", "dbus,p2p=yes", "-kernel", kernel.to_s,
+                "-device", "virtio-gpu-pci",
+                "-device", "pci-bridge,id=disks,chassis_nr=1,shpc=off",
+                "-drive", "if=none,id=disk0,driver=null-co,read-zeroes=on",
+                "-device", "virtio-blk-pci,drive=disk0,bus=disks,addr=0x1",
+                "-netdev", "user,id=net0", "-device", "virtio-net-pci,netdev=net0",
+                "-fsdev", "local,id=share,path=#{testpath},security_model=none,readonly=on",
+                "-device", "virtio-9p-pci,fsdev=share,mount_tag=share",
+                "-device", "virtio-rng-pci", "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci",
+                "-chardev", "null,id=con", "-device", "virtio-serial-pci", "-device", "virtconsole,chardev=con",
+                "-device", "qemu-xhci", "-device", "virtio-balloon-pci",
+                "-audiodev", "dbus,id=snd0", "-device", "virtio-sound-pci,audiodev=snd0,streams=1",
                 "-qmp", "unix:#{sock},server=on,wait=off", [:out, :err] => (testpath/"vm.log").to_s
     begin
       100.times do
