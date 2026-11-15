@@ -22,7 +22,7 @@ beanjar.launch with host/core on PYTHONPATH).
   host/scripts/vm-launcher put [--dir VM-DIR] PATH...  give a running VM files of the checkout (share.PUT_ALLOWED:
                                    tests/, guest/scripts/, the guest build's test programs and layers) at
                                    /host/PATH (/mnt/host/PATH in webOS), until its next start
-  host/scripts/vm-launcher logs [--dir VM-DIR]   move the guest's finished logs (check-m1.sh's) to SAVED_LOG_DIR now
+  host/scripts/vm-launcher logs [--dir VM-DIR]   save the guest's finished logs (check-m1.sh's) to SAVED_LOG_DIR now
   host/scripts/vm-launcher prepare [--dir VM-DIR] [--force]   work out the VM's board data from its
                                    firmware (prepare.py: partition map, new EEPROM chip, local key,
                                    the modules' parameters) if missing or stale; start does it too
@@ -50,10 +50,11 @@ and what `put` adds) and a read-write out/ (/host/out; /mnt/host/out in webOS) f
 
 start/stop (the checkout VM): before stopping a running VM, the guest's logs are saved to
 build/logs/<UTC time>-<tag>/ (guest/scripts/save-logs.sh, in the guest: /var/log with PmLog's messages,
-dmesg, boot status, jobs; written to out/logs/<name>, finished with .done, and moved from there),
-with the host-side console logs and the mode=mitm proxy log; then the guest's filesystems are
-synced (the state disks) and QEMU is stopped. Every other finished log directory in out/logs (a
-check-m1.sh run's) is moved to SAVED_LOG_DIR too, at each stop and start. The VM runs as the transient
+dmesg, boot status, jobs; written to out/logs/<name>, finished with .done, then copied from there,
+its regular files and directories only, and removed: share.save), with the host-side console logs
+and the mode=mitm proxy log; then the guest's filesystems are synced (the state disks) and QEMU is
+stopped. Every other finished log directory in out/logs (a check-m1.sh run's) is saved to
+SAVED_LOG_DIR too, at each stop and start. The VM runs as the transient
 systemd user service UNIT (unit.py): QEMU and every helper in one control group that ends when QEMU
 does, a guest power-off included, and that `stop` ends as a whole.
   systemctl --user status beanjar.slice      every VM's processes, by library (beanjar-<tag>.slice)
@@ -975,7 +976,7 @@ def parser():
     s = sub.add_parser("put", help="give a running VM files of the checkout (at /host/PATH)")
     s.add_argument("--dir", help="a VM directory: its run/share")
     s.add_argument("paths", nargs="+")
-    s = sub.add_parser("logs", help="move the guest's finished logs to SAVED_LOG_DIR")
+    s = sub.add_parser("logs", help="save the guest's finished logs to SAVED_LOG_DIR")
     s.add_argument("--dir", help="a VM directory: its run/share and logs/saved")
     s = sub.add_parser(
         "prepare",

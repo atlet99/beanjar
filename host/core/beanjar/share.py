@@ -20,11 +20,17 @@ and the firmware are not shared; the files the guest needs are linked (or copied
       out/               the mount point of "out"
   RUN_DIR/share/out/   9p "out", read-write: /host/out, /mnt/host/out in webOS. The guest's
                        output: logs/<name>/ (guest/scripts/save-logs.sh, finished when it has .done),
-                       which the launcher moves to SAVED_LOG_DIR (harvest), and the tests'
+                       which the launcher saves to SAVED_LOG_DIR (save, harvest), and the tests'
                        results. Kept across launches.
 
 Files are hard links where RUN_DIR is on the checkout's filesystem, copies elsewhere. The host share is read-only, so the guest cannot write through a link;
-the host side never writes into a linked file either (put unlinks first)."""
+the host side never writes into a linked file either (put unlinks first).
+
+Everything under out/ is the guest's, and the guest is root on a 9p share with security_model=none:
+its links (to any host path), FIFOs and sockets there are real host ones. The host reads a log
+directory there only through descriptors opened without following links, copies only its regular
+files and directories (save), and writes nothing into out/ (the launcher's own logs go into the
+saved copy)."""
 
 import errno
 import os

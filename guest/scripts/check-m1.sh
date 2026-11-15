@@ -22,7 +22,7 @@
 #     as INFO. Headless the app can never come to the foreground, so minimal-boot-done is OPEN.
 # With the gl layer (LAYERS=...gl) it also checks that the compositor and WebAppMgr are running.
 # At the end it saves the logs to out/logs/LOGNAME (default <time>-check-m1; guest/scripts/save-logs.sh),
-# which the launcher moves to the saved logs (build/logs/LOGNAME for the checkout VM).
+# which the launcher saves to the saved logs (build/logs/LOGNAME for the checkout VM).
 # TIME_SCALE (default 1; 4 under TCG, from tests/regress/guest.sh) stretches each call's limit.
 scale=${TIME_SCALE:-1}
 # busybox's timeout takes -t on the older firmwares (before busybox 1.30), the plain number from webOS 7

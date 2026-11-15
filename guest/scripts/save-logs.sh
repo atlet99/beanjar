@@ -6,9 +6,12 @@
 #   sh /host/guest/scripts/save-logs.sh [NAME]          (initramfs; enters webOS for the webOS part)
 #   sh /mnt/host/guest/scripts/save-logs.sh [NAME]      (inside webOS, e.g. from check-m1.sh)
 # Writes out/logs/NAME/ (/host/out, the VM's RUN_DIR/share/out on the host; NAME defaults to the
-# guest's UTC time), which the launcher moves to the saved logs (build/logs/NAME for the checkout
-# VM, <vm>/logs/saved/NAME for a library VM) once .done is there: at stop, at start, or with
-# `host/scripts/vm-launcher logs`:
+# guest's UTC time), which the launcher saves to the saved logs (build/logs/NAME for the checkout
+# VM, <vm>/logs/saved/NAME for a library VM) once .done is there, and then removes: at stop, at
+# start, or with `host/scripts/vm-launcher logs` (host/core/beanjar/share.py, save). Only regular
+# files and directories are saved: a symlink (cp -a keeps /var/log's), FIFO or socket here is
+# listed in the saved directory's skipped.txt, with a symlink's target. The launcher adds its own
+# webos.log, console.log, qemu.out and netstub.log there; files of those names here are not saved.
 #   var-log/           a copy of /var/log (PmLog's messages, bootd.log, ls-hubd.log, crashd, ...)
 #   dmesg.txt          kernel log
 #   meminfo.txt        /proc/meminfo
