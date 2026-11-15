@@ -452,6 +452,8 @@ class Tree:
                 return "/usr/share/beanjar/qemu-user/arm64/qemu-arm"
             if p == ("qemu-user-amd64", "bin", "qemu-arm"):
                 return "/usr/share/beanjar/qemu-user/amd64/qemu-arm"
+            if p == ("qemu-user-amd64", "bin", "qemu-aarch64"):
+                return "/usr/share/beanjar/qemu-user/amd64/qemu-aarch64"
             if p[:2] in [("qemu", "bin"), ("qemu", "libexec")]:
                 return os.path.join("/usr/libexec/beanjar", *p[2:])
             if p[:2] == ("qemu", "share"):
@@ -527,6 +529,17 @@ class Tree:
         env = os.environ if env is None else env
         vendored = "qemu-user-amd64" if guest_kernel == "x86-64" else "qemu-user"
         path = env.get("QEMU_ARM") or self.build(vendored, "bin", "qemu-arm")
+        return path if os.path.isfile(path) else None
+
+    def qemu_aarch64(self, env=None, guest_kernel="arm64"):
+        """The static qemu-aarch64 that runs the 64-bit ARM programs of a USERLAND=qemu-user guest
+        on the x86-64 guest kernel, or None: QEMU_AARCH64 in env (os.environ by default), else the
+        one beside the vendored x86-64 qemu-arm (build/qemu-user-amd64). None on the arm64 guest
+        kernel, which runs them natively."""
+        if guest_kernel != "x86-64":
+            return None
+        env = os.environ if env is None else env
+        path = env.get("QEMU_AARCH64") or self.build("qemu-user-amd64", "bin", "qemu-aarch64")
         return path if os.path.isfile(path) else None
 
     def guest_kernel(self, guest_kernel="arm64"):
