@@ -317,6 +317,7 @@ def assemble(
     files=None,
     fw=None,
     broadcast=None,
+    qemu_arm=None,
 ):
     """Make RUN_DIR/share/host afresh and RUN_DIR/share/out if it is missing (the module's doc), with
     the boot.conf of the firmware target (chip, release) and its layers (resolve_layers' Layers,
@@ -324,7 +325,8 @@ def assemble(
     part_nodes: the eMMC partitions' nodes, qemu.part_nodes; vm: the VM's own module parameters,
     targets.boot_conf's; files: {name: path}, the files made from the firmware that the modules read
     as /host/<name>, targets.derived_files; fw, broadcast: the firmware directory and the board's
-    broadcast standard, targets.boot_conf's)."""
+    broadcast standard, targets.boot_conf's; qemu_arm: the interpreter of a USERLAND=qemu-user
+    guest, paths.Tree.qemu_arm, put as /host/qemu-arm and named in boot.conf's USERLAND)."""
     _share, _vm, host, out = dirs(run_dir)
     _remove(host)
     _mkdirs(os.path.join(host, "out"))
@@ -332,12 +334,21 @@ def assemble(
     put(tree, host, BASE)
     for name, path in (files or {}).items():
         shutil.copyfile(path, os.path.join(host, name))
+    if qemu_arm:
+        shutil.copyfile(qemu_arm, os.path.join(host, "qemu-arm"))
     with open(os.path.join(host, "layer-sources"), "w") as f:
         f.write("".join(f"{layer.name} {layer.rel}\n" for layer in layers))
     with open(os.path.join(host, "boot.conf"), "w") as f:
         f.write(
             targets.boot_conf(
-                target, [layer.name for layer in layers], derived, part_nodes, vm, fw, broadcast
+                target,
+                [layer.name for layer in layers],
+                derived,
+                part_nodes,
+                vm,
+                fw,
+                broadcast,
+                "qemu-user" if qemu_arm else "native",
             )
         )
     binds = []

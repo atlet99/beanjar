@@ -1,9 +1,0 @@
-# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
-# SPDX-License-Identifier: GPL-2.0-or-later
-config BR2_PACKAGE_BEANJAR_TESTGUEST
-	bool "beanjar-testguest"
-	depends on BR2_PACKAGE_MESA3D_OPENGL_EGL && BR2_PACKAGE_MESA3D_OPENGL_ES
-	help
-	  The test guest's checks and their runner: GPU through
-	  virtio-gpu and virgl, the launcher's virtio-serial ports,
-	  input, the 9p shares and power-off.

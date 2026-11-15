@@ -829,6 +829,48 @@ class ArgvTest(unittest.TestCase):
             )
         return p.argv, notes
 
+    def test_userland(self):
+        """USERLAND=qemu-user changes no QEMU argument: the plan carries the interpreter
+        (QEMU_ARM, else build/qemu-user/bin/qemu-arm) for the host share. An unknown value, and
+        qemu-user on a refused platform, are errors; native is the default."""
+        native, _ = self.qemu_plan("tcg")
+        arm = os.path.join(self.tmp, "qemu-arm")
+        with open(arm, "w") as f:
+            f.write("")
+        bridged, _ = self.qemu_plan("tcg", USERLAND="qemu-user", QEMU_ARM=arm)
+        self.assertEqual(bridged, native)
+        env = dict(FW=self.fw, STATE="none", **net("direct"), SLOT="1")
+
+        def plan(**more):
+            with mock.patch.object(qemu, "first_rendernode", return_value=None):
+                return qemu.plan(
+                    dict(env, **more),
+                    [],
+                    accel="tcg",
+                    tree=paths.Tree(self.top),
+                    say=lambda _: None,
+                    dry=True,
+                )
+
+        self.assertEqual((plan().userland, plan().qemu_arm), ("native", None))
+        p = plan(USERLAND="qemu-user", QEMU_ARM=arm)
+        self.assertEqual((p.userland, p.qemu_arm), ("qemu-user", arm))
+        # dry: a missing interpreter is not looked for; a real launch refuses it
+        self.assertIsNone(plan(USERLAND="qemu-user", QEMU_ARM=arm + ".missing").qemu_arm)
+        with self.assertRaisesRegex(qemu.Error, "USERLAND=x86"):
+            plan(USERLAND="x86")
+        with mock.patch.object(qemu.targets, "platform", return_value="NetCast"):
+            with self.assertRaisesRegex(qemu.Error, "userland=qemu-user: NetCast"):
+                plan(USERLAND="qemu-user", QEMU_ARM=arm)
+        tree = paths.Tree(self.top)
+        self.assertIsNone(tree.qemu_arm({}))
+        vendored = os.path.join(self.top, "build/qemu-user/bin/qemu-arm")
+        os.makedirs(os.path.dirname(vendored))
+        with open(vendored, "w") as f:
+            f.write("")
+        self.assertEqual(tree.qemu_arm({}), vendored)
+        self.assertEqual(tree.qemu_arm({"QEMU_ARM": arm}), arm)
+
     def test_virgl_use_integer(self):
         """A panfrost render node gets VIRGL_USE_INTEGER=1 (integer vertex inputs), another
         driver or no GPU none, and a value the environment sets stays."""

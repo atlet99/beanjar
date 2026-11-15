@@ -57,6 +57,10 @@ check gpu tg-gpu
 check ports tg-ports
 check shares shares
 check input tg-input "$out/input-ready" 60
+# the 32-bit ABI through the kernel's compat table: natively, or under qemu-arm with the compat
+# bridge when the VM runs USERLAND=qemu-user (bridge.userland says which); after input, as it
+# creates an input device of its own
+check bridge tg-bridge
 if [ $failed = 0 ]; then echo "result=pass" >> "$tmp"; else echo "result=fail" >> "$tmp"; fi
 echo "checks.failed=$failed" >> "$tmp"
 mv "$tmp" "$out/results.txt"

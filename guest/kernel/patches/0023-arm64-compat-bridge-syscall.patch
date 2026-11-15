@@ -1,0 +1,100 @@
+arm64: a system call for 64-bit tasks that runs one AArch32 call (compat bridge)
+
+qemu-arm translates a 32-bit ARM userland's instructions but converts its
+system calls itself, and it lacks most of what a TV userland needs: it
+returns ENOTTY for every ioctl missing from its table (DRM, evdev, uinput,
+V4L2, ALSA, LG's drivers), and even a passthrough would hand 32-bit layouts
+to the 64-bit ABI (evdev reads 24-byte events, our modules take compat_ptr()
+arguments only under in_compat_syscall()). The arm64 kernel already has the
+whole 32-bit ABI: the compat table and every converter.
+
+System call 0x7ff0, above the native table and so handled in
+do_ni_syscall() for 64-bit tasks only, takes an AArch32 call number and
+r0-r6 packed two per register (so it fits qemu's six-argument
+safe_syscall) and runs compat_sys_call_table[nr] with TIF_32BIT set for
+that call only. Calls whose effect would outlive the flag or depend on the
+caller's registers are refused with ENOSYS: restart_syscall, exit,
+exit_group, fork, vfork, clone, clone3, execve, execveat, ptrace,
+sigreturn, rt_sigreturn, personality, sigaltstack. A 32-bit task cannot
+reach it; a task that never makes the call sees no difference.
+
+--- a/arch/arm64/kernel/syscall.c
++++ b/arch/arm64/kernel/syscall.c
+@@ -19,8 +19,77 @@
+ long compat_arm_syscall(struct pt_regs *regs, int scno);
+ long sys_ni_syscall(void);
+ 
++#ifdef CONFIG_COMPAT
++/*
++ * compat_bridge: a 64-bit task runs one AArch32 system call through the compat syscall
++ * table, as a 32-bit task would, so that the kernel's own compat converters
++ * (compat_sys_ioctl, the drivers' compat_ioctl, in_compat_syscall() users such as evdev's
++ * 16-byte events) do the ABI. Its user is qemu-arm running a 32-bit userland, with guest
++ * addresses equal to host addresses below 4 GiB, on a CPU without AArch32 at EL0 or
++ * instead of it. The 32-bit registers r0-r6 and the number come packed two per argument:
++ *   x0 = nr | r0 << 32, x1 = r1 | r2 << 32, x2 = r3 | r4 << 32, x3 = r5 | r6 << 32
++ * TIF_32BIT (in_compat_syscall()) is set only for the duration of the call. Calls that
++ * act on the caller's register state, create tasks or exec, whose behaviour with the
++ * flag set would leak it to user space, are refused. The number is above the native
++ * table, so only a 64-bit task reaches it, through do_ni_syscall(); a task that never
++ * makes the call sees no difference. Seccomp and audit see the outer call (0x7ff0).
++ */
++#define __NR_compat_bridge	0x7ff0
++
++static bool compat_bridge_refused(unsigned int nr)
++{
++	switch (nr) {
++	case __NR_compat32_restart_syscall:
++	case __NR_compat32_exit:
++	case __NR_compat32_fork:
++	case __NR_compat32_execve:
++	case __NR_compat32_ptrace:
++	case __NR_compat32_sigreturn:
++	case __NR_compat32_clone:
++	case __NR_compat32_personality:
++	case __NR_compat32_sigaltstack:
++	case __NR_compat32_vfork:
++	case __NR_compat32_rt_sigreturn:
++	case __NR_compat32_exit_group:
++	case __NR_compat32_execveat:
++	case __NR_compat32_clone3:
++		return true;
++	}
++	return false;
++}
++
++static long compat_bridge(struct pt_regs *regs)
++{
++	struct pt_regs cregs;
++	unsigned int nr = lower_32_bits(regs->regs[0]);
++	long ret;
++
++	if (nr >= __NR_compat32_syscalls || compat_bridge_refused(nr))
++		return -ENOSYS;
++	cregs = *regs;
++	cregs.regs[0] = upper_32_bits(regs->regs[0]);
++	cregs.regs[1] = lower_32_bits(regs->regs[1]);
++	cregs.regs[2] = upper_32_bits(regs->regs[1]);
++	cregs.regs[3] = lower_32_bits(regs->regs[2]);
++	cregs.regs[4] = upper_32_bits(regs->regs[2]);
++	cregs.regs[5] = lower_32_bits(regs->regs[3]);
++	cregs.regs[6] = upper_32_bits(regs->regs[3]);
++	cregs.regs[7] = nr;
++	cregs.orig_x0 = cregs.regs[0];
++	cregs.syscallno = nr;
++	set_thread_flag(TIF_32BIT);
++	ret = compat_sys_call_table[array_index_nospec(nr, __NR_compat32_syscalls)](&cregs);
++	clear_thread_flag(TIF_32BIT);
++	return ret;
++}
++#endif
++
+ static long do_ni_syscall(struct pt_regs *regs, int scno)
+ {
++#ifdef CONFIG_COMPAT
++	if (!is_compat_task() && scno == __NR_compat_bridge)
++		return compat_bridge(regs);
++#endif
+ 	if (is_compat_task()) {
+ 		long ret = compat_arm_syscall(regs, scno);
+ 		if (ret != -ENOSYS)

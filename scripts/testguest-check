@@ -6,10 +6,10 @@
 
   scripts/testguest-check [--firmware DIR] [--name NAME] [--display egl-headless|none]
                           [--timeout S] [--keep] [--library DIR] [--logs DIR] [--tag TAG]
-                          [--reason TEXT]
+                          [--reason TEXT] [--userland native|qemu-user]
 
 Creates the VM NAME (default testguest-check, which must not exist) on the test guest's image
-(default build/testguest/image, guest/testguest/build.sh), starts it, sends keys to its virtio
+(default build/testguest/image, scripts/testguest-setup), starts it, sends keys to its virtio
 keyboard over QMP once the guest's input check is waiting, waits for the guest's results file
 (out share, testguest/results.txt), stops the VM with `beanjar stop --no-fallback` (the guest's own
 power-off) and deletes it (unless --keep). Prints every result, key=value, the guest's and the
@@ -112,6 +112,12 @@ def main():
     ap.add_argument("--tag", action="append", default=[], help="a tag for the VM (repeatable)")
     ap.add_argument("--reason", help="why the VM runs (beanjar reason; needs a user systemd)")
     ap.add_argument("--logs", help="copy the VM's logs and the guest's output here before it goes")
+    ap.add_argument(
+        "--userland",
+        default="native",
+        choices=("native", "qemu-user"),
+        help="native (default), or qemu-user: the 32-bit programs under qemu-arm (compat bridge)",
+    )
     a = ap.parse_args()
 
     tags = [x for t in a.tag for x in ("--tag", t)]
@@ -128,6 +134,8 @@ def main():
     host = []
     rc = 2
     try:
+        if a.userland != "native":
+            beanjar(["settings", a.name, "set", f"userland={a.userland}"], a.library)
         t0 = time.monotonic()
         reason = ["--reason", a.reason] if a.reason else []
         code, text = beanjar(["start", a.name, *reason], a.library, False)

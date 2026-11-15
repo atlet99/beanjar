@@ -62,6 +62,7 @@ integration_depends = {
   'packaging': [120, []],
   'securestore': [120, []],
   'launch': [300, []],             # the real launcher, with the guest build installed
+  'bridge': [600, []],             # the qemu-user compat bridge on build/Image under full TCG
 }
 foreach area, spec : integration_depends
   if fs.is_dir(tests_dir / 'integration' / area)

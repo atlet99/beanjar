@@ -31,6 +31,13 @@ Environment (both):
             free page reporting on the VM's virtio-balloon (every VM has one, for the guest's memory
             statistics, never inflated, so the guest still has all of MEM), and the host takes back
             the free 4 MiB blocks the guest reports. Opt-in: it has a cost.
+  USERLAND  native (default) or qemu-user (vm.toml's hardware.userland): qemu-user runs the
+            firmware's 32-bit ARM programs under qemu-arm in the guest, their system calls through
+            the guest kernel's compat table (docs/dev/architecture/qemu-user-bridge.md): the
+            launcher puts qemu-arm into the host share and boot.conf's USERLAND has init register
+            it with binfmt_misc. Refused on NetCast and SimpleSmart (vmsettings.USERLAND_REFUSED)
+  QEMU_ARM  that qemu-arm (paths.Tree.qemu_arm): a local build for development; default
+            beanjar-vendor's qemu-user, build/qemu-user/bin/qemu-arm, once it is pinned
   DEBUG_MODE  debug, event or release (vm.toml's firmware.debug_mode; default: the board's own
             debugMode=, 3 = debug): the TV's debug status. The guest's /proc/cmdline has that one
             debugMode= (webos.debugmode= for /init, or the board words on the kernel's line,
@@ -259,6 +266,8 @@ class Plan:
             self.fw_name
         ) = None
         self.broadcast = None  # the board's broadcast standard (targets.board_broadcast)
+        # USERLAND: "native" or "qemu-user", with qemu_arm the interpreter the guest gets
+        self.userland, self.qemu_arm = "native", None
         self.layers, self.ssh_port, self.partmap = [], keys.ROOTSSH_PORT, None
         self.guest_layers = []  # share.resolve_layers': each a read-only disk, layerimage.py
         self.service_host = None
@@ -329,6 +338,19 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
         p.broadcast = targets.board_broadcast(p.target, fw, env.get("BROADCAST"))
     except targets.Error as e:
         raise Error(f"BROADCAST: {e}") from None
+    p.userland = env.get("USERLAND") or "native"
+    if p.userland not in vmsettings.USERLANDS:
+        raise Error(f"USERLAND={p.userland}: one of {', '.join(vmsettings.USERLANDS)}")
+    refusal = vmsettings.userland_refusal(targets.platform(p.target), p.userland)
+    if refusal:
+        raise Error(refusal)
+    if p.userland == "qemu-user":
+        p.qemu_arm = tree.qemu_arm(env)
+        if not p.qemu_arm and not dry:
+            raise Error(
+                "USERLAND=qemu-user needs qemu-arm with the compat bridge: QEMU_ARM=PATH, or "
+                "beanjar-vendor's qemu-user pinned in packaging/vendor.toml"
+            )
     # default: the headless layer on webOS; none on SimpleSmart, which has no webOS layers
     layers = env.get(
         "LAYERS",

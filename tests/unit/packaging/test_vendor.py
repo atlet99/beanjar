@@ -29,12 +29,13 @@ def load_build():
 
 def test_pins():
     pins = vendor.pins()
-    assert set(pins) == {"qemu", "ffmpeg", "neatvnc"}
+    assert set(pins) == {"qemu", "ffmpeg", "neatvnc", "testguest"}
     for program, pin in pins.items():
         assert pin["tag"] == f"{program}-{pin['version']}"
         assert pin["repository"] == "mariotaku/beanjar-vendor"
-        for arch in vendor.ARCHS:
+        for arch in (pin["guest"],) if pin.get("guest") else vendor.ARCHS:
             int(pin[arch], 16)
+    assert pins["testguest"]["guest"] == "armhf"
     name, url = vendor.asset(pins["qemu"], "qemu", "arm64")
     assert name == f"qemu-{pins['qemu']['version']}-arm64.tar.xz"
     # the '+' of a version is %2B in the URL, in the tag and in the file name
@@ -95,6 +96,53 @@ def test_tree_checks_and_unpacks(tmp_path, monkeypatch):
     assert vendor.tree("foo", "amd64", pin, cache) == tree
     with pytest.raises(vendor.Error, match="no prebuilt"):
         vendor.tree("foo", "riscv64", pin, cache)
+
+
+def test_guest_pin(tmp_path, capsys):
+    """A guest = "arm64" pin (qemu-user's qemu-arm, which runs in the arm64 guest) has an arm64
+    tarball only, which every host architecture takes; `vendor.py pinned` lists what is pinned."""
+    pin = tmp_path / "vendor.toml"
+    blob = tarball(
+        {"BUILDINFO": b"Program: bar\nVersion: 2.0+beanjar1\nArchitecture: arm64\n", "bin/x": b"x"}
+    )
+    digest = hashlib.sha256(blob).hexdigest()
+    pin.write_text(
+        f'repository = "x/y"\n[bar]\ntag = "bar-2.0+beanjar1"\nguest = "arm64"\narm64 = "{digest}"\n'
+    )
+    cache = tmp_path / "cache"
+    (cache / "download").mkdir(parents=True)
+    (cache / "download/bar-2.0+beanjar1-arm64.tar.xz").write_bytes(blob)
+    for host in ("amd64", "arm64"):
+        assert vendor.tree("bar", host, pin, cache) == cache / "bar-2.0+beanjar1-arm64"
+    pin.write_text(f'repository = "x/y"\n[bar]\ntag = "bar-2.0+beanjar1"\narm64 = "{digest}"\n')
+    with pytest.raises(vendor.Error, match="no SHA-256 for amd64"):
+        vendor.pins(pin)
+    vendor.main(["pinned", "qemu-user", "qemu"])
+    assert capsys.readouterr().out.split() == ["qemu"]
+
+
+def test_override(tmp_path, monkeypatch):
+    """BEANJAR_VENDOR_<PROGRAM> takes a tarball in place of the release, pinned or not; its
+    BUILDINFO must name the program."""
+    pin = tmp_path / "vendor.toml"
+    pin.write_text('repository = "x/y"\n')
+    cache = tmp_path / "cache"
+    local = tmp_path / "test-guest-1+beanjar1-armhf.tar.xz"
+    local.write_bytes(
+        tarball(
+            {"BUILDINFO": b"Program: test-guest\nArchitecture: armhf\n", "rootfs.squashfs": b"r"}
+        )
+    )
+    monkeypatch.setenv("BEANJAR_VENDOR_TEST_GUEST", str(local))
+    tree = vendor.tree("test-guest", "amd64", pin, cache)
+    assert tree == cache / "test-guest-1+beanjar1-armhf"
+    assert (tree / "rootfs.squashfs").read_bytes() == b"r"
+    monkeypatch.setenv("BEANJAR_VENDOR_TEST_GUEST", str(tmp_path / "none.tar.xz"))
+    with pytest.raises(vendor.Error, match="no tarball"):
+        vendor.tree("test-guest", "amd64", pin, cache)
+    monkeypatch.delenv("BEANJAR_VENDOR_TEST_GUEST")
+    with pytest.raises(vendor.Error, match="pins no test-guest"):
+        vendor.tree("test-guest", "amd64", pin, cache)
 
 
 def test_merge_depends():

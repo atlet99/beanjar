@@ -102,9 +102,10 @@ if guest_lane
   # the firmware.
   netcast45 = webos == 'netcast45'
   # The open test guest (webos 'testguest', docs/dev/architecture/test-guest.md): its userland is
-  # Buildroot's (guest/testguest/build.sh), so this build makes only the arm64 pieces every target
-  # shares, with Buildroot's toolchain as the 32-bit cross compiler it never uses
-  # (build/testguest/cross.ini): CI's way to the kernel and initramfs without LG's SDK.
+  # beanjar-vendor's, so this build makes its one layer, the checks of guest/testguest built against
+  # the userland's sysroot, and the arm64 pieces every target shares, with the userland's pinned
+  # toolchain as the 32-bit cross compiler (build/testguest/cross.ini, scripts/testguest-setup):
+  # CI's way to a bootable guest without LG's SDK.
   testguest = webos == 'testguest'
   guest_target = soc + '-' + webos
   # What the shim rules and links ask of the target's firmware (guest/targets/meson.build): fw_path
@@ -217,7 +218,7 @@ if guest_lane
   elif netcast45
     guest_modules = ['guest/layers/gl/mesa', 'guest/layers/netcast45', 'guest/kernel', 'guest/initramfs']
   elif testguest
-    guest_modules = ['guest/kernel', 'guest/initramfs']
+    guest_modules = ['guest/testguest', 'guest/kernel', 'guest/initramfs']
   endif
   foreach module : guest_modules
     if module in ['guest/layers/gl/test', 'tests/regress/virgl'] and not gl_built
@@ -313,7 +314,7 @@ else
   endforeach
   # The prebuilt programs (meson/meson.build), as they are: the launcher runs build/qemu, and
   # build/ffmpeg and build/neatvnc are the libraries the programs above find through their RUNPATH
-  foreach program : ['qemu', 'ffmpeg', 'neatvnc']
+  foreach program : vendor.keys()
     published += [['tree', vendor[program], program]]
   endforeach
   # The host build lane's source version (packaging/identity.py), which packaging reads

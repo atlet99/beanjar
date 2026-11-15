@@ -1,6 +1,7 @@
-# Debian 13 distribution layout
+# Distribution layout
 
-Targets: Raspberry Pi (arm64) and x86_64 (amd64).
+Debian 13 packages for the Raspberry Pi (arm64) and x86_64 (amd64), below; on macOS, a Homebrew
+tap for the programs a VM needs from outside Beanjar ("macOS: the Homebrew tap").
 
 ## Package split
 
@@ -263,6 +264,77 @@ No model keys or firmware-derived identity material are packaged.
 Users supply extracted firmware. Running packages requires neither a source
 checkout nor a webOS SDK. Importing EPK archives additionally requires the user's
 configured `epk2extract`.
+
+## macOS: the Homebrew tap
+
+On a Mac, Beanjar's QEMU and the OpenGL ES stack it draws with come from a Homebrew tap, and this
+repository is the tap: `Formula/` holds the formulae, published with the rest of the public tree,
+and users add it with `brew tap webosbrew/beanjar https://github.com/webosbrew/beanjar`
+(docs/user/macos.md).
+
+| Formula | Builds | Pins |
+|---|---|---|
+| `beanjar-angle` | ANGLE's `libEGL` and `libGLESv2`, Metal backend only | ANGLE's source archive (below); Chromium's clang and gn as ANGLE's DEPS pins them, per architecture |
+| `beanjar-libepoxy` | libepoxy with EGL, loading ANGLE by `@rpath` with a run path to `beanjar-angle` | a GitHub archive of the libepoxy commit, beanjar-vendor's patch |
+| `beanjar-virglrenderer` | virglrenderer, vrend only, on OpenGL ES | the virglrenderer commit (git), beanjar-vendor's seven OpenGL ES host patches |
+| `beanjar-qemu` | QEMU, aarch64-softmmu, D-Bus display, CoreAudio, slirp, virtfs, OpenGL and virgl | QEMU's release tarball, beanjar-vendor's patches |
+
+Why a tap rather than tarballs: beanjar-vendor's macOS tarballs link Homebrew's GLib, pixman,
+libslirp, libpng, libusb, usbredir and libfdt at Homebrew's paths, so they need Homebrew anyway;
+bundling those instead would mean shipping their sources and licences and updating them by hand.
+As formulae they depend on Homebrew's libraries, Homebrew rebuilds them when it has to, and
+`brew upgrade` updates them.
+
+Every formula is keg-only and named `beanjar-*`, a prefix no Homebrew formula uses: Homebrew's own
+`qemu`, `libepoxy` and `virglrenderer` (built without EGL or ANGLE) can be installed beside them,
+and nothing of ours is linked into Homebrew's prefix where another program could pick it up. The
+formulae name each other in full (`webosbrew/beanjar/beanjar-angle`), so a dependency never
+resolves to another tap's formula. Users must `brew trust` the tap, as Homebrew requires of every
+tap that is not its own.
+
+**One copy of each patch.** The patches and the check programs the tests build live in
+beanjar-vendor; the formulae fetch them by URL at a beanjar-vendor commit with their SHA-256. The
+versions are beanjar-vendor's (`10.0.2+beanjar1`), so a formula and the tarball of the same
+program say the same version.
+
+**ANGLE's source.** ANGLE has no release tarball: its `DEPS` pins about fifty repositories that
+`gclient` fetches (a few GB, with prebuilt toolchains). A formula cannot express that cleanly: one
+`resource` per repository has no checksum (googlesource's generated archives differ between
+downloads), and running `gclient` in the formula fetches unpinned tooling at install time. So
+beanjar-vendor's `angle/source.sh` makes one archive: the DEPS checkout with git dependencies only,
+cut down to what the build reads, without git metadata, and byte-for-byte reproducible from the
+same inputs (about 120 MB). It is published with ANGLE's release in beanjar-vendor and pinned by
+SHA-256. The toolchain stays out of it, since it is binary and per architecture: Chromium's clang
+and gn are `on_arm`/`on_intel` resources at the URLs and checksums DEPS gives, ninja is Homebrew's.
+
+**Bottles** come from beanjar-vendor's Homebrew workflow on GitHub's macOS runners, arm64
+(macos-15) and Intel (macos-15-intel), not from this repository's CI. Each formula is built with
+`brew install --build-bottle`, then `brew test` (the checks beanjar-vendor runs on its tarballs:
+an EGL context on Metal, virglrenderer started on ANGLE, QEMU's version, displays, devices and a
+QMP `query-status`), `brew linkage --test`, `brew audit --strict` and `brew bottle --json`. On the
+Intel runners ANGLE gets no Metal display, so the GL parts of the tests are skipped there, as in
+beanjar-vendor's own checks. Bottles are built for the runners' macOS (Sequoia); Homebrew uses them
+on later releases too, and builds from source where none fits. Homebrew itself has no bottles for
+Intel Macs (its Tier 3), and `--build-bottle` refuses dependencies it cannot pour, so the workflow
+installs each formula's dependencies first; on Intel that builds Homebrew's Python, GLib and the
+rest from source, as it does for Intel users.
+
+**Keeping the two repositories in step.** beanjar-vendor's `homebrew/check.sh` fails its workflow
+when a formula's version, source or pinned file differs from what beanjar-vendor builds, or when a
+patch there is applied by no formula. While this repository is private, the workflow builds a copy
+of `Formula/` kept in beanjar-vendor's `homebrew/Formula`: after changing a formula here, run
+beanjar-vendor's `homebrew/sync.sh <this checkout>` and commit the copy there (`--check` compares
+only). Once this repository is public, the workflow's `TAP_SOURCE` names it at a commit and the
+copy goes.
+
+**Releasing.** A formula gets bottles when beanjar-vendor publishes them: the bottles of both
+architectures in a release `<formula>-<version>`, the root URL `homebrew/bottle.sh` gives them,
+and ANGLE's source archive in ANGLE's release. The workflow's last job runs
+`brew bottle --merge --write`, which writes each formula's `bottle do` block (root URL and a
+SHA-256 per macOS and architecture); those formulae are committed here. Until then the formulae
+have no `bottle do` block and `beanjar-angle`'s source cannot be downloaded, so they install only
+in that workflow. A `beanjar` formula for Beanjar itself can join them once its macOS runner and
+viewer exist.
 
 ## Design record
 

@@ -1,14 +1,15 @@
-# The open test guest (docs/dev/architecture/test-guest.md): not LG firmware but a Buildroot
-# userland of ours (guest/testguest), armv7 hard-float glibc with BusyBox init, which CI boots
-# where no LG firmware may be. Its "firmware" is the directory guest/testguest/build.sh publishes,
-# build/testguest/image: rootfs.pak (the image) and manifest.toml naming this target.
+# The open test guest (docs/dev/architecture/test-guest.md): not LG firmware but beanjar-vendor's
+# Buildroot userland, armv7 hard-float glibc with BusyBox init, which CI boots where no LG firmware
+# may be, under the testguest layer of our checks (guest/testguest). Its "firmware" is the directory
+# scripts/testguest-setup writes, build/testguest/image: rootfs.pak (the userland's root
+# filesystem) and manifest.toml naming this target.
 # Not a model of LG's: the name a firmware directory of it is known by
 models = ["TESTGUEST"]
 # Out of regress's default set: its own runner is scripts/testguest-check
 bring_up = ["TESTGUEST"]
 
 [soc]
-# Words for the namespace's /proc/cmdline, read on the host from the test guest's overlay
+# Words for the namespace's /proc/cmdline, read on the host from the testguest layer
 board_cmdline = "/etc/board.cmdline"
-board_src = "guest/testguest/overlay"
+board_src = "guest/testguest/rootfs"
 modules = []

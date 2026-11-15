@@ -1014,6 +1014,9 @@ class Library:
                 v = vmidentity.parse_mac(v)
             elif k == "serial":
                 v = vmidentity.parse_serial(v)
+            elif k == "userland" and v == "native":
+                cfg.pop(k, None)  # native is the default, not written out
+                continue
             elif k == "free_page_reporting" and v == "off":
                 cfg.pop(k, None)  # off is the default, not written out
                 continue
@@ -1060,6 +1063,15 @@ class Library:
                 paths.firmware_target(d)
             except ValueError as e:
                 raise Error(str(e), "fw") from None
+        if cfg.get("userland", "native") != "native":
+            # qemu-user is refused on some platforms (vmsettings.USERLAND_REFUSED)
+            try:
+                platform = targets.platform(paths.firmware_target(d))
+            except ValueError as e:
+                raise Error(str(e), "fw") from None
+            refusal = vmsettings.userland_refusal(platform, cfg["userland"])
+            if refusal:
+                raise Error(refusal, "userland")
         vm.save_config(cfg)
         if prepare and any(values.get(k) is not None for k in BOARD_SETTINGS):
             prepare_board_data(self, vm.dir, out)

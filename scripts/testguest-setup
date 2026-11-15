@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Prepare the open test guest's build from beanjar-vendor's userland
+(docs/dev/architecture/test-guest.md).
+
+    scripts/testguest-setup [OUT]       default OUT: build/testguest
+
+Takes the userland, the program testguest of packaging/vendor.toml (meson/vendor.py: the pinned
+release, or the tarball BEANJAR_VENDOR_TESTGUEST names), and the toolchain its BUILDINFO pins
+(downloaded once into build/vendor and checked by SHA-256), and writes:
+
+    OUT/cross.ini   the cross file of the guest build of virt-testguest: the toolchain, the
+                    userland's sysroot and the CPU options, for the test programs' layer
+                    (guest/testguest) and the kernel and initramfs
+    OUT/image       rootfs.pak (the userland's root filesystem) and manifest.toml naming the
+                    target: a firmware directory for beanjar create --firmware
+
+then the build is
+
+    meson setup --cross-file build/testguest/cross.ini build/guest-virt-testguest -Dsoc=virt -Dwebos=testguest
+    meson compile -C build/guest-virt-testguest
+"""
+
+import os
+from pathlib import Path
+import platform
+import shutil
+import sys
+
+TOP = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(TOP / "meson"))
+import vendor
+
+TARGET = 'chip = "virt"\nrelease = "testguest"\n'
+
+
+def fields(tree):
+    info = vendor.buildinfo(tree / "BUILDINFO")
+    for name in (
+        "Version",
+        "Toolchain",
+        "Toolchain-Directory",
+        "Toolchain-Prefix",
+        "Toolchain-Flags",
+    ):
+        if not info.get(name):
+            raise vendor.Error(f"{tree}/BUILDINFO has no {name}")
+    return info
+
+
+def toolchain(info):
+    """The unpacked toolchain BUILDINFO's Toolchain pins: its bin/ directory."""
+    name, digest, url = info["Toolchain"].split()
+    directory = vendor.CACHE / name.removesuffix(".tar.xz")
+    marker = directory.with_name(directory.name + ".sha256")
+    if not (directory.is_dir() and marker.is_file() and marker.read_text().strip() == digest):
+        tarball = vendor.CACHE / "download" / name
+        vendor.download(url, tarball, digest)
+        vendor.unpack(tarball, directory, digest)
+    return directory / info["Toolchain-Directory"] / "bin"
+
+
+def cross(out, bindir, prefix, sysroot, flags):
+    tool = lambda t: repr(str(bindir / (prefix + t)))
+    args = ", ".join(repr(a) for a in ["--sysroot=" + str(sysroot), *flags])
+    pc = ", ".join(repr(str(sysroot / d)) for d in ("usr/lib/pkgconfig", "usr/share/pkgconfig"))
+    return f"""# Written by scripts/testguest-setup (docs/dev/architecture/test-guest.md):
+#   meson setup --cross-file {out}/cross.ini build/guest-virt-testguest -Dsoc=virt -Dwebos=testguest
+[binaries]
+c = {tool("gcc")}
+cpp = {tool("g++")}
+ar = {tool("ar")}
+strip = {tool("strip")}
+readelf = {tool("readelf")}
+objcopy = {tool("objcopy")}
+nm = {tool("nm")}
+pkg-config = 'pkg-config'
+
+[properties]
+sys_root = {str(sysroot)!r}
+pkg_config_libdir = [{pc}]
+
+[built-in options]
+c_args = [{args}]
+c_link_args = [{args}]
+
+[host_machine]
+system = 'linux'
+cpu_family = 'arm'
+cpu = 'armv7-a'
+endian = 'little'
+"""
+
+
+def write(path, text):
+    if not path.is_file() or path.read_text() != text:
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(text)
+        os.replace(tmp, path)
+
+
+def main(argv):
+    if argv[:1] in (["-h"], ["--help"]) or len(argv) > 1:
+        sys.exit(__doc__)
+    out = Path(argv[0]).resolve() if argv else TOP / "build/testguest"
+    if platform.machine() != "x86_64":
+        sys.exit("testguest-setup: the test guest's toolchain (Bootlin's) runs on x86_64 only")
+    try:
+        tree = vendor.tree("testguest", "amd64")
+        info = fields(tree)
+        bindir = toolchain(info)
+    except vendor.Error as e:
+        sys.exit(f"testguest-setup: {e}")
+    out.mkdir(parents=True, exist_ok=True)
+    write(
+        out / "cross.ini",
+        cross(
+            out, bindir, info["Toolchain-Prefix"], tree / "sysroot", info["Toolchain-Flags"].split()
+        ),
+    )
+    image = out / "image"
+    image.mkdir(exist_ok=True)
+    pak = image / "rootfs.pak"
+    rootfs = tree / "rootfs.squashfs"
+    if not pak.is_file() or vendor.sha256(pak) != vendor.sha256(rootfs):
+        shutil.copyfile(rootfs, pak.with_name("rootfs.pak.tmp"))
+        os.replace(pak.with_name("rootfs.pak.tmp"), pak)
+    write(
+        image / "manifest.toml",
+        f"# The Beanjar test guest: beanjar-vendor's testguest {info['Version']}, not LG firmware\n"
+        f'name = "testguest"\n{TARGET}',
+    )
+    print(f"testguest {info['Version']}: {out}/cross.ini, {image}")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

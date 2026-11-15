@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Boot a real VM without LG firmware: the open test guest (guest/testguest, a Buildroot userland of
-# ours) on the guest kernel, through the normal launcher, under TCG on GitHub's x86_64 runner, and
-# its checks (GPU through virtio-gpu and virgl, the virtio-serial ports, the 9p shares, input, the
-# guest's own power-off) with pass or fail and numbers (docs/dev/architecture/test-guest.md).
-# scripts/testguest-ci.sh does the work, in a debian:trixie container as the other workflows. What
-# is kept between runs: Buildroot's downloads and ccache, and Meson's package cache (the kernel's
-# and busybox's tarballs). The results, the VM's logs and Buildroot's licence manifest are the run's
-# artifact.
+# Boot a real VM without LG firmware: the open test guest (beanjar-vendor's Buildroot userland under
+# our checks, guest/testguest) on the guest kernel, through the normal launcher, under TCG on
+# GitHub's x86_64 runner, and its checks (GPU through virtio-gpu and virgl, the virtio-serial ports,
+# the 9p shares, input, the 32-bit ABI bridge, the guest's own power-off) with pass or fail and
+# numbers (docs/dev/architecture/test-guest.md). scripts/testguest-ci.sh does the work, in a
+# debian:trixie container as the other workflows. What is kept between runs: the vendored downloads
+# (the userland, its toolchain, QEMU) and Meson's package cache (the kernel's and busybox's
+# tarballs). The results and the VM's logs are the run's artifact.
 name: Test guest
 
 on:
@@ -41,7 +41,7 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     container: debian:trixie
-    timeout-minutes: 120
+    timeout-minutes: 45
     steps:
       # git first, so actions/checkout clones (the version and build-deps.sh's come from the history)
       - name: Install git
@@ -50,20 +50,13 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      # Buildroot's downloads, by the files that pin them (its release, the defconfig, our package)
-      - name: Buildroot downloads
+      # beanjar-vendor's tarballs and the userland's toolchain, by the file that pins them
+      - name: Vendored downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: build/testguest/dl
-          key: testguest-dl-${{ hashFiles('guest/testguest/build.sh', 'guest/testguest/configs/*') }}
-          restore-keys: testguest-dl-
-      # ccache's directory changes with every build: saved under the run, the newest one restored
-      - name: Buildroot ccache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: build/testguest/ccache
-          key: testguest-ccache-${{ github.run_id }}
-          restore-keys: testguest-ccache-
+          path: build/vendor/download
+          key: testguest-vendor-${{ hashFiles('packaging/vendor.toml') }}
+          restore-keys: testguest-vendor-
       - name: Meson package cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -80,7 +73,4 @@ jobs:
           path: |
             build/testguest/results.txt
             build/testguest/logs
-            build/testguest/legal-info/manifest.csv
-            build/testguest/legal-info/host-manifest.csv
-            build/testguest/legal-info/licenses
           if-no-files-found: warn

@@ -47,18 +47,20 @@ from . import memory, paths
 # target's release's (Release.platform), and so is the version it is shown with (Release.version: LG's
 # marketing version, e.g. webOS 4.5; None where it is not known, the platform's name alone).
 # "Test" is not LG's: the open test guest (guest/testguest, docs/dev/architecture/test-guest.md), a
-# Buildroot userland of ours that CI boots without LG firmware.
+# Buildroot userland from beanjar-vendor that CI boots without LG firmware.
 PLATFORMS = ("webOS", "NetCast", "SimpleSmart", "Test")
 
 # The always-used layers of a target, highest priority first (as LAYERS): its release's
 # (Release.always_layers). A webOS release's are generated per target from guest/layers/webos/<release>,
-# guest/layers/soc/<chip> and guest/layers/common; SimpleSmart's is guest/layers/simplesmart alone. Above them the
+# guest/layers/soc/<chip> and guest/layers/common; SimpleSmart's is guest/layers/simplesmart alone, the
+# test guest's guest/testguest. Above them the
 # VM's optional layers, then the per-VM layer "vm". ALWAYS_LAYERS: every
 # name that is some release's always-used layer, never an optional one.
 WEBOS_LAYERS = ("webos", "soc", "common")
 SIMPLESMART_LAYERS = ("simplesmart",)
 NETCAST45_LAYERS = ("netcast45",)
-ALWAYS_LAYERS = WEBOS_LAYERS + SIMPLESMART_LAYERS + NETCAST45_LAYERS
+TESTGUEST_LAYERS = ("testguest",)
+ALWAYS_LAYERS = WEBOS_LAYERS + SIMPLESMART_LAYERS + NETCAST45_LAYERS + TESTGUEST_LAYERS
 VM_LAYER = "vm"
 
 # serial: the virtio-blk serial the guest finds the disk by; mount: where init mounts it in the
@@ -1421,7 +1423,9 @@ def module_params(target, derived=None, vm=None, broadcast=None):
     return out
 
 
-def boot_conf(target, layers, derived=None, part_nodes=(), vm=None, fw=None, broadcast=None):
+def boot_conf(
+    target, layers, derived=None, part_nodes=(), vm=None, fw=None, broadcast=None, userland="native"
+):
     """The text of /host/boot.conf, which guest/initramfs/rootfs/init
     sources and carries out: NAME="value" lines, lists space-separated. layers: the layers the
     launcher put into the host share, highest first (without vm); boot.conf lists them bottom to
@@ -1430,7 +1434,8 @@ def boot_conf(target, layers, derived=None, part_nodes=(), vm=None, fw=None, bro
     the guest's /dev/mmcblk0pN nodes (qemu.part_nodes, from the VM's partinfo disk). vm: the VM's
     own parameters of a module, {module: (words...)}, after those (the TEE's tee_huk=). fw: the
     firmware directory, whose paks it names (release). broadcast: the board's broadcast standard
-    (board_broadcast), which picks the board (board_cmdline)."""
+    (board_broadcast), which picks the board (board_cmdline). userland: qemu-user adds USERLAND,
+    which has init run the 32-bit programs under /host/qemu-arm (docs/dev/architecture/qemu-user-bridge.md)."""
     s, r = soc(target), release(target)
     derived = derived or {}
     vm = vm or {}
@@ -1536,6 +1541,17 @@ def boot_conf(target, layers, derived=None, part_nodes=(), vm=None, fw=None, bro
                 ),
             )
             if s.pointer_wakeup or r.pointer_wakeup
+            else ()
+        ),
+        *(
+            (
+                (
+                    "USERLAND",
+                    "qemu-user",
+                    "run the 32-bit ARM programs under /host/qemu-arm (binfmt_misc, the compat bridge)",
+                ),
+            )
+            if userland == "qemu-user"
             else ()
         ),
         ("SOC_MODULES", _words(m.name for m in s.modules), "kernel modules to load after lgemu.ko"),

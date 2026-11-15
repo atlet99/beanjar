@@ -90,6 +90,10 @@ if not guest_lane
   endif
   fs.read(top / 'packaging/vendor.toml')
   vendor_programs = ['qemu', 'ffmpeg', 'neatvnc']
+  # qemu-user's qemu-arm (the compat bridge, docs/dev/architecture/qemu-user-bridge.md) runs in the
+  # guest: its one arm64 tarball, once vendor.toml pins it, is published as build/qemu-user
+  vendor_programs += run_command(python, files('vendor.py'), 'pinned', 'qemu-user',
+                                 check: true).stdout().strip().split()
   vendor_trees = run_command(python, files('vendor.py'), 'tree', vendor_arch, vendor_programs,
                              check: true).stdout().strip().split('\n')
   vendor = {}

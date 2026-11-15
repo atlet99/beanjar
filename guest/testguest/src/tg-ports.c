@@ -32,7 +32,7 @@ static const char *const expected[] = {
 };
 #define N_EXPECTED (sizeof expected / sizeof expected[0])
 
-static char devs[N_EXPECTED][64];
+static char devs[N_EXPECTED][sizeof "/dev/" + 256]; /* a d_name is up to 255 bytes */
 
 static int64_t mono_ns(void)
 {

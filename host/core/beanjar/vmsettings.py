@@ -27,6 +27,31 @@ GPUS = ("auto", "vhost-user-gpu", "virtio-gpu-gl")
 ONOFF = ("on", "off")
 
 
+# userland (qemu.py USERLAND): how the guest runs the firmware's 32-bit ARM programs. native: the
+# CPU runs them in AArch32 EL0 (KVM on a CPU that has it, or TCG); qemu-user: qemu-arm translates
+# them inside the guest and hands their system calls to the kernel's compat table (the compat
+# bridge, docs/dev/architecture/qemu-user-bridge.md), for hosts without AArch32 at EL0. Off by
+# default; refused on the platforms in USERLAND_REFUSED.
+USERLANDS = ("native", "qemu-user")
+
+
+# The platforms qemu-user is refused on, with the reason. NetCast 4.5 (LM14) emulates stores into
+# MMIO windows by decoding the faulting AArch32 instruction (lgemu's store_mmio_fault), which a
+# translated program does not have: its HWI2C, OTP and PQ pages would SIGBUS. SimpleSmart has not
+# been tried.
+USERLAND_REFUSED = {
+    "NetCast": "NetCast's MMIO windows decode the faulting AArch32 instruction (lgemu)",
+    "SimpleSmart": "not tried on SimpleSmart",
+}
+
+
+def userland_refusal(platform, userland):
+    """Why userland cannot run on the platform (targets.PLATFORMS), or None."""
+    if userland == "qemu-user" and platform in USERLAND_REFUSED:
+        return f"userland=qemu-user: {USERLAND_REFUSED[platform]}"
+    return None
+
+
 # mitm_flows (qemu.py MITM_FLOWS): how many flows the mode=mitm inspector keeps, 0 for all of them;
 # the default is not written out. A kept flow costs mitmweb about 2.5 MB per 1000 for DNS, 7.5 MB
 # per 1000 for HTTP(S) with a few KB of body, 19 MB per 1000 for HTTPS on a new TLS connection each
@@ -116,6 +141,7 @@ SETTINGS = {
     "mem": "MEM",
     "smp": "SMP",
     "free_page_reporting": "FREE_PAGE_REPORTING",
+    "userland": "USERLAND",
     "debug_mode": "DEBUG_MODE",
     "layers": "LAYERS",
     "link": "NET_LINK",
@@ -156,6 +182,14 @@ SETTING_HELP = {
         "off",
         "hand the guest's free memory back to the host",
         None,
+    ),
+    "userland": (
+        "|".join(USERLANDS),
+        "native",
+        "how the firmware's 32-bit ARM programs run: native in AArch32 EL0, or qemu-user, "
+        "translated by qemu-arm in the guest with their system calls through the kernel's compat "
+        "table, for hosts without AArch32 at EL0; webOS and the test guest only",
+        "native",
     ),
     "debug_mode": (
         "|".join(DEBUG_MODES),
@@ -375,6 +409,7 @@ def validate(cfg, saved=False):
         ("gpu", GPUS),
         ("audio", AUDIOS),
         ("free_page_reporting", ONOFF),
+        ("userland", USERLANDS),
         ("debug_mode", tuple(DEBUG_MODES)),
     )
     for key, allowed in checks:
@@ -396,6 +431,9 @@ def validate(cfg, saved=False):
             byte_size(cfg["mitm_flow_bytes"])
         except ValueError as e:
             raise Error(f"mitm_flow_bytes={e}", "mitm_flow_bytes") from None
+    refusal = userland_refusal(cfg.get("platform"), cfg.get("userland", "native"))
+    if refusal:
+        raise Error(refusal, "userland")
     if cfg.get("audio") == "dbus" and cfg.get("display") != "dbus":
         raise Error("audio=dbus needs display=dbus", "audio")
     if "slot" in cfg:

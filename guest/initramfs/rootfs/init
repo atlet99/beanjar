@@ -119,6 +119,22 @@ done
 case $INIT_SYSTEM in upstart|systemd|sysvinit) ;; *) fail "/host/boot.conf: INIT_SYSTEM \"$INIT_SYSTEM\"";; esac
 log "boot manifest: firmware target $TARGET"
 
+# --- boot.conf's USERLAND=qemu-user: every 32-bit ARM ELF runs under qemu-arm, which hands its
+# system calls to the kernel's compat table (the compat bridge,
+# docs/dev/architecture/qemu-user-bridge.md), instead of natively in AArch32 EL0. The launcher put
+# the interpreter at /host/qemu-arm; a copy in the initramfs is registered before any firmware
+# program runs, with flags P (argv[0] kept), O (the binary opened), F (the interpreter opened now,
+# so it serves the firmware's namespace) and E (/proc/<pid>/exe names the program, as ls-hubd
+# expects). ---
+if [ "${USERLAND:-native}" = qemu-user ]; then
+	[ -f /host/qemu-arm ] || fail "USERLAND=qemu-user: no /host/qemu-arm"
+	cp /host/qemu-arm /bin/qemu-arm && chmod 755 /bin/qemu-arm || fail "USERLAND=qemu-user: cannot copy qemu-arm"
+	mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc || fail "USERLAND=qemu-user: no binfmt_misc"
+	echo ':qemu-arm:M::\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x28\x00:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:/bin/qemu-arm:POFE' \
+		> /proc/sys/fs/binfmt_misc/register || fail "USERLAND=qemu-user: binfmt_misc refused qemu-arm (flag E needs the guest kernel's patch)"
+	log "userland: 32-bit ARM programs run under qemu-arm (compat bridge)"
+fi
+
 # --- lgemu.ko (guest/kernel/modules/lgemu): LG kernel interfaces the firmware uses, such as
 # /sys/kernel/mm/low_mem_notify for memchuted, and the board's I2C devices (the micom, the NVM
 # EEPROM, the amplifier), and /proc/partinfo, LG's eMMC partition map. webOS starts without it

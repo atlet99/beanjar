@@ -233,6 +233,22 @@ class ShareTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(host, "tests")))
         self.assertTrue(os.path.isfile(os.path.join(out, "result")))
 
+    def test_userland(self):
+        """A USERLAND=qemu-user launch puts its interpreter at /host/qemu-arm and names it in
+        boot.conf; a native one has neither."""
+        host = share.dirs(self.run_dir)[2]
+        arm = os.path.join(self.tmp, "qemu-arm")
+        with open(arm, "wb") as f:
+            f.write(b"\x7fELF")
+        share.assemble(self.tree, H13_AFRO, self.run_dir, [], self.notes.append, qemu_arm=arm)
+        with open(os.path.join(host, "qemu-arm"), "rb") as f:
+            self.assertEqual(f.read(), b"\x7fELF")
+        conf = boot_conf(os.path.join(host, "boot.conf"), ["USERLAND"])
+        self.assertEqual(conf["USERLAND"], "qemu-user")
+        share.assemble(self.tree, H13_AFRO, self.run_dir, [], self.notes.append)
+        self.assertFalse(os.path.exists(os.path.join(host, "qemu-arm")))
+        self.assertEqual(boot_conf(os.path.join(host, "boot.conf"), ["USERLAND"])["USERLAND"], "")
+
     def test_log_counter_helper_in_normal_share(self):
         # Normal assembly must supply save-logs.sh's dependency without vm put.
         share.assemble(self.tree, H13_AFRO, self.run_dir, [], self.notes.append)

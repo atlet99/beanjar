@@ -443,6 +443,8 @@ class Tree:
                 return os.path.join("/usr/share/beanjar/guest/modules", *p)
             if p in [("lls", "lls-probe"), ("lls", "lls-probe.so")]:
                 return "/usr/share/beanjar/guest/bin/" + p[1]
+            if p == ("qemu-user", "bin", "qemu-arm"):
+                return "/usr/share/beanjar/guest/bin/qemu-arm"
             if p[:2] in [("qemu", "bin"), ("qemu", "libexec")]:
                 return os.path.join("/usr/libexec/beanjar", *p[2:])
             if p[:2] == ("qemu", "share"):
@@ -487,6 +489,15 @@ class Tree:
             else []
         )
         return qemu, args
+
+    def qemu_arm(self, env=None):
+        """The static aarch64 qemu-arm with the compat bridge that a USERLAND=qemu-user guest runs
+        its 32-bit programs with (docs/dev/architecture/qemu-user-bridge.md), or None: QEMU_ARM in
+        env (os.environ by default), a local build for development, else beanjar-vendor's
+        qemu-user (build/qemu-user, published once packaging/vendor.toml pins it)."""
+        env = os.environ if env is None else env
+        path = env.get("QEMU_ARM") or self.build("qemu-user", "bin", "qemu-arm")
+        return path if os.path.isfile(path) else None
 
     @property
     def installed(self):

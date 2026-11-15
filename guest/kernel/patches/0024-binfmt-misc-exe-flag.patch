@@ -1,0 +1,89 @@
+binfmt_misc: flag E, the binary is the process's executable
+
+Under binfmt_misc /proc/<pid>/exe is the interpreter, so every program run
+through qemu-arm is "qemu-arm" to whatever identifies a peer by its
+executable; webOS's ls-hubd does, and refuses every client. With the new
+flag E (which implies O) begin_new_exec() records the binary itself as
+mm->exe_file, as after a native exec. Entries registered without it behave
+as before; its status file lists the flag.
+
+--- a/Documentation/admin-guide/binfmt-misc.rst
++++ b/Documentation/admin-guide/binfmt-misc.rst
+@@ -88,6 +88,12 @@
+ 	    emulation is installed and uses the opened image to spawn the
+ 	    emulator, meaning it is always available once installed,
+ 	    regardless of how the environment changes.
++      ``E`` - executable
++            The process's executable (``/proc/<pid>/exe``, ``mm->exe_file``)
++            is usually the interpreter. When this flag is included, it is the
++            binary, as after a native exec, so programs that identify a peer
++            by its executable see the program rather than its interpreter. It
++            implies the ``O`` flag.
+ 
+ 
+ There are some restrictions:
+--- a/fs/binfmt_misc.c
++++ b/fs/binfmt_misc.c
+@@ -45,6 +45,7 @@
+ #define MISC_FMT_OPEN_BINARY (1UL << 30)
+ #define MISC_FMT_CREDENTIALS (1UL << 29)
+ #define MISC_FMT_OPEN_FILE (1UL << 28)
++#define MISC_FMT_EXE_BINARY (1UL << 27)
+ 
+ typedef struct {
+ 	struct list_head list;
+@@ -268,6 +269,8 @@
+ 		bprm->have_execfd = 1;
+ 	if (fmt->flags & MISC_FMT_CREDENTIALS)
+ 		bprm->execfd_creds = 1;
++	if (fmt->flags & MISC_FMT_EXE_BINARY)
++		bprm->exe_binary = 1;
+ 
+ 	retval = 0;
+ ret:
+@@ -335,6 +338,13 @@
+ 			e->flags |= (MISC_FMT_CREDENTIALS |
+ 					MISC_FMT_OPEN_BINARY);
+ 			break;
++		case 'E':
++			/* the process's exe link (mm->exe_file) is the binary, as
++			   for a native exec; implies the open-binary flag, whose
++			   file it is */
++			p++;
++			e->flags |= (MISC_FMT_EXE_BINARY | MISC_FMT_OPEN_BINARY);
++			break;
+ 		case 'F':
+ 			pr_debug("register: flag: F: open interpreter file now\n");
+ 			p++;
+@@ -610,6 +620,8 @@
+ 		*dp++ = 'C';
+ 	if (e->flags & MISC_FMT_OPEN_FILE)
+ 		*dp++ = 'F';
++	if (e->flags & MISC_FMT_EXE_BINARY)
++		*dp++ = 'E';
+ 	*dp++ = '\n';
+ 
+ 	if (!test_bit(Magic, &e->flags)) {
+--- a/fs/exec.c
++++ b/fs/exec.c
+@@ -1158,7 +1158,8 @@
+ 	 * not visible until then. Doing it here also ensures
+ 	 * we don't race against replace_mm_exe_file().
+ 	 */
+-	retval = set_mm_exe_file(bprm->mm, bprm->file);
++	retval = set_mm_exe_file(bprm->mm, bprm->exe_binary && bprm->executable ?
++				 bprm->executable : bprm->file);
+ 	if (retval)
+ 		goto out;
+ 
+--- a/include/linux/binfmts.h
++++ b/include/linux/binfmts.h
+@@ -32,6 +32,8 @@
+ 
+ 		/* Use the creds of a script (see binfmt_misc) */
+ 		execfd_creds:1,
++		/* /proc/<pid>/exe names the binary, not its interpreter (binfmt_misc E) */
++		exe_binary:1,
+ 		/*
+ 		 * Set by bprm_creds_for_exec hook to indicate a
+ 		 * privilege-gaining exec has happened. Used to set

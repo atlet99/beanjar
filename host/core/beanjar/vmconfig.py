@@ -18,6 +18,7 @@ FIELDS = {
     "mem": ("hardware", "memory_mib"),
     "smp": ("hardware", "cpus"),
     "free_page_reporting": ("hardware", "free_page_reporting"),
+    "userland": ("hardware", "userland"),
     "display": ("display", "backend"),
     "gpu": ("display", "gpu"),
     "audio": ("audio", "backend"),
@@ -107,6 +108,7 @@ def decode(doc):
     cfg.setdefault("audio", "dbus" if display == "dbus" else "none")
     for key in (
         "free_page_reporting",
+        "userland",
         "debug_mode",
         "display",
         "gpu",

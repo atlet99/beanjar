@@ -20,6 +20,8 @@ Topics:
   VM and its password.
 - [Boot a global firmware as another region's model](board-profiles.md): the `broadcast` setting.
 - [Configure secure-store items](sestore.md): a VM's model key and other secure-store values.
+- [Install the macOS stack with Homebrew](macos.md): Beanjar's QEMU and its graphics stack from
+  the tap (not usable yet).
 
 Reference:
 

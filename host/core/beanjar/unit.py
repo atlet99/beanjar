@@ -100,6 +100,8 @@ ENV_NAMES = frozenset(
         "LISTEN_ADDRESS",
         "FORWARD",
         "FREE_PAGE_REPORTING",
+        "USERLAND",
+        "QEMU_ARM",
         "GPU_DEVICE",
         "VHOST_USER_GPU",
         "DEBUG_MODE",

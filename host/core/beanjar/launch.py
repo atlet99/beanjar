@@ -255,6 +255,7 @@ def run(words, env=None):
         files,
         p.fw,
         p.broadcast,
+        p.qemu_arm if p.userland == "qemu-user" else None,
     )
     info = paths.vm_info(p.target, p.fw, p.fw_name)  # the viewer's window title
     info["layers"] = list(p.layers)  # the viewer's GPU meter: the gl layer is the guest on host GL

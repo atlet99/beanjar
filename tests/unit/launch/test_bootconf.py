@@ -473,6 +473,13 @@ class BootConfTest(unittest.TestCase):
                 with self.assertRaises(ValueError, msg=bad.init_system + " " + bad.pmlog_mode):
                     targets.boot_conf(("m2", "systemdtest"), ["webos"])
 
+    def test_userland(self):
+        """USERLAND="qemu-user" only when asked; init registers /host/qemu-arm for it."""
+        layers = ["normal", "gl", "webos", "soc", "common"]
+        self.assertNotIn("USERLAND", targets.boot_conf(("h13", "afro"), layers))
+        text = targets.boot_conf(("h13", "afro"), layers, userland="qemu-user")
+        self.assertIn('USERLAND="qemu-user"\n', text)
+
     def test_pointer_wakeup_release_and_soc(self):
         """Tested targets use the native cursor-on pulse without enabling untested W20H."""
         self.assertFalse(targets.soc(("k8hp", "queue")).pointer_wakeup)

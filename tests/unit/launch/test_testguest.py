@@ -11,7 +11,7 @@ TESTGUEST = ("virt", "testguest")
 
 
 def firmware(tmp_path):
-    """A firmware directory as guest/testguest/build.sh publishes it (the rootfs a stand-in)."""
+    """A firmware directory as scripts/testguest-setup writes it (the rootfs a stand-in)."""
     fw = tmp_path / "image"
     fw.mkdir()
     (fw / "rootfs.pak").write_bytes(b"hsqs")
@@ -25,7 +25,7 @@ def test_target_row():
     assert not targets.board_data(TESTGUEST)
     assert targets.board_data(("h13", "afro"))
     assert r.partmap is None and r.nvm is None
-    assert r.always_layers == () and r.init_system == "sysvinit"
+    assert r.always_layers == ("testguest",) and r.init_system == "sysvinit"
     assert targets.pak_files(TESTGUEST) == ("rootfs",)
     assert targets.takes_power_off(TESTGUEST)
 

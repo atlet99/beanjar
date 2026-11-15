@@ -4,6 +4,7 @@
 """The prebuilt third-party programs of beanjar-vendor that packaging/vendor.toml pins.
 
     vendor.py tree ARCH PROGRAM...     print the unpacked tree of each, one per line
+    vendor.py pinned PROGRAM...        print those of the programs that are pinned, one per line
 
 Each program is a GitHub release of the pinned repository, tag <program>-<version>, holding
 <program>-<version>-<arch>.tar.xz (arch: Debian's amd64 or arm64), whose root is the program's
@@ -13,6 +14,15 @@ mismatch stops. It is unpacked into build/vendor/<program>-<version>-<arch>, who
 name the program, version and architecture pinned. A tree already unpacked from the pinned
 tarball is used as it is, so this runs at every configure without downloading again. There is
 no other source of these programs: no system package and no local build stands in for them.
+
+A pin with guest = "<arch>" is a program that runs inside the guest, not on the host: it has one
+tarball, for that architecture, which every host architecture takes (qemu-user's qemu-arm: arm64;
+the test guest's userland, docs/dev/architecture/test-guest.md: armhf).
+
+BEANJAR_VENDOR_<PROGRAM> (upper case, '-' as '_'), the path of a tarball of the program, takes it
+in place of the pinned release, pinned or not: a build of beanjar-vendor's own (its CI run's
+artifact) before it is released. It is unpacked into build/vendor/<file name>, and its BUILDINFO
+must name the program; nothing is checked against the pin.
 """
 
 import hashlib
@@ -47,7 +57,10 @@ def pins(path=PIN):
         tag = pin.get("tag", "")
         if not tag.startswith(program + "-"):
             raise Error(f"{path}: {program}: the tag must be {program}-<version>, not {tag!r}")
-        for arch in ARCHS:
+        guest = pin.get("guest")
+        if guest is not None and not isinstance(guest, str):
+            raise Error(f"{path}: {program}: guest is the guest's architecture, not {guest!r}")
+        for arch in (guest,) if guest else ARCHS:
             if len(pin.get(arch, "")) != 64:
                 raise Error(f"{path}: {program}: no SHA-256 for {arch}")
         found[program] = dict(pin, repository=repository, version=tag[len(program) + 1 :])
@@ -104,14 +117,47 @@ def download(url, dest, expected):
     os.replace(part, dest)
 
 
+def unpack(tarball, directory, expected):
+    """tarball unpacked as directory, unless it already is (its marker holds expected)."""
+    marker = directory.with_name(directory.name + ".sha256")
+    if directory.is_dir() and marker.is_file() and marker.read_text().strip() == expected:
+        return
+    work = directory.with_name(directory.name + f".unpack-{os.getpid()}")
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    with tarfile.open(tarball, "r:xz") as t:
+        t.extractall(work, filter="data")
+    shutil.rmtree(directory, ignore_errors=True)
+    os.replace(work, directory)
+    marker.write_text(expected + "\n")
+
+
+def override(program):
+    """The tarball BEANJAR_VENDOR_<PROGRAM> names, or None."""
+    value = os.environ.get("BEANJAR_VENDOR_" + program.upper().replace("-", "_"))
+    return Path(value).resolve() if value else None
+
+
 def tree(program, arch, pin_path=PIN, cache=CACHE):
     """The unpacked tree of program for arch, downloaded and unpacked first where needed."""
+    local = override(program)
+    if local:
+        if not local.is_file() or not local.name.endswith(".tar.xz"):
+            raise Error(f"BEANJAR_VENDOR_{program.upper()}: no tarball {local}")
+        directory = cache / local.name.removesuffix(".tar.xz")
+        unpack(local, directory, sha256(local))
+        got = buildinfo(directory / "BUILDINFO").get("Program")
+        if got != program:
+            raise Error(f"{local}: BUILDINFO names {got!r}, not {program!r}")
+        return directory
     all_pins = pins(pin_path)
     if program not in all_pins:
         raise Error(f"{pin_path} pins no {program}")
     if arch not in ARCHS:
         raise Error(f"no prebuilt {program} for {arch} (only {', '.join(ARCHS)})")
     pin = all_pins[program]
+    if pin.get("guest"):
+        arch = pin["guest"]  # it runs in the guest, on every host
     name, url = asset(pin, program, arch)
     expected = pin[arch]
     tarball = cache / "download" / name
@@ -119,14 +165,7 @@ def tree(program, arch, pin_path=PIN, cache=CACHE):
     marker = directory.with_name(directory.name + ".sha256")
     if not (directory.is_dir() and marker.is_file() and marker.read_text().strip() == expected):
         download(url, tarball, expected)
-        work = directory.with_name(directory.name + f".unpack-{os.getpid()}")
-        shutil.rmtree(work, ignore_errors=True)
-        work.mkdir(parents=True)
-        with tarfile.open(tarball, "r:xz") as t:
-            t.extractall(work, filter="data")
-        shutil.rmtree(directory, ignore_errors=True)
-        os.replace(work, directory)
-        marker.write_text(expected + "\n")
+        unpack(tarball, directory, expected)
     info = buildinfo(directory / "BUILDINFO")
     for field, want in (("Program", program), ("Version", pin["version"]), ("Architecture", arch)):
         if info.get(field) != want:
@@ -135,6 +174,15 @@ def tree(program, arch, pin_path=PIN, cache=CACHE):
 
 
 def main(argv):
+    if len(argv) >= 2 and argv[0] == "pinned":
+        try:
+            found = pins()
+        except Error as e:
+            sys.exit(f"vendor.py: {e}")
+        for program in argv[1:]:
+            if program in found:
+                print(program)
+        return
     if len(argv) < 3 or argv[0] != "tree":
         sys.exit(__doc__)
     try:

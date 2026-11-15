@@ -87,6 +87,26 @@ def test_validation():
         vmconfig.decode({"smp": 4})
 
 
+def test_userland():
+    """hardware.userland: native, the default, is not written out; qemu-user is USERLAND=qemu-user
+    and is refused on the platforms that cannot run it (vmsettings.USERLAND_REFUSED)."""
+    base = {"firmware": {"directory": "firmware"}}
+    assert "userland" not in vmconfig.decode(base)
+    assert "USERLAND" not in vmsettings.launcher_env(vmconfig.decode(base))
+    cfg = vmconfig.decode(dict(base, hardware={"userland": "qemu-user"}))
+    assert vmsettings.launcher_env(cfg)["USERLAND"] == "qemu-user"
+    vmsettings.validate(cfg)
+    vmsettings.validate(dict(cfg, platform="webOS"))
+    vmsettings.validate(dict(cfg, platform="Test"))
+    for platform in ("NetCast", "SimpleSmart"):
+        with pytest.raises(core.Error, match="userland=qemu-user"):
+            vmsettings.validate(dict(cfg, platform=platform))
+    vmsettings.validate(dict(cfg, userland="native", platform="NetCast"))
+    with pytest.raises(core.Error, match="userland=x86"):
+        vmsettings.validate(dict(cfg, userland="x86"))
+    assert vmsettings.SETTINGS["userland"] == "USERLAND"
+
+
 def test_free_page_reporting():
     """Opt-in: off is the default and is not written out; on is FREE_PAGE_REPORTING=on."""
     base = {"firmware": {"directory": "firmware"}}

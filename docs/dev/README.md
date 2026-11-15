@@ -26,8 +26,8 @@ The host:
 - [beanjar-vnc](architecture/vnc.md): the TV picture, sound and H.264 over VNC.
 - [beanjar-web](architecture/web-viewer.md): VMs in a browser.
 - [The GPU in its own process](architecture/gpu-process.md): vhost-user-gpu on ARM hosts.
-- [Debian 13 distribution layout](architecture/distribution.md): the package split and installed
-  paths.
+- [Distribution layout](architecture/distribution.md): the Debian package split and installed
+  paths, and the Homebrew tap for macOS.
 
 The guest and the firmware:
 
@@ -46,6 +46,8 @@ The guest and the firmware:
   legacy platforms.
 - [The open test guest](architecture/test-guest.md): a Buildroot userland of ours that CI boots
   without LG firmware, its checks and the CI job.
+- [The 32-bit userland under qemu-user](architecture/qemu-user-bridge.md): the compat bridge, for
+  hosts without AArch32 at EL0 (`userland = "qemu-user"`).
 
 ## Elsewhere in the tree
 
