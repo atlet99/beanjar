@@ -1,0 +1,89 @@
+x86: a system call for 64-bit tasks that runs one i386 compat call (compat bridge)
+
+The x86-64 counterpart of the arm64 compat bridge (0023), for an x86-64
+guest kernel that runs a 32-bit ARM userland under qemu-arm. The kernel's
+compat layer here is i386's, with its own call numbers and argument
+passing, so qemu-arm translates the ordinary system calls itself and hands
+the kernel only those whose meaning depends on a 32-bit caller: ioctl,
+read, write, readv, writev (evdev and uinput record sizes, compat iovecs,
+the drivers' compat_ioctl) and set_robust_list/get_robust_list.
+
+System call 0x7ff0, above the native table and so reaching only the
+invalid-call path of do_syscall_64, takes an i386 call number in rdi and
+its first five arguments in rsi, rdx, r10, r8 and r9, and runs
+ia32_sys_call() with TS_COMPAT set for that call only. Any other i386
+number gets ENOSYS. A task that never makes the call sees no difference.
+Built with CONFIG_IA32_EMULATION only; arm64 is untouched.
+
+--- a/arch/x86/entry/syscall_64.c
++++ b/arch/x86/entry/syscall_64.c
+@@ -83,6 +83,57 @@
+ 	return false;
+ }
+ 
++#ifdef CONFIG_IA32_EMULATION
++/*
++ * compat_bridge: a 64-bit task runs one i386 compat system call with TS_COMPAT set for that
++ * call only, so the kernel's compat converters (compat_sys_ioctl and the drivers'
++ * compat_ioctl, in_compat_syscall() users such as evdev's 16-byte events) see a 32-bit
++ * caller. Its user is qemu-arm running a 32-bit ARM userland with guest addresses equal to
++ * host addresses below 4 GiB: qemu translates every other call itself, and hands over only
++ * those whose meaning depends on the caller being 32-bit. So only those are accepted:
++ * ioctl, read, write, readv, writev, set_robust_list and get_robust_list; everything else
++ * is ENOSYS. rdi is the i386 call number; rsi, rdx, r10, r8 and r9 are its first five
++ * arguments (ebx, ecx, edx, esi, edi). The number lies above the native table, so a task
++ * that never makes the call sees no difference. Seccomp and audit see the outer call.
++ */
++#define __NR_compat_bridge	0x7ff0
++
++static long compat_bridge(struct pt_regs *regs)
++{
++	struct thread_info *ti = current_thread_info();
++	unsigned int nr = (u32)regs->di;
++	struct pt_regs cregs;
++	u32 was;
++	long ret;
++
++	switch (nr) {
++	case __NR_ia32_read:
++	case __NR_ia32_write:
++	case __NR_ia32_ioctl:
++	case __NR_ia32_readv:
++	case __NR_ia32_writev:
++	case __NR_ia32_set_robust_list:
++	case __NR_ia32_get_robust_list:
++		break;
++	default:
++		return -ENOSYS;
++	}
++	cregs = *regs;
++	cregs.bx = (u32)regs->si;
++	cregs.cx = (u32)regs->dx;
++	cregs.dx = (u32)regs->r10;
++	cregs.si = (u32)regs->r8;
++	cregs.di = (u32)regs->r9;
++	cregs.bp = 0;
++	cregs.orig_ax = nr;
++	was = ti->status & TS_COMPAT;
++	ti->status |= TS_COMPAT;
++	ret = ia32_sys_call(&cregs, nr);
++	ti->status = (ti->status & ~TS_COMPAT) | was;
++	return ret;
++}
++#endif
++
+ /* Returns true to return using SYSRET, or false to use IRET */
+ __visible noinstr bool do_syscall_64(struct pt_regs *regs, int nr)
+ {
+@@ -92,6 +143,11 @@
+ 	instrumentation_begin();
+ 
+ 	if (!do_syscall_x64(regs, nr) && !do_syscall_x32(regs, nr) && nr != -1) {
++#ifdef CONFIG_IA32_EMULATION
++		if (nr == __NR_compat_bridge)
++			regs->ax = compat_bridge(regs);
++		else
++#endif
+ 		/* Invalid system call, but still a system call. */
+ 		regs->ax = __x64_sys_ni_syscall(regs);
+ 	}

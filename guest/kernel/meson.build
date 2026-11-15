@@ -74,3 +74,86 @@ peripheral_modules = custom_target('peripheral-modules',
             kernel_modules, '@OUTPUT@', lgfs_ko],
   build_by_default: true)
 
+
+# The experimental x86-64 guest kernel (vm.toml's hardware.guest_kernel = "x86-64", the q35 machine
+# under KVM; docs/research/qemu-user-bridge.md), build/x86_64/bzImage: the same source tree and the
+# same defconfig with configs/x86_64.config over it, built with ARCH=x86_64 by the build machine's
+# own compiler, and the out-of-tree modules above built against it, each from the same sources. On
+# an x86-64 build machine only (option x86_64_kernel), never with kernel_debug; once in
+# <shared_dir>/kernel/<key> as the arm64 kernel is. guest/initramfs makes its initramfs from these.
+x86_64_kernel = get_option('x86_64_kernel').disable_auto_if(
+  build_machine.cpu_family() != 'x86_64' or get_option('kernel_debug')).allowed()
+if x86_64_kernel
+  x86_64_defconfig = custom_target('webos_virt_x86_64_defconfig',
+    input: ['configs/webos_virt_defconfig', 'configs/x86_64.config'],
+    output: 'webos_virt_x86_64_defconfig',
+    command: ['sh', '-c', 'cat "$1" "$2" > "$3"', 'sh', '@INPUT0@', '@INPUT1@', '@OUTPUT@'])
+  x86_64_gcc = 'gcc'
+  find_program(x86_64_gcc, native: true)
+  x86_64_env = {'GUEST_ARCH': 'x86_64'}
+  x86_64_root = shared_dir / 'kernel' / run_command(python, shared_py, 'key',
+    'arch x86_64', 'cross_compile ', 'defconfig webos_virt_x86_64_defconfig',
+    'source ' + sources['linux']['dir'], check: true).stdout().strip()
+  x86_64_obj = x86_64_root / 'linux-obj'
+  x86_64_shared = [python, shared_py, 'run', '--tool', x86_64_gcc]
+  x86_64_outputs = custom_target('kernel-x86_64',
+    output: ['bzImage', 'gen_init_cpio-x86_64', 'kernel-modules-x86_64'],
+    depfile: 'kernel-x86_64.d',
+    depends: sources['linux']['stamp'],
+    depend_files: [kbuild, files('configs/webos_virt_defconfig', 'configs/x86_64.config')],
+    env: x86_64_env,
+    command: x86_64_shared + ['--dir', x86_64_root, '--depfile', '@DEPFILE@',
+              '--input', sources['linux']['dir'] / '.wrap-key', kbuild, x86_64_defconfig,
+              '--file', x86_64_root / 'bzImage', '@OUTPUT0@',
+              '--file', x86_64_root / 'gen_init_cpio', '@OUTPUT1@',
+              '--tree', x86_64_root / 'modules', '@OUTPUT2@', '--',
+              kbuild, 'linux', sources['linux']['dir'], x86_64_obj, '', x86_64_defconfig,
+              x86_64_root / 'bzImage', x86_64_root / 'gen_init_cpio', x86_64_root / 'modules'],
+    console: true,
+    build_by_default: true)
+  published += [['file', x86_64_outputs[0].full_path(), 'x86_64/bzImage']]
+  publish_depends += x86_64_outputs
+  # the out-of-tree modules: [name, its sources (the arm64 build's inputs), the modules whose
+  # Module.symvers it needs], in build order
+  x86_64_ko = {}
+  foreach m : [['lgemu', lgemu_inputs, []],
+               ['media-pool', media_pool_inputs, []],
+               ['mstar-utopia', mstar_utopia_inputs, ['lgemu']],
+               ['lg115x', lg115x_inputs, ['lgemu']],
+               ['rtk', rtk_inputs, ['lgemu']],
+               ['btmtk_usb', btmtk_usb_inputs, []],
+               ['webos_tv', webos_tv_inputs, ['lgemu']],
+               ['dtv_soc', dtv_soc_inputs, ['webos_tv']],
+               ['lgfs', lgfs_inputs, []]]
+    name = m[0]
+    after = ['--after', x86_64_root]
+    symvers = []
+    depends = [sources['linux']['stamp'], x86_64_outputs]
+    foreach dep : m[2]
+      after += ['--after', x86_64_root / dep]
+      symvers += x86_64_root / dep / 'obj' / 'Module.symvers'
+      depends += x86_64_ko[dep]
+    endforeach
+    x86_64_ko += {name: custom_target(name + '-x86_64',
+      output: name + '-x86_64.ko',
+      depfile: name + '-x86_64.ko.d',
+      depends: depends,
+      depend_files: m[1],
+      env: x86_64_env,
+      command: x86_64_shared + ['--dir', x86_64_root / name] + after + ['--depfile', '@DEPFILE@',
+                '--input', m[1], '--file', x86_64_root / name / (name + '.ko'), '@OUTPUT@', '--',
+                kbuild, 'module', sources['linux']['dir'], x86_64_obj, '',
+                meson.current_source_dir() / 'modules' / name, x86_64_root / name / 'obj',
+                x86_64_root / name / (name + '.ko')] + symvers,
+      console: true,
+      build_by_default: true)}
+  endforeach
+  x86_64_peripheral_modules = custom_target('peripheral-modules-x86_64',
+    output: 'peripheral-modules-x86_64',
+    depends: [x86_64_outputs, x86_64_ko['lgfs']],
+    depend_files: [kbuild],
+    env: x86_64_env,
+    command: [kbuild, 'tree', sources['linux']['dir'], x86_64_obj, '', x86_64_outputs[2], '@OUTPUT@',
+              x86_64_ko['lgfs']],
+    build_by_default: true)
+endif

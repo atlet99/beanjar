@@ -23,3 +23,23 @@ busybox = custom_target('busybox',
             kbuild, 'busybox', sources['busybox']['dir'], busybox_root / 'obj',
             get_option('arm64_cross_compile'), busybox_config, busybox_root / 'busybox'],
   console: true)
+# The x86-64 guest kernel's initramfs (guest/kernel/meson.build, x86_64_kernel): the same busybox,
+# static x86-64, by the build machine's own compiler.
+if x86_64_kernel
+  busybox_x86_64_root = shared_dir / 'busybox' / run_command(python, shared_py, 'key',
+    'arch x86_64', 'cross_compile ', 'source ' + sources['busybox']['dir'],
+    check: true).stdout().strip()
+  busybox_x86_64 = custom_target('busybox-x86_64',
+    output: 'busybox-x86_64',
+    depfile: 'busybox-x86_64.d',
+    depends: sources['busybox']['stamp'],
+    depend_files: [kbuild, busybox_config],
+    env: {'GUEST_ARCH': 'x86_64'},
+    command: [python, shared_py, 'run', '--tool', 'gcc',
+              '--dir', busybox_x86_64_root, '--depfile', '@DEPFILE@',
+              '--input', sources['busybox']['dir'] / '.wrap-key', kbuild, busybox_config,
+              '--file', busybox_x86_64_root / 'busybox', '@OUTPUT@', '--',
+              kbuild, 'busybox', sources['busybox']['dir'], busybox_x86_64_root / 'obj',
+              '', busybox_config, busybox_x86_64_root / 'busybox'],
+    console: true)
+endif

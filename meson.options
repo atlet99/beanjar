@@ -27,3 +27,5 @@ option('virtcam', type: 'feature', value: 'auto',
   description: 'The virtual USB camera (host/helpers/virtcam, beanjar io usb plug --camera): usbipdcpp built from source (cmake, libspdlog-dev, libasio-dev), libusbredirparser; auto: where they are found, required in the arm64 cross build')
 option('kernel_debug', type: 'boolean', value: false,
   description: 'the guest kernel with guest/kernel/configs/debug.config over the defconfig (KASAN, lockdep, kmemleak, KUnit): for a build directory of its own with its own publish_dir, never the published Image')
+option('x86_64_kernel', type: 'feature', value: 'auto',
+  description: 'The experimental x86-64 guest kernel, its modules and initramfs (build/x86_64/; hardware.guest_kernel = "x86-64"), built with the build machine\'s own compiler; auto: on an x86-64 build machine, without kernel_debug')

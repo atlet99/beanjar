@@ -15,3 +15,15 @@ foreach name : ['virtio-pointer', 'virtio-touch', 'virtio-ir', 'virtio-tuner', '
     depfile: name + '.d',
     command: [arm64_cc] + arm64_cflags + ['-MD', '-MF', '@DEPFILE@', '-o', '@OUTPUT@', '@INPUT@'])}
 endforeach
+# The same programs, static x86-64, for the x86-64 guest kernel's initramfs (x86_64_kernel).
+if x86_64_kernel
+  x86_64_cc = find_program('gcc', native: true)
+  virtio_bins_x86_64 = {}
+  foreach name, _bin : virtio_bins
+    virtio_bins_x86_64 += {name: custom_target(name + '-x86_64',
+      input: name + '.c',
+      output: name + '-x86_64',
+      depfile: name + '-x86_64.d',
+      command: [x86_64_cc] + arm64_cflags + ['-MD', '-MF', '@DEPFILE@', '-o', '@OUTPUT@', '@INPUT@'])}
+  endforeach
+endif

@@ -14,7 +14,9 @@
 #include <linux/string.h>
 #include <linux/uaccess.h>
 #include <linux/usb.h>
+#ifdef CONFIG_ARM64
 #include <asm/traps.h>
+#endif
 #include "lgemu-drv.h"
 
 /* ---- the page store ---- */
@@ -44,6 +46,7 @@ void *lgemu_store_ptr(struct lgemu_store *s, u64 addr)
 }
 EXPORT_SYMBOL_GPL(lgemu_store_ptr);
 
+#ifdef CONFIG_ARM64
 /* Narrow A32 scalar decoder. No Thumb, conditional instructions, writeback,
  * signed loads, PC operands, or multi/exclusive accesses. Rejection precedes
  * every device side effect. Architectural completion uses the kernel helper,
@@ -118,6 +121,16 @@ unsupported:
         task_pid_nr(current), r->pc, vmf->real_address, insn, vmf->flags);
     return VM_FAULT_SIGBUS;
 }
+
+#else
+/* The A32 decoder needs the faulting task's AArch32 registers: arm64 only. */
+static vm_fault_t store_mmio_fault(struct lgemu_store *s, struct vm_fault *vmf)
+{
+    pr_warn_ratelimited("lgemu: unsupported MMIO pid=%d address=%lx (no A32 decoder here)\n",
+                        task_pid_nr(current), vmf->real_address);
+    return VM_FAULT_SIGBUS;
+}
+#endif
 
 static vm_fault_t store_fault(struct vm_fault *vmf)
 {
@@ -204,11 +217,16 @@ static void count_trace(struct lgemu_counts *c, const char *what, u32 a, u32 b)
 
     if (!__ratelimit(&rs))
         return;
+#ifdef CONFIG_ARM64
     if (compat_user_mode(regs) && get_user(word, (u32 __user *)compat_ptr(regs->compat_sp + 8)))
         word = 0;
     pr_info("%s: trace %s %#x:%u: %s[%d] pc %#llx lr %#llx [sp+8] %#x\n", c->module,
             what ? what : "-", a, b, current->comm, task_pid_nr(current), regs->pc, regs->compat_lr,
             word);
+#else
+    pr_info("%s: trace %s %#x:%u: %s[%d] pc %#lx [sp+8] %#x\n", c->module, what ? what : "-", a, b,
+            current->comm, task_pid_nr(current), (unsigned long)instruction_pointer(regs), word);
+#endif
 }
 
 void lgemu_count(struct lgemu_counts *c, const char *what, u32 a, u32 b)

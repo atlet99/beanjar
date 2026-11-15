@@ -57,3 +57,29 @@ initramfs = custom_target('initramfs',
   build_by_default: true)
 published += [['file', initramfs[1].full_path(), 'initramfs.cpio.gz']]
 publish_depends += initramfs
+
+# The experimental x86-64 guest kernel's initramfs, build/x86_64/initramfs.cpio.gz
+# (guest/kernel/meson.build, x86_64_kernel): the same list and rootfs/, with the x86-64 builds of
+# busybox, the programs of src/ and the kernel modules.
+if x86_64_kernel
+  initramfs_x86_64_args = ['--var', 'BUSYBOX', busybox_x86_64, '--var', 'SPLASH_PPM', splash_ppm,
+                           '--var', 'KERNEL_MODULES', x86_64_peripheral_modules]
+  foreach name, bin : virtio_bins_x86_64
+    initramfs_x86_64_args += ['--var', name.to_upper().replace('-', '_'), bin]
+  endforeach
+  foreach name, ko : x86_64_ko
+    if name != 'lgfs'   # in KERNEL_MODULES' extra/
+      initramfs_x86_64_args += ['--var', name.to_upper().replace('-', '_') + '_KO', ko]
+    endif
+  endforeach
+  initramfs_x86_64 = custom_target('initramfs-x86_64',
+    input: 'initramfs.list',
+    output: ['initramfs-x86_64.list', 'initramfs-x86_64.cpio.gz'],
+    depfile: 'initramfs-x86_64.d',
+    command: [python, initramfs_py, '--list', '@INPUT@', '--src', meson.current_source_dir() / 'rootfs',
+              '--out-list', '@OUTPUT0@', '--cpio', '@OUTPUT1@', '--depfile', '@DEPFILE@',
+              '--gen-init-cpio', gen_init_cpio, '--gzip', gzip] + initramfs_x86_64_args,
+    build_by_default: true)
+  published += [['file', initramfs_x86_64[1].full_path(), 'x86_64/initramfs.cpio.gz']]
+  publish_depends += initramfs_x86_64
+endif

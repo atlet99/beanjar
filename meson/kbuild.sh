@@ -1,10 +1,13 @@
 #!/bin/sh
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-# The arm64 side of the guest, built with its own Kbuild/make (guest/kernel/meson.build runs this):
+# The arm64 side of the guest, built with its own Kbuild/make (guest/kernel/meson.build runs this);
+# with GUEST_ARCH=x86_64 in the environment, the experimental x86-64 guest kernel's (bzImage), its
+# modules and busybox, which build with the build machine's own compiler (CROSS_COMPILE empty):
 #
 #   kbuild.sh linux   SRC OBJ CROSS_COMPILE DEFCONFIG OUT CPIO MODULES
-#                                                          DEFCONFIG -> arch/arm64/boot/Image,
+#                                                          DEFCONFIG -> arch/arm64/boot/Image
+#                                                          (x86_64: arch/x86/boot/bzImage),
 #                                                          the tree's usr/gen_init_cpio (a host
 #                                                          program: the initramfs is made with it),
 #                                                          and MODULES, the kernel's own modules as
@@ -32,7 +35,12 @@
 # build directory and on every machine: build/Image does not depend on which target built last.
 set -eu
 what=$1 SRC=$2 OBJ=$3
-export ARCH=arm64 CROSS_COMPILE="$4"
+export ARCH="${GUEST_ARCH:-arm64}" CROSS_COMPILE="$4"
+case $ARCH in
+arm64) SRCARCH=arm64 IMAGE=Image ;;
+x86_64) SRCARCH=x86 IMAGE=bzImage ;;
+*) echo "kbuild.sh: GUEST_ARCH $ARCH: arm64 or x86_64" >&2; exit 1 ;;
+esac
 export KBUILD_BUILD_TIMESTAMP="1970-01-01 00:00:00 UTC" KBUILD_BUILD_USER=beanjar KBUILD_BUILD_HOST=beanjar \
 	KBUILD_BUILD_VERSION=1
 shift 4
@@ -58,28 +66,33 @@ update() { # update BUILT OUT
 case $what in
 linux)
 	# DEFCONFIG (guest/kernel/configs/webos_virt_defconfig) is a savedefconfig file. It goes where Kbuild
-	# looks for <name>_defconfig, arch/arm64/configs/ of the object tree (conf reads the objtree
+	# looks for <name>_defconfig, arch/<arch>/configs/ of the object tree (conf reads the objtree
 	# before the srctree), and `make <name>_defconfig` expands it into .config. That only happens
 	# when the file changed or there is no .config: otherwise make keeps the .config and its own
 	# syncconfig follows a changed source tree.
 	DEFCONFIG=$1 OUT=$2 CPIO=$3 MODULES=$4
 	name=$(basename "$DEFCONFIG")
-	mkdir -p "$OBJ/arch/arm64/configs"
-	if ! [ -f "$OBJ/.config" ] || ! cmp -s "$DEFCONFIG" "$OBJ/arch/arm64/configs/$name"; then
-		cp "$DEFCONFIG" "$OBJ/arch/arm64/configs/$name"
-		make -s -C "$SRC" O="$OBJ" CC="$KCC" "$name" || { rm -f "$OBJ/arch/arm64/configs/$name"; exit 1; }
-		# an option whose dependency is off is dropped without a word: every "=y" must survive
-		missing=$(grep '^CONFIG_.*=y$' "$DEFCONFIG" | while read -r l; do
-			grep -qx "$l" "$OBJ/.config" || echo "${l%=y}"; done)
-		[ -z "$missing" ] || { rm -f "$OBJ/arch/arm64/configs/$name"
+	configs="$OBJ/arch/$SRCARCH/configs"
+	mkdir -p "$configs"
+	if ! [ -f "$OBJ/.config" ] || ! cmp -s "$DEFCONFIG" "$configs/$name"; then
+		cp "$DEFCONFIG" "$configs/$name"
+		make -s -C "$SRC" O="$OBJ" CC="$KCC" "$name" || { rm -f "$configs/$name"; exit 1; }
+		# an option whose dependency is off is dropped without a word: every "=y" must survive.
+		# A later line for the same option wins (the x86-64 kernel's DEFCONFIG is the arm64 one
+		# with configs/x86_64.config after it, which turns the arm64-only options off).
+		missing=$(awk '/^CONFIG_[A-Za-z0-9_]*=/ { k = $0; sub(/=.*/, "", k); v[k] = $0; next }
+		               /^# CONFIG_[A-Za-z0-9_]* is not set$/ { delete v[$2] }
+		               END { for (k in v) if (v[k] ~ /=y$/) print v[k] }' "$DEFCONFIG" |
+			while read -r l; do grep -qx "$l" "$OBJ/.config" || echo "${l%=y}"; done)
+		[ -z "$missing" ] || { rm -f "$configs/$name"
 			echo "kbuild.sh: $name: not set after defconfig:" $missing >&2; exit 1; }
 	fi
 	# Image builds usr/ too (BLK_DEV_INITRD: the kernel's built-in default initramfs), and with it
 	# the gen_init_cpio host program. `modules` builds the defconfig's =m drivers (the USB class
 	# drivers the initramfs loads) and runs modpost over vmlinux: its Module.symvers lets an
 	# external module's symbols be checked against the exports.
-	make -s -C "$SRC" O="$OBJ" CC="$KCC" -j"$JOBS" Image modules
-	update "$OBJ/arch/arm64/boot/Image" "$OUT"
+	make -s -C "$SRC" O="$OBJ" CC="$KCC" -j"$JOBS" "$IMAGE" modules
+	update "$OBJ/arch/$SRCARCH/boot/$IMAGE" "$OUT"
 	update "$OBJ/usr/gen_init_cpio" "$CPIO"
 	# modules_install, stripped of debug sections, runs the host's depmod for modules.dep,
 	# modules.alias and modules.builtin; the build symlink points into this machine's tree and

@@ -1,0 +1,22 @@
+webos-ivshmem: register at device_initcall on x86
+
+On x86 ACPI claims the PCI resources at fs_initcall, later than on arm64,
+so the media pool's doorbell device is not yet usable at subsys_initcall.
+The x86-64 guest kernel registers the driver at device_initcall; arm64
+keeps subsys_initcall.
+
+--- a/drivers/misc/webos-ivshmem.c
++++ b/drivers/misc/webos-ivshmem.c
+@@ -152,7 +152,12 @@
+ {
+ 	return pci_register_driver(&webos_ivshmem_driver);
+ }
++/* x86: ACPI claims PCI resources at fs_initcall, and MSI vectors are plentiful */
++#ifdef CONFIG_X86
++device_initcall(webos_ivshmem_init);
++#else
+ subsys_initcall(webos_ivshmem_init);
++#endif
+ 
+ #ifdef CONFIG_WEBOS_IVSHMEM_KUNIT_TEST
+ #include "webos-ivshmem-test.c"

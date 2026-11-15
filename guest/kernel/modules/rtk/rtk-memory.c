@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /* Physical backing, DCUs, PLI/auth, rtkmem and the MD engine. */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+#include <linux/file.h>
 #include <linux/fb.h>
 #include <linux/vmalloc.h>
 #include <linux/anon_inodes.h>
