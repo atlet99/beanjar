@@ -293,7 +293,7 @@ The guest sees only its runtime tree, `run/share/` (`beanjar/share.py`; the chec
 |---|---|---|---|
 | `run/share/vm/` | `vm`, read-only | `/run/vm` (initramfs only) | the per-VM layer above |
 | `run/share/host/` | `host`, read-only | `/host`, `/mnt/host` in webOS | made afresh at each start: `boot.conf`; `layer-sources`, where each layer's image was made from (the layers themselves are read-only disks, `layerimage.py`: the selected variants under `build/components`, or `/usr/share/beanjar/guest/layers` in packages, for the firmware's target); `binds.conf`; `guest/scripts/{save-logs,check-m1,time-boot}.sh`; whatever `host/scripts/vm-launcher put [--dir VM] PATH` adds while it runs |
-| `run/share/out/` | `out`, read-write | `/host/out`, `/mnt/host/out` | what the guest writes: `logs/<name>/` (saved to `logs/saved/` at stop and start, or by `host/scripts/vm-launcher logs`: its regular files and directories only, never following the guest's links, the rest listed in the saved directory's `skipped.txt`; then removed), tests' results; kept across starts |
+| `run/share/out/` | `out`, read-write | `/host/out`, `/mnt/host/out` | what the guest writes: `logs/<name>/` (saved to `logs/saved/` at stop and start, or by `host/scripts/vm-launcher logs`: its regular files and directories only, never following the guest's links, the rest listed in the saved directory's `skipped.txt`; then removed), tests' results, and what `host/scripts/vm-launcher put-out [--dir VM] SRC DEST` copies in (never through the guest's links); kept across starts |
 
 The host share's files are hard links to the checkout's where the library is on the same
 filesystem, copies otherwise.

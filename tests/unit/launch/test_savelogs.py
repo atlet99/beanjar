@@ -10,10 +10,13 @@ import os
 import re
 import socket
 import stat
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 from beanjar import launch, share
+from launchkit import TOP, VM
 
 HOST_LOGS = {
     "webos.log": "host webos log\n",
@@ -260,3 +263,46 @@ def test_harvest_logs_link(fx):
     before = fx.snapshot()
     assert share.harvest(str(fx.run_dir), str(fx.saved)) == []
     assert fx.snapshot() == before
+
+
+def test_place(fx):
+    """share.place (vm-launcher put-out): a host file into the out share, never through a link."""
+    before = fx.snapshot()
+    src = fx.tmp / "app.ipk"
+    src.write_bytes(b"ipk")
+    # an ordinary place: its directories made
+    assert share.place(str(fx.out), "regress/tones/a.wav", str(src)) == str(
+        fx.out / "regress/tones/a.wav"
+    )
+    assert (fx.out / "regress/tones/a.wav").read_bytes() == b"ipk"
+    # a link at the name is replaced, the file it names not written
+    os.symlink(fx.bashrc, fx.out / "regress" / "tvsuite.ipk")
+    share.place(str(fx.out), "regress/tvsuite.ipk", str(src))
+    assert not (fx.out / "regress/tvsuite.ipk").is_symlink()
+    assert (fx.out / "regress/tvsuite.ipk").read_bytes() == b"ipk"
+    # a link on the way, a FIFO at the name's directory, a path that leaves the share: refused
+    os.symlink(fx.home, fx.out / "elsewhere")
+    os.mkfifo(fx.out / "fifo")
+    for rel in ("elsewhere/.bashrc", "elsewhere/new/x", "fifo/x", "../x", "/x", "a//b", "a/./b"):
+        with pytest.raises(share.Error):
+            share.place(str(fx.out), rel, str(src))
+    assert fx.snapshot() == before
+    assert not os.path.lexists(fx.tmp / "vm" / "run" / "share" / "x")
+    assert sorted(n for n in os.listdir(fx.out / "regress") if n.startswith(".")) == []
+
+
+def test_put_out_command(fx):
+    """`host/scripts/vm-launcher put-out --dir VM SRC DEST`."""
+    src = fx.tmp / "tone.wav"
+    src.write_bytes(b"RIFF")
+    os.symlink(fx.bashrc, fx.out / "tone.wav")
+    r = subprocess.run(
+        [sys.executable, VM, "put-out", "--dir", str(fx.tmp / "vm"), str(src), "tone.wav"],
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=TOP,
+    )
+    assert (r.returncode, r.stdout) == (0, "/host/out/tone.wav\n"), r.stderr
+    assert (fx.out / "tone.wav").read_bytes() == b"RIFF"
+    assert fx.bashrc.read_text() == "# the user's\n"

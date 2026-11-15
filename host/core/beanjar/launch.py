@@ -22,6 +22,9 @@ beanjar.launch with host/core on PYTHONPATH).
   host/scripts/vm-launcher put [--dir VM-DIR] PATH...  give a running VM files of the checkout (share.PUT_ALLOWED:
                                    tests/, guest/scripts/, the guest build's test programs and layers) at
                                    /host/PATH (/mnt/host/PATH in webOS), until its next start
+  host/scripts/vm-launcher put-out [--dir VM-DIR] SRC DEST   copy the host file SRC into the VM's out share
+                                   at DEST (/host/out/DEST, /mnt/host/out/DEST in webOS), never
+                                   through a link the guest made there (share.place)
   host/scripts/vm-launcher logs [--dir VM-DIR]   save the guest's finished logs (check-m1.sh's) to SAVED_LOG_DIR now
   host/scripts/vm-launcher prepare [--dir VM-DIR] [--force]   work out the VM's board data from its
                                    firmware (prepare.py: partition map, new EEPROM chip, local key,
@@ -976,6 +979,12 @@ def parser():
     s = sub.add_parser("put", help="give a running VM files of the checkout (at /host/PATH)")
     s.add_argument("--dir", help="a VM directory: its run/share")
     s.add_argument("paths", nargs="+")
+    s = sub.add_parser(
+        "put-out", help="copy a host file into the VM's out share (at /host/out/DEST)"
+    )
+    s.add_argument("--dir", help="a VM directory: its run/share")
+    s.add_argument("src")
+    s.add_argument("dest", help="the path in the out share")
     s = sub.add_parser("logs", help="save the guest's finished logs to SAVED_LOG_DIR")
     s.add_argument("--dir", help="a VM directory: its run/share and logs/saved")
     s = sub.add_parser(
@@ -1095,7 +1104,7 @@ def main(argv_=None):
             r = qmp(sock, a.command)
             print(json.dumps(r))
             return 1 if "error" in r else 0
-        if a.cmd in ("put", "logs"):
+        if a.cmd in ("put", "put-out", "logs"):
             if a.dir:
                 vm_dir = os.path.abspath(a.dir)
                 run_dir, saved = os.path.join(vm_dir, "run"), os.path.join(vm_dir, "logs", "saved")
@@ -1106,6 +1115,9 @@ def main(argv_=None):
                 host = share.dirs(run_dir)[2]
                 for rel in share.put(TREE, host, [os.path.abspath(p) for p in a.paths]):
                     print(f"/host/{rel}")
+            elif a.cmd == "put-out":
+                share.place(share.dirs(run_dir)[3], a.dest, a.src)
+                print(f"/host/out/{a.dest}")
             else:
                 for d in share.harvest(run_dir, saved, say):
                     print(f"logs saved: {d}")

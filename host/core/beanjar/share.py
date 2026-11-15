@@ -672,3 +672,44 @@ def harvest(run_dir, saved, say=_say):
             if d:
                 out.append(d)
     return out
+
+
+def place(out, rel, src):
+    """Copy the host file src into the guest's out share (out: RUN_DIR/share/out) at rel, a path
+    relative to it, without following any link the guest made there: each directory on the way is
+    made, or must be a real one; the file is written under a new temporary name and renamed over
+    whatever entry rel names (a link is replaced, never written through). Returns the path; Error
+    if rel is not a plain relative path or a directory on the way is not a real one."""
+    parts = rel.split("/")
+    if not all(_plain(p) for p in parts):
+        raise Error(f"{rel}: not a plain path in the out share")
+    try:
+        fd = os.open(out, _DIR_FLAGS)
+    except OSError as e:
+        raise Error(f"{out}: {e.strerror}") from None
+    try:
+        for i, p in enumerate(parts[:-1]):
+            try:
+                os.mkdir(p, 0o755, dir_fd=fd)
+            except FileExistsError:
+                pass
+            try:
+                sub = os.open(p, _DIR_FLAGS, dir_fd=fd)
+            except OSError:
+                raise Error(
+                    f"{'/'.join(parts[: i + 1])}: not a directory in the out share"
+                ) from None
+            os.close(fd)
+            fd = sub
+        name = parts[-1]
+        tmp = f".{name}.{os.getpid()}.{os.urandom(4).hex()}"
+        with open(src, "rb") as f, open(os.open(tmp, _NEW_FILE, 0o644, dir_fd=fd), "wb") as o:
+            shutil.copyfileobj(f, o)
+        try:
+            os.rename(tmp, name, src_dir_fd=fd, dst_dir_fd=fd)
+        except OSError as e:
+            os.unlink(tmp, dir_fd=fd)
+            raise Error(f"{rel}: {e.strerror}") from None
+    finally:
+        os.close(fd)
+    return os.path.join(out, rel)
