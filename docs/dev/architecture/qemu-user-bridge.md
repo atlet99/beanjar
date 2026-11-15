@@ -171,13 +171,20 @@ start says it is experimental.
   build/x86_64/bzImage and build/x86_64/initramfs.cpio.gz, from the same `initramfs.list` and
   `/init`. Patch 0025 adds system call `0x7ff0` to `do_syscall_64`: an i386 call number and five
   arguments, run by `ia32_sys_call()` with `TS_COMPAT` set for that call only, for ioctl, read,
-  write, readv, writev, set_robust_list and get_robust_list; anything else is ENOSYS. Patch 0026
+  write, readv, writev, set_robust_list, get_robust_list, getdents, getdents64, lseek and _llseek
+  (ext4 gives a 32-bit caller directory offsets that fit 32 bits; a 32-bit glibc's `readdir`
+  fails with EOVERFLOW on the 64-bit ones, which left webOS 23's db8 an empty database directory);
+  anything else is ENOSYS. Patch 0026
   registers the media pool's ivshmem driver at `device_initcall` on x86, where ACPI claims PCI
   resources later. lgemu's AArch32 MMIO decoder is arm64-only (hence NetCast's refusal).
 - **qemu-arm** (beanjar-vendor `qemu-user/`, patch 0002, the amd64 tarball): the kernel's compat
   layer here is i386's, so qemu converts ordinary calls itself and hands the kernel only those
   whose meaning depends on a 32-bit caller. ioctls whose ARM layout equals x86-64's run natively;
-  SNDRV_CTL ELEM_READ/WRITE and VIDIOC_DQEVENT are repacked to i386's layout.
+  SNDRV_CTL ELEM_READ/WRITE and VIDIOC_DQEVENT are repacked to i386's layout. Patch 0003 (both
+  architectures) points `/proc/<pid>/cmdline` and `environ` at the guest's argv and envp with
+  `prctl(PR_SET_MM_MAP)`, which needs `CONFIG_CHECKPOINT_RESTORE` (in `webos_virt_defconfig`) and
+  no capability: webOS's initctl finds the service it notifies systemd for by its command line,
+  and every `Type=notify` service readied through it timed out while that read `qemu-arm ...`.
 - **Machine** (`qemu.plan`): `-M q35`, `-accel kvm -cpu host` (or `-cpu max -accel tcg`),
   `-vga none`, `console=ttyS0`, and the virt machine's devices, which are all PCI; q35's root bus
   has 30 free slots. Its QEMU is the vendored qemu-system-x86_64 (beanjar-vendor's amd64 QEMU

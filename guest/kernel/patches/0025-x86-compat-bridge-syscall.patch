@@ -6,7 +6,10 @@ compat layer here is i386's, with its own call numbers and argument
 passing, so qemu-arm translates the ordinary system calls itself and hands
 the kernel only those whose meaning depends on a 32-bit caller: ioctl,
 read, write, readv, writev (evdev and uinput record sizes, compat iovecs,
-the drivers' compat_ioctl) and set_robust_list/get_robust_list.
+the drivers' compat_ioctl), set_robust_list/get_robust_list, and getdents,
+getdents64, lseek and _llseek (ext4 gives a 32-bit caller directory offsets
+that fit 32 bits, which a 32-bit glibc's readdir needs: EOVERFLOW
+otherwise).
 
 System call 0x7ff0, above the native table and so reaching only the
 invalid-call path of do_syscall_64, takes an i386 call number in rdi and
@@ -17,7 +20,7 @@ Built with CONFIG_IA32_EMULATION only; arm64 is untouched.
 
 --- a/arch/x86/entry/syscall_64.c
 +++ b/arch/x86/entry/syscall_64.c
-@@ -83,6 +83,57 @@
+@@ -83,6 +83,62 @@
  	return false;
  }
  
@@ -29,8 +32,9 @@ Built with CONFIG_IA32_EMULATION only; arm64 is untouched.
 + * caller. Its user is qemu-arm running a 32-bit ARM userland with guest addresses equal to
 + * host addresses below 4 GiB: qemu translates every other call itself, and hands over only
 + * those whose meaning depends on the caller being 32-bit. So only those are accepted:
-+ * ioctl, read, write, readv, writev, set_robust_list and get_robust_list; everything else
-+ * is ENOSYS. rdi is the i386 call number; rsi, rdx, r10, r8 and r9 are its first five
++ * ioctl, read, write, readv, writev, set_robust_list and get_robust_list, and the directory
++ * calls whose offsets ext4 sizes for the caller (getdents, getdents64, lseek, _llseek);
++ * everything else is ENOSYS. rdi is the i386 call number; rsi, rdx, r10, r8 and r9 are its first five
 + * arguments (ebx, ecx, edx, esi, edi). The number lies above the native table, so a task
 + * that never makes the call sees no difference. Seccomp and audit see the outer call.
 + */
@@ -52,6 +56,10 @@ Built with CONFIG_IA32_EMULATION only; arm64 is untouched.
 +	case __NR_ia32_writev:
 +	case __NR_ia32_set_robust_list:
 +	case __NR_ia32_get_robust_list:
++	case __NR_ia32_getdents:
++	case __NR_ia32_getdents64:
++	case __NR_ia32_lseek:
++	case __NR_ia32__llseek:
 +		break;
 +	default:
 +		return -ENOSYS;
@@ -75,7 +83,7 @@ Built with CONFIG_IA32_EMULATION only; arm64 is untouched.
  /* Returns true to return using SYSRET, or false to use IRET */
  __visible noinstr bool do_syscall_64(struct pt_regs *regs, int nr)
  {
-@@ -92,6 +143,11 @@
+@@ -92,6 +148,11 @@
  	instrumentation_begin();
  
  	if (!do_syscall_x64(regs, nr) && !do_syscall_x32(regs, nr) && nr != -1) {
