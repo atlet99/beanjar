@@ -221,10 +221,23 @@ h2 {
   color: var(--bs-body-color);
 }
 
+/* Laid out like a window's title bar: the title centred, the buttons at the edges. */
+.term-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+
+.term-title {
+  grid-column: 2;
+}
+
 /* Generic window buttons on the right; Apple systems (the os-mac class, set by a script in
    the head) get the traffic lights on the left instead. */
 .term-dots {
   display: none;
+  grid-column: 1;
+  justify-self: start;
   width: .75rem;
   height: .75rem;
   margin-right: 2.5rem;
@@ -237,6 +250,8 @@ h2 {
 .term-ctl {
   display: flex;
   gap: 1rem;
+  grid-column: 3;
+  justify-self: end;
 }
 
 .term-ctl svg {
