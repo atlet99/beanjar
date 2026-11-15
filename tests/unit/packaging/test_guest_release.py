@@ -91,12 +91,19 @@ def fake_api(releases, files):
 def test_fetch_checks_the_sum(tmp_path):
     deb = b"a guest"
     name = "beanjar-guest_0.4.0_all.deb"
-    sums = f"{hashlib.sha256(deb).hexdigest()}  {name}\n".encode()
-    releases = [release("guest-0.4.0", assets=[name, "SHA256SUMS"])]
-    with fake_api(releases, {name: deb, "SHA256SUMS": sums}):
+    x86 = b"an x86-64 kernel"
+    x86_name = "beanjar-guest-x86-64_0.4.0_amd64.deb"
+    sums = (
+        f"{hashlib.sha256(deb).hexdigest()}  {name}\n"
+        f"{hashlib.sha256(x86).hexdigest()}  {x86_name}\n"
+    ).encode()
+    releases = [release("guest-0.4.0", assets=[name, x86_name, "SHA256SUMS"])]
+    files = {name: deb, x86_name: x86, "SHA256SUMS": sums}
+    with fake_api(releases, files):
         assert guest_release.fetch("o/r", "0.4.1", tmp_path) == tmp_path / name
     assert (tmp_path / name).read_bytes() == deb
-    tampered = fake_api(releases, {name: b"tampered", "SHA256SUMS": sums})
+    assert (tmp_path / x86_name).read_bytes() == x86
+    tampered = fake_api(releases, {**files, x86_name: b"tampered"})
     with tampered, pytest.raises(guest_release.Error, match="SHA-256"):
         guest_release.fetch("o/r", "0.4.1", tmp_path / "bad")
     assert not (tmp_path / "bad").exists()

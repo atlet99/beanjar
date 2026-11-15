@@ -107,7 +107,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: beanjar-debs-guest
-          path: build/ci-packages/debs/beanjar-guest_*_all.deb
+          path: |
+            build/ci-packages/debs/beanjar-guest_*_all.deb
+            build/ci-packages/debs/beanjar-guest-x86-64_*_amd64.deb
           if-no-files-found: error
 
   # One release of both architectures' packages; beanjar-guest stays on its own release, which the

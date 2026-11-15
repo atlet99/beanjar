@@ -58,6 +58,10 @@ def deb_name(version):
     return f"beanjar-guest_{version}_all.deb"
 
 
+def x86_64_deb_name(version):
+    return f"beanjar-guest-x86-64_{version}_amd64.deb"
+
+
 def select(releases, contract):
     """The newest release (GitHub API objects) of beanjar-guest whose version has contract, with
     its version; None when there is none. Drafts and tags that are not guest-<version> are skipped."""
@@ -147,24 +151,29 @@ def pick(repository, host_version):
 
 
 def fetch(repository, host_version, out):
-    """Download and check the newest beanjar-guest of host_version's contract into out; its path."""
+    """Download and check the newest beanjar-guest of host_version's contract, and its optional
+    x86-64 kernel package, into out; the path of beanjar-guest."""
     version, release = pick(repository, host_version)
-    name = deb_name(version)
     sums = parse_sums(asset(release, SUMS).decode())
-    if name not in sums:
-        raise Error(f"release {release['tag_name']}: {SUMS} does not list {name}")
-    data = asset(release, name)
-    digest = hashlib.sha256(data).hexdigest()
-    if digest != sums[name]:
-        raise Error(
-            f"release {release['tag_name']}: {name} has SHA-256 {digest}, {SUMS} says {sums[name]}"
-        )
+    debs = {}
+    for name in (deb_name(version), x86_64_deb_name(version)):
+        if name not in sums:
+            raise Error(f"release {release['tag_name']}: {SUMS} does not list {name}")
+        data = asset(release, name)
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != sums[name]:
+            raise Error(
+                f"release {release['tag_name']}: {name} has SHA-256 {digest}, "
+                f"{SUMS} says {sums[name]}"
+            )
+        debs[name] = data
     out.mkdir(parents=True, exist_ok=True)
-    path = out / name
-    tmp = path.with_name(name + ".part")
-    tmp.write_bytes(data)
-    os.replace(tmp, path)
-    return path
+    for name, data in debs.items():
+        path = out / name
+        tmp = path.with_name(name + ".part")
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    return out / deb_name(version)
 
 
 def main(argv=None):
