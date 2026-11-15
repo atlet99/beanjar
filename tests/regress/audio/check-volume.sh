@@ -11,9 +11,11 @@
 #   tests/regress/audio/check-volume.sh            (from the repository root; leaves volume at 11)
 set -eu
 cd "$(dirname "$0")/../../.."
-# The tone goes to the VM's output share (build/share/out, the guest's /mnt/host/out), and the
-# guest half into its read-only share.
-python3 tests/regress/audio/check-audio.py --make-tone build/share/out/tone-1k-3s.wav --seconds 3 --level -12 >/dev/null
+# The tone goes to the VM's output share (build/share/out, the guest's /mnt/host/out), through
+# put-out, which never writes through a link the guest made there; the guest half into its
+# read-only share.
+python3 tests/regress/audio/check-audio.py --make-tone build/check-volume-tone.wav --seconds 3 --level -12 >/dev/null
+host/scripts/vm-launcher put-out build/check-volume-tone.wav tone-1k-3s.wav >/dev/null
 host/scripts/vm-launcher put tests/regress/audio/guest-volume.sh >/dev/null
 rm -f build/check-volume.wav
 build/viewer/beanjar-viewer "unix:path=$PWD/build/dbus.sock" --headless --seconds 42 \

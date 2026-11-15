@@ -41,9 +41,20 @@ disk_count() {
 	rm -f "$TOP/build/share/out/localstorage.db"
 	"$TOP/host/scripts/vm-launcher" console 'webos-enter sh -c "sync; cp /var/lib/webappmanager2/localstorage/*localstoragetest*.localstorage /mnt/host/out/localstorage.db"' 4 >/dev/null
 	python3 - "$TOP/build/share/out/localstorage.db" <<'PY'
-import sqlite3, sys
+import os, sqlite3, stat, sys, tempfile
+# The share is the guest's: its file is read without following a link (O_NOFOLLOW, a regular file
+# only) into a copy of the host's, which SQLite opens; never the share's file, whose journal
+# beside it (the guest's too) SQLite would roll back into it.
 try:
-    rows = dict(sqlite3.connect(sys.argv[1]).execute("SELECT key, value FROM ItemTable"))
+    fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as f:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            sys.exit("no database: not a regular file")
+        data = f.read()
+    with tempfile.NamedTemporaryFile(suffix=".db") as t:
+        t.write(data)
+        t.flush()
+        rows = dict(sqlite3.connect(t.name).execute("SELECT key, value FROM ItemTable"))
 except Exception as e:
     sys.exit(f"no database: {e}")
 v = rows.get("count")
