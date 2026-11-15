@@ -368,6 +368,8 @@ def info_data(vm):
         # the TV's RAM (mem, else the model's) and the guest's, -m: under qemu-user more
         "tv_ram": vm.mem(),
         "guest_ram": vm.guest_ram(),
+        # under qemu-user its swap disk in host RAM (hostswap.py), else 0
+        "host_swap": vm.host_swap(),
         "model_key": vm.has_model_key(),
         "identity": vm.identity_dir,
         "ssh": ssh_commands(vm),

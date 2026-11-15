@@ -76,7 +76,7 @@ import sys
 import tempfile
 import time
 
-from . import mitmtool, paths, vmsettings
+from . import base, hostswap, mitmtool, paths, vmsettings
 
 
 class Error(Exception):
@@ -810,8 +810,12 @@ def inner(argv, tree=paths.TREE):
         )
         if env.get("NETNS_LAN_ADDRESS"):
             helpers.append(_discovery(env, "inner", logdir))
-        # QEMU in the foreground
-        qemu = subprocess.Popen(argv, env=env, preexec_fn=_die_with_parent)
+        # QEMU in the foreground, with the memfd of its swap disk if it has one (hostswap.py)
+        fds = hostswap.open_fds(argv)
+        try:
+            qemu = subprocess.Popen(argv, env=env, preexec_fn=_die_with_parent, pass_fds=fds)
+        finally:
+            hostswap.close_fds(fds)
         return _wait_guest(qemu, proxy, env, tap)
     except _Stop as e:
         return 128 + e.sig
@@ -1063,9 +1067,15 @@ def off(argv, env, before_cont=None):
     qemu = None
     _raise_on(signal.SIGTERM, signal.SIGINT)
     try:
-        qemu = subprocess.Popen(
-            [*argv, "-S", "-qmp", f"unix:{d}/qmp.sock,server=on,wait=off"], env=env
-        )
+        fds = hostswap.open_fds(argv)  # its swap disk's memfd, if it has one
+        try:
+            qemu = subprocess.Popen(
+                [*argv, "-S", "-qmp", f"unix:{d}/qmp.sock,server=on,wait=off"],
+                env=env,
+                pass_fds=fds,
+            )
+        finally:
+            hostswap.close_fds(fds)
         try:
             _qmp(os.path.join(d, "qmp.sock"), qemu, before_cont)
         except (Error, OSError, ValueError) as e:
@@ -1096,7 +1106,7 @@ def main(argv=None):
         return 2
     try:
         return (inner if argv[0] == "inner" else lan)(argv[1:])
-    except (Error, OSError, subprocess.CalledProcessError) as e:
+    except (Error, base.Error, OSError, subprocess.CalledProcessError) as e:
         print(e, file=sys.stderr)
         return 1
 

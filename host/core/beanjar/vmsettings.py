@@ -138,12 +138,29 @@ def guest_ram_mib(mem, userland):
     return int(mem) + qemu_user_overhead_mib(mem, userland)
 
 
+# Most of qemu-user's overhead is touched once and then cold (one 128 MiB translated-code buffer a
+# process): a qemu-user start also gives the guest a swap disk backed by host RAM (hostswap.py),
+# this share of the TV's mem, which costs the host only what the guest swaps out.
+QEMU_USER_SWAP_PERCENT = 50
+
+
+def qemu_user_swap_mib(mem, userland):
+    """The size in MiB of the host-RAM swap (hostswap.py) a start with userland (native or
+    qemu-user, as resolved) gives a TV of mem MiB: QEMU_USER_SWAP_PERCENT of it, rounded down to a
+    whole MiB; 0 (none) for native."""
+    return int(mem) * QEMU_USER_SWAP_PERCENT // 100 if userland == "qemu-user" else 0
+
+
 def memory_note(mem, userland):
     """The line a start logs for its RAM when qemu-user adds to it, else None."""
     extra = qemu_user_overhead_mib(mem, userland)
     if not extra:
         return None
-    return f"memory: {int(mem)} MB for the TV + {extra} MB for qemu-user's overhead"
+    swap = qemu_user_swap_mib(mem, userland)
+    return (
+        f"memory: {int(mem)} MB for the TV + {extra} MB RAM and {swap} MB host-RAM swap for "
+        "qemu-user's overhead"
+    )
 
 
 # mitm_flows (qemu.py MITM_FLOWS): how many flows the mode=mitm inspector keeps, 0 for all of them;

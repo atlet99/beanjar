@@ -126,6 +126,7 @@ from . import (
     core,
     fwcache,
     fwfacts,
+    hostswap,
     keys,
     netns,
     nvm,
@@ -400,6 +401,7 @@ def run(words, env=None):
         if p.wrap == "mitm":
             return netns.mitm(p.argv, p.env)
         sys.stdout.flush()
+        hostswap.open_fds(p.argv)  # its swap disk's memfd, inherited, if it has one
         os.execvpe(p.argv[0], p.argv, p.env)
     finally:
         if setup is not None:

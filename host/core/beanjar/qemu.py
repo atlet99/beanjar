@@ -55,7 +55,8 @@ Environment (both):
             Release.board_in_kernel), and nvm.prepare brings the EEPROM's debug status to it
   MEM, SMP  the TV's RAM in MiB (default: the firmware's model's DDR, its board.cmdline's
             hwopt=: nvm.board_ram) / CPUs (default 4). A qemu-user start gives the guest more
-            (-m: vmsettings.guest_ram_mib, the TV's and qemu-user's overhead) and says so
+            (-m: vmsettings.guest_ram_mib, the TV's and qemu-user's overhead) and a swap disk in
+            host RAM as large again (vmsettings.qemu_user_swap_mib, hostswap.py), and says so
   NET_LINK  where the guest's NIC is attached (vm.toml's network.link; docs/dev/architecture/network.md):
               nat     (default) behind this host, on its own 10.0.2.0/24, as NET_MODE says
               lan     on the host's wired LAN (the library's lan_parent), a TV of its own there:
@@ -159,6 +160,7 @@ from pathlib import Path
 
 from . import (
     fwcache,
+    hostswap,
     ir_relay,
     keys,
     layerimage,
@@ -372,6 +374,14 @@ def vm_guest_ram(env, tree=paths.TREE):
     return None if mem is None else vmsettings.guest_ram_mib(mem, vm_userland(env))
 
 
+def vm_host_swap(env, tree=paths.TREE):
+    """The size in MiB of the swap disk in host RAM (hostswap.py) a launch with env gets: under
+    qemu-user vmsettings.qemu_user_swap_mib of the TV's RAM (vm_mem), else 0; 0 too if the TV's
+    is not known."""
+    mem = vm_mem(env, tree)
+    return 0 if mem is None else vmsettings.qemu_user_swap_mib(mem, vm_userland(env))
+
+
 def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
     """The launch of env (the launcher's environment, a mapping), with the kernel cmdline words.
     say(line) gets the notes the launch prints (default: stderr). dry: build nothing (ROOTFS=
@@ -577,6 +587,11 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
         elif not os.path.isfile(img):
             p.disks.append((img, size, seed))
     say("state: none (fresh disks, discarded at power-off)" if state_opt else f"state: {state}")
+    # qemu-user's cold overhead: a swap disk on a memfd in host RAM, which the launcher makes when
+    # QEMU starts (hostswap.py); a native VM has none
+    swap = vmsettings.qemu_user_swap_mib(tv_mem, p.userland)
+    if swap:
+        devices += hostswap.argv(swap)
 
     # network: net is what the guest gets, NET_LINK and NET_MODE together (mitm, direct or off)
     if env.get("NET"):

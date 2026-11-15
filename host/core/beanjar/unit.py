@@ -250,14 +250,18 @@ def resources(mem, env=None):
     user manager delegates cpu and memory to user units on Debian 13 (DelegateControllers of
     user@.service: cpu memory pids). MemoryHigh, not MemoryMax: above it the kernel reclaims and
     throttles the unit rather than OOM-killing QEMU, and a TCG VM with gl comes close (W18R, 1536
-    MiB: QEMU's RSS 2.1 GiB, the unit's peak 2.4 of 2.5 GiB at boot)."""
+    MiB: QEMU's RSS 2.1 GiB, the unit's peak 2.4 of 2.5 GiB at boot). A qemu-user VM's swap disk
+    in host RAM (hostswap.py, qemu.vm_host_swap) is on top: its memfd's pages are shmem, charged to
+    the cgroup of QEMU, which writes them, and reclaimable only to the host's swap, so a MemoryHigh
+    without them would throttle QEMU as the guest swaps. The admission does not count it: it is
+    not taken up front, only as the guest swaps (capacity.claim_mib leaves it out too)."""
     from . import qemu
     from .capacity import reservation_mib
 
     env = os.environ if env is None else env
     props = [f"CPUWeight={CPU_WEIGHT}"]
     if mem and qemu.vm_accel(env) == "kvm":
-        props.append(f"MemoryHigh={reservation_mib(mem, env)}M")
+        props.append(f"MemoryHigh={reservation_mib(mem, env) + qemu.vm_host_swap(env)}M")
     return props
 
 

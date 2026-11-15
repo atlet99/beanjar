@@ -1554,3 +1554,51 @@ class InitBootConfTest(unittest.TestCase):
         # webos.pmlog=stock: the unit stays stock; the marker is made all the same
         files, _, _ = self.run_init(("m2", "systemdtest"), SYSTEMD_ROW, "webos.pmlog=stock")
         self.assertEqual(set(files), {"run/emulator/bsp-mounted"})
+
+
+class InitSwapTest(unittest.TestCase):
+    """guest/initramfs/rootfs/init's qemu-user swap block (host/core/beanjar/hostswap.py), run by sh
+    with disk, mkswap and swapon stubbed and a scratch /sys/block: the disk with the serial
+    beanjar-swap gets mkswap and swapon -d (discard); without it nothing runs."""
+
+    def run_block(self, disk, mkswap_status=0):
+        init = text(os.path.join(TOP, "guest", "initramfs", "rootfs", "init"))
+        block = init[
+            init.index("# A qemu-user VM's swap disk") : init.index("# The GL layer's Qt adapter")
+        ]
+        tmp = tempfile.mkdtemp(prefix="beanjar-init-")
+        self.addCleanup(shutil.rmtree, tmp)
+        os.makedirs(os.path.join(tmp, "vdz"))
+        with open(os.path.join(tmp, "vdz", "size"), "w") as f:
+            f.write("2097152\n")  # 1 GiB in 512-byte sectors
+        script = (
+            f"T={shlex.quote(tmp)}\n"
+            'log() { echo "log $*"; }\n'
+            f'disk() {{ [ "$1" = beanjar-swap ] && echo {shlex.quote(disk)}; }}\n'
+            f'mkswap() {{ echo "mkswap $*" >&2; return {mkswap_status}; }}\n'
+            'swapon() { echo "swapon $*"; }\n' + block.replace("/sys/block/", "$T/")
+        )
+        r = subprocess.run(
+            ["sh", "-ec", script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
+        self.assertEqual(r.returncode, 0, r.stdout)
+        return r.stdout.splitlines()
+
+    def test_swap(self):
+        self.assertEqual(
+            self.run_block("/dev/vdz"),
+            [
+                "mkswap /dev/vdz",
+                "swapon -d /dev/vdz",
+                "log swap: /dev/vdz in host RAM, 1024 MiB, with discard",
+            ],
+        )
+
+    def test_no_swap(self):
+        self.assertEqual(self.run_block(""), [])
+
+    def test_swap_fails(self):
+        self.assertEqual(
+            self.run_block("/dev/vdz", mkswap_status=1),
+            ["mkswap /dev/vdz", "log swap: /dev/vdz could not be turned on"],
+        )

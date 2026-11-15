@@ -389,6 +389,18 @@ if [ "$INIT_SYSTEM" = systemd ] && [ -n "$(disk efs)" ]; then
 	done
 	log "EFS: stock tasks will activate ordinary disk-backed swap"
 fi
+# A qemu-user VM's swap disk, a memfd in host RAM (host/core/beanjar/hostswap.py), for the cold
+# part of the qemu-arm processes' memory (their translated code above all). With discard a freed
+# swap page is a hole in the memfd again, host RAM back. On before webOS starts, so that memchute
+# counts it from its first look.
+swapdev=$(disk beanjar-swap)
+if [ -n "$swapdev" ]; then
+	if mkswap "$swapdev" > /dev/null && swapon -d "$swapdev"; then
+		log "swap: $swapdev in host RAM, $(($(cat "/sys/block/${swapdev#/dev/}/size") / 2048)) MiB, with discard"
+	else
+		log "swap: $swapdev could not be turned on"
+	fi
+fi
 # The GL layer's Qt adapter is not the Weston display path. Queue's stock shell
 # expects TV-1/TV-2, including an e-streamer window even with one display declared.
 # Its own user/default ini selection and service start remain in control.

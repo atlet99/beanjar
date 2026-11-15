@@ -110,7 +110,9 @@ def rss_mib(pid):
 def claim_mib(vm):
     """What vm, starting or running, may still take of the host's memory beyond what it holds (and
     MemAvailable already lacks): its bound (its unit's MemoryHigh, else reservation_mib of its RAM; under TCG, no MemoryHigh)
-    less its use (the unit's MemoryCurrent, else QEMU's RSS); 0 for a VM that is off."""
+    less its use (the unit's MemoryCurrent, else QEMU's RSS); 0 for a VM that is off. A qemu-user
+    VM's MemoryHigh has its swap in host RAM on top (unit.resources), which, as for the admission,
+    is not claimed: it is taken only as the guest swaps."""
     if vm.lock_owner() is None and not vm.alive():
         return 0
     cap = used = None
@@ -123,6 +125,8 @@ def claim_mib(vm):
             dict(line.split("=", 1) for line in out.splitlines() if "=" in line) if rc == 0 else {}
         )
         cap, used = _unit_mib(props.get("MemoryHigh")), _unit_mib(props.get("MemoryCurrent"))
+        if cap is not None:
+            cap -= vm.host_swap()
     if cap is None:
         mem = vm.guest_ram()
         if mem is None:

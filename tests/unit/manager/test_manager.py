@@ -1844,8 +1844,12 @@ class ManagerTest(unittest.TestCase):
 
     def test_qemu_user_guest_ram(self):
         """A VM whose userland resolves to qemu-user keeps mem as the TV's RAM and gets half as
-        much again for qemu-user's own: list shows MEM as 1024+512, info its tv_ram and
-        guest_ram, and the start's admission asks the host for the guest's RAM."""
+        much again for qemu-user's own, and a swap disk in host RAM as large: list shows MEM as
+        1024+512, info its tv_ram, guest_ram and host_swap, and the start's admission asks the
+        host for the guest's RAM but not the swap, which is taken only as the guest swaps. Under
+        KVM the unit's MemoryHigh allows for the swap too (its memfd is charged to QEMU's
+        cgroup), and a running VM's claim on the host leaves the swap out as the admission
+        does."""
         self.cli("create", "a", "--import", "--firmware", self.fw_src, "--mem", "1024")
         rows = self.listing()
         self.assertEqual((rows["a"]["mem"], rows["a"]["guest_ram"]), (1024, 1024))
@@ -1855,7 +1859,27 @@ class ManagerTest(unittest.TestCase):
         self.assertRegex(self.cli("list"), r"\b1024\+512\b")
         info = self.info("a")
         self.assertEqual((info["mem"], info["tv_ram"], info["guest_ram"]), (1024, 1024, 1536))
+        self.assertEqual(info["host_swap"], 512)
         vm = self.lib().vm("a")
+        self.assertEqual(vm.host_swap(), 512)
+        kvm = dict(vm.launch_env(), ACCEL="kvm")
+        self.assertEqual(
+            unit.resources(1536, kvm),
+            [
+                f"CPUWeight={unit.CPU_WEIGHT}",
+                f"MemoryHigh={capacity.reservation_mib(1536, kvm) + 512}M",
+            ],
+        )
+        with (
+            mock.patch.object(vm, "lock_owner", return_value=os.getpid()),
+            mock.patch.object(vm, "unit_name", return_value="running"),
+            mock.patch.object(vm, "unit_up", return_value=True),
+            mock.patch(
+                "beanjar.vmunits.systemctl",
+                return_value=(0, "MemoryHigh=3221225472\nMemoryCurrent=1073741824\n"),
+            ),
+        ):
+            self.assertEqual(capacity.claim_mib(vm), 3072 - 512 - 1024)
         need = capacity.reservation_mib(1536, vm.launch_env())
         self.mem_available(need - 1)
         out = self.cli("start", "a", ok=False)

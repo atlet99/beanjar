@@ -381,6 +381,13 @@ class VM:
         mem = self.mem()
         return None if mem is None else vmsettings.guest_ram_mib(mem, self.userland())
 
+    def host_swap(self):
+        """The size in MiB of its swap disk in host RAM (hostswap.py): under qemu-user
+        vmsettings.qemu_user_swap_mib of its TV's RAM, else 0; 0 too if mem is not known. Not
+        counted by the admission (capacity), only by its unit's MemoryHigh."""
+        mem = self.mem()
+        return 0 if mem is None else vmsettings.qemu_user_swap_mib(mem, self.userland())
+
     def platform_title(self):
         """Its platform with its version as the viewer's title shows it ("webOS 4.5": its target's,
         targets.platform_title); empty if its firmware is not one this tree boots."""

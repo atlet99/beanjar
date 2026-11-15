@@ -25,6 +25,7 @@ from unittest import mock
 
 
 from beanjar import (
+    hostswap,
     netns,
     keys,
     lls,
@@ -833,11 +834,12 @@ class ArgvTest(unittest.TestCase):
         return p.argv, notes
 
     def test_userland(self):
-        """USERLAND=qemu-user changes one QEMU argument, -m: the guest gets half the TV's RAM
-        again for qemu-user's own (vmsettings.guest_ram_mib), and the start says so; the plan
-        carries the interpreter (QEMU_ARM, else build/qemu-user/bin/qemu-arm) for the host share.
-        An unknown value, and qemu-user on a refused platform, are errors; native is the
-        default."""
+        """USERLAND=qemu-user changes -m, where the guest gets half the TV's RAM again for
+        qemu-user's own (vmsettings.guest_ram_mib), and adds the swap disk in host RAM, as large
+        (hostswap.argv: the memfd's -add-fd, its -drive and its virtio-blk disk), after the state
+        disks; the rest is native's, and the start says so; the plan carries the interpreter
+        (QEMU_ARM, else build/qemu-user/bin/qemu-arm) for the host share. An unknown value, and
+        qemu-user on a refused platform, are errors; native is the default and has no swap."""
         native, native_notes = self.qemu_plan("tcg")
         arm = os.path.join(self.tmp, "qemu-arm")
         with open(arm, "w") as f:
@@ -846,14 +848,47 @@ class ArgvTest(unittest.TestCase):
         m = native.index("-m") + 1
         self.assertEqual(native[m], "1280")  # the fake model's DDR
         self.assertEqual(bridged[m], "1920")
-        self.assertEqual(bridged[:m] + bridged[m + 1 :], native[:m] + native[m + 1 :])
-        self.assertIn("memory: 1280 MB for the TV + 640 MB for qemu-user's overhead", notes)
+        swap = [
+            "-add-fd",
+            "fd=200,set=9,opaque=beanjar-swap:640M",
+            "-add-fd",
+            "fd=201,set=9,opaque=beanjar-swap-ro",
+            "-drive",
+            "if=none,id=beanjar-swap,format=raw,file=/dev/fdset/9,cache=unsafe,discard=unmap",
+            "-device",
+            "virtio-blk-pci,drive=beanjar-swap,serial=beanjar-swap",
+        ]
+        self.assertEqual(hostswap.argv(640), swap)
+        s = bridged.index("-add-fd")
+        self.assertEqual(bridged[s : s + 8], swap)
+        last_state = max(
+            i
+            for i, a in enumerate(native)
+            if a.startswith("if=none,id=") and ",discard=unmap,detect-zeroes=unmap" in a
+        )
+        self.assertEqual(s, last_state + 3)  # right after the last state disk's -device
+        self.assertEqual(
+            bridged[:m] + bridged[m + 1 : s] + bridged[s + 8 :], native[:m] + native[m + 1 :]
+        )
+        self.assertNotIn("-add-fd", native)
+        self.assertNotIn(f"serial={hostswap.SERIAL}", " ".join(native))
+        self.assertIn(
+            "memory: 1280 MB for the TV + 640 MB RAM and 640 MB host-RAM swap for qemu-user's "
+            "overhead",
+            notes,
+        )
         self.assertFalse([n for n in native_notes if n.startswith("memory:")])
         # an explicit MEM is the TV's too
         bridged, notes = self.qemu_plan("tcg", USERLAND="qemu-user", QEMU_ARM=arm, MEM="2048")
         self.assertEqual(bridged[m], "3072")
-        self.assertIn("memory: 2048 MB for the TV + 1024 MB for qemu-user's overhead", notes)
+        self.assertEqual(hostswap.size_mib(bridged), 1024)
+        self.assertIn(
+            "memory: 2048 MB for the TV + 1024 MB RAM and 1024 MB host-RAM swap for qemu-user's "
+            "overhead",
+            notes,
+        )
         self.assertEqual(self.qemu_plan("tcg", MEM="2048")[0][m], "2048")
+        self.assertIsNone(hostswap.size_mib(self.qemu_plan("tcg", MEM="2048")[0]))
         env = dict(FW=self.fw, STATE="none", **net("direct"), SLOT="1")
 
         def plan(**more):
@@ -945,23 +980,28 @@ class ArgvTest(unittest.TestCase):
         self.assertEqual(vmsettings.guest_ram_mib(2048, None), 2048)
         self.assertEqual(
             vmsettings.memory_note(2048, "qemu-user"),
-            "memory: 2048 MB for the TV + 1024 MB for qemu-user's overhead",
+            "memory: 2048 MB for the TV + 1024 MB RAM and 1024 MB host-RAM swap for qemu-user's "
+            "overhead",
         )
         self.assertIsNone(vmsettings.memory_note(2048, "native"))
+        self.assertEqual(vmsettings.qemu_user_swap_mib(2048, "qemu-user"), 1024)
+        self.assertEqual(vmsettings.qemu_user_swap_mib(1537, "qemu-user"), 768)
+        self.assertEqual(vmsettings.qemu_user_swap_mib(2048, "native"), 0)
 
         def resolved(aarch32=None, **env):
             with mock.patch.object(qemu, "host_aarch32_el0", return_value=aarch32):
                 env = dict(MEM="2048", **env)
-                return qemu.vm_userland(env), qemu.vm_guest_ram(env)
+                return qemu.vm_userland(env), qemu.vm_guest_ram(env), qemu.vm_host_swap(env)
 
-        self.assertEqual(resolved(ACCEL="tcg"), ("native", 2048))
-        self.assertEqual(resolved(True, ACCEL="kvm"), ("native", 2048))
-        self.assertEqual(resolved(False, ACCEL="kvm"), ("qemu-user", 3072))
-        self.assertEqual(resolved(ACCEL="kvm", GUEST_KERNEL="x86-64"), ("qemu-user", 3072))
-        self.assertEqual(resolved(ACCEL="tcg", USERLAND="qemu-user"), ("qemu-user", 3072))
-        self.assertEqual(resolved(True, ACCEL="kvm", USERLAND="native"), ("native", 2048))
-        self.assertEqual(resolved(ACCEL="tcg", USERLAND="bogus"), (None, 2048))
+        self.assertEqual(resolved(ACCEL="tcg"), ("native", 2048, 0))
+        self.assertEqual(resolved(True, ACCEL="kvm"), ("native", 2048, 0))
+        self.assertEqual(resolved(False, ACCEL="kvm"), ("qemu-user", 3072, 1024))
+        self.assertEqual(resolved(ACCEL="kvm", GUEST_KERNEL="x86-64"), ("qemu-user", 3072, 1024))
+        self.assertEqual(resolved(ACCEL="tcg", USERLAND="qemu-user"), ("qemu-user", 3072, 1024))
+        self.assertEqual(resolved(True, ACCEL="kvm", USERLAND="native"), ("native", 2048, 0))
+        self.assertEqual(resolved(ACCEL="tcg", USERLAND="bogus"), (None, 2048, 0))
         self.assertIsNone(qemu.vm_guest_ram({"FW": "/nonexistent/fw"}))
+        self.assertEqual(qemu.vm_host_swap({"FW": "/nonexistent/fw"}), 0)
 
     def test_x86_64(self):
         """GUEST_KERNEL=x86-64 (experimental): q35 on an x86-64 host, under KVM when /dev/kvm
@@ -1021,7 +1061,10 @@ class ArgvTest(unittest.TestCase):
         )
         self.assertIn("userland: qemu-user (the x86-64 guest kernel has no AArch32)", notes)
         self.assertEqual(argv[12], "1920")  # the fake model's 1280 and qemu-user's 640
-        self.assertIn("memory: 1280 MB for the TV + 640 MB for qemu-user's overhead", notes)
+        self.assertIn(
+            "memory: 1280 MB for the TV + 640 MB RAM and 640 MB host-RAM swap for qemu-user's overhead",
+            notes,
+        )
         # the vendored one, without QEMU_X86_64
         vendored = tree.vendored_qemu_x86_64()
         os.makedirs(os.path.dirname(vendored), exist_ok=True)
