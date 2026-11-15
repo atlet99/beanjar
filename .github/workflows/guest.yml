@@ -28,7 +28,7 @@ jobs:
   # Nothing is cached between runs: the SDKs (650 MB) download in under a minute, and the wraps (a
   # few hundred MB) come with the first targets.
   build:
-    if: github.repository == 'mariotaku/beanjar'
+    if: github.repository == 'webosbrew/beanjar'
     runs-on: ubuntu-24.04
     container: debian:trixie
     timeout-minutes: 240
@@ -69,7 +69,7 @@ jobs:
 
   release:
     needs: build
-    if: github.repository == 'mariotaku/beanjar' && github.ref_type == 'tag'
+    if: github.repository == 'webosbrew/beanjar' && github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     permissions:
       contents: write

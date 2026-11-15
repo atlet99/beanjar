@@ -80,7 +80,7 @@ jobs:
   guest:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.repository == 'mariotaku/beanjar' && github.ref_type == 'tag')
+      (github.repository == 'webosbrew/beanjar' && github.ref_type == 'tag')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -116,7 +116,7 @@ jobs:
   # notes name (the newest of the host's contract when this ran; any later one of it pairs too)
   release:
     needs: [host, guest]
-    if: github.repository == 'mariotaku/beanjar' && github.ref_type == 'tag'
+    if: github.repository == 'webosbrew/beanjar' && github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     permissions:
       contents: write

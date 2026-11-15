@@ -129,7 +129,7 @@ host's architecture-all packages) and `beanjar-debs-arm64`.
 
 `beanjar-guest` changes rarely and takes hours to build, so the Packages workflow does not build
 it. The Guest workflow (`.github/workflows/guest.yml`) does, in the public repository
-(mariotaku/beanjar) only, on a tag `guest-<version>` there, and releases it on that repository:
+(webosbrew/beanjar) only, on a tag `guest-<version>` there, and releases it on that repository:
 the `.deb` and a `SHA256SUMS`. It runs `scripts/build-packages.sh guest` on the amd64 runner:
 role `guest`'s build dependencies and ccache; the webOS and NetCast SDKs, openlgtv/buildroot-nc4
 release assets pinned by SHA-256 in the script, unpacked in `/opt` where the cross files look;

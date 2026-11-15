@@ -201,7 +201,7 @@ def control(root, name, version, arch, depends, description, recommends=None, su
         + (f"Depends: {depends}\n" if depends else "")
         + (f"Recommends: {recommends}\n" if recommends else "")
         + (f"Suggests: {suggests}\n" if suggests else "")
-        + f"Homepage: https://github.com/mariotaku/beanjar\n"
+        + f"Homepage: https://github.com/webosbrew/beanjar\n"
         f"Description: {description}\n",
     )
     lines = []

@@ -1,6 +1,6 @@
 version = 1
 SPDX-PackageName = "beanjar"
-SPDX-PackageDownloadLocation = "https://github.com/mariotaku/beanjar"
+SPDX-PackageDownloadLocation = "https://github.com/webosbrew/beanjar"
 
 # Source files that can carry a comment (Python, C, shell, JavaScript, TOML, Meson, units, ...)
 # carry their own SPDX header. The entries below cover what cannot, or what a header would only

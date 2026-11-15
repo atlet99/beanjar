@@ -113,7 +113,7 @@ The rest of these pages write `beanjar`; from a checkout that is `python3 -m bea
 
 ## From the Debian packages
 
-Released packages are on the [releases page](https://github.com/mariotaku/beanjar/releases):
+Released packages are on the [releases page](https://github.com/webosbrew/beanjar/releases):
 the host packages in the newest `host-<version>` release, and `beanjar-guest` in the
 `guest-<version>` release its notes name. Install the downloaded files with
 `sudo apt install ./beanjar_*.deb ./beanjar-ui_*.deb ./beanjar-guest_*.deb`.

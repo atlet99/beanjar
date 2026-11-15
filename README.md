@@ -34,7 +34,7 @@ You need Debian 13 (trixie) or Raspberry Pi OS based on it, on one of:
 
 On Windows 11, Beanjar runs in WSL2 with a Debian 13 distribution, as on an x86_64 PC; see [Running Beanjar on Windows with WSL](docs/user/wsl.md).
 
-Download the Debian packages from the [releases page](https://github.com/mariotaku/beanjar/releases): the host packages from the newest `host-<version>` release, and `beanjar-guest` from the `guest-<version>` release its notes name. Then:
+Download the Debian packages from the [releases page](https://github.com/webosbrew/beanjar/releases): the host packages from the newest `host-<version>` release, and `beanjar-guest` from the `guest-<version>` release its notes name. Then:
 
 ```sh
 sudo apt install ./beanjar_*.deb ./beanjar-qemu_*.deb ./beanjar-ui_*.deb ./beanjar-guest_*.deb

@@ -28,7 +28,7 @@ import urllib.request
 from pathlib import Path
 
 TOP = Path(__file__).resolve().parents[1]
-REPOSITORY = "mariotaku/beanjar"
+REPOSITORY = "webosbrew/beanjar"
 API = "https://api.github.com"
 TAG_PREFIX = "guest-"
 SUMS = "SHA256SUMS"

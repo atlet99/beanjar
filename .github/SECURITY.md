@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Report a vulnerability privately. On the public repository (mariotaku/beanjar), open the Security tab and choose "Report a vulnerability" (GitHub private vulnerability reporting). Please do not open a public issue or pull request for it.
+Report a vulnerability privately. On the public repository (webosbrew/beanjar), open the Security tab and choose "Report a vulnerability" (GitHub private vulnerability reporting). Please do not open a public issue or pull request for it.
 
 Say what is affected, how to reproduce it and what an attacker gains. A short description is enough to start.
 
