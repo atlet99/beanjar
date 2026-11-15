@@ -35,7 +35,7 @@ def test_pins():
         assert pin["repository"] == "mariotaku/beanjar-vendor"
         for arch in (pin["guest"],) if pin.get("guest") else vendor.ARCHS:
             int(pin[arch], 16)
-    assert pins["testguest"]["guest"] == "armhf"
+    assert pins["testguest"]["guest"] == "armel"
     name, url = vendor.asset(pins["qemu"], "qemu", "arm64")
     assert name == f"qemu-{pins['qemu']['version']}-arm64.tar.xz"
     # the '+' of a version is %2B in the URL, in the tag and in the file name
@@ -127,15 +127,15 @@ def test_override(tmp_path, monkeypatch):
     pin = tmp_path / "vendor.toml"
     pin.write_text('repository = "x/y"\n')
     cache = tmp_path / "cache"
-    local = tmp_path / "test-guest-1+beanjar1-armhf.tar.xz"
+    local = tmp_path / "test-guest-1+beanjar1-armel.tar.xz"
     local.write_bytes(
         tarball(
-            {"BUILDINFO": b"Program: test-guest\nArchitecture: armhf\n", "rootfs.squashfs": b"r"}
+            {"BUILDINFO": b"Program: test-guest\nArchitecture: armel\n", "rootfs.squashfs": b"r"}
         )
     )
     monkeypatch.setenv("BEANJAR_VENDOR_TEST_GUEST", str(local))
     tree = vendor.tree("test-guest", "amd64", pin, cache)
-    assert tree == cache / "test-guest-1+beanjar1-armhf"
+    assert tree == cache / "test-guest-1+beanjar1-armel"
     assert (tree / "rootfs.squashfs").read_bytes() == b"r"
     monkeypatch.setenv("BEANJAR_VENDOR_TEST_GUEST", str(tmp_path / "none.tar.xz"))
     with pytest.raises(vendor.Error, match="no tarball"):

@@ -7,16 +7,24 @@
     scripts/testguest-setup [OUT]       default OUT: build/testguest
 
 Takes the userland, the program testguest of packaging/vendor.toml (meson/vendor.py: the pinned
-release, or the tarball BEANJAR_VENDOR_TESTGUEST names), and the toolchain its BUILDINFO pins
-(downloaded once into build/vendor and checked by SHA-256), and writes:
+release, or the tarball BEANJAR_VENDOR_TESTGUEST names), and writes:
 
-    OUT/cross.ini   the cross file of the guest build of virt-testguest: the toolchain, the
-                    userland's sysroot and the CPU options, for the test programs' layer
-                    (guest/testguest) and the kernel and initramfs
+    OUT/cross.ini   the cross file of the guest build of virt-testguest: Debian's cross compiler
+                    for the triplet BUILDINFO names (gcc-arm-linux-gnueabi, armv7 EABI softfp
+                    with the CPU options of BUILDINFO's Target-Flags) on the userland's sysroot,
+                    for the test programs' layer (guest/testguest) and the kernel and initramfs
     OUT/image       rootfs.pak (the userland's root filesystem) and manifest.toml naming the
                     target: a firmware directory for beanjar create --firmware
 
-then the build is
+Debian's cross compiler is not built for a sysroot: --sysroot alone leaves its own tool directory
+(/usr/<triplet>/include and lib, Debian's armel C library when libc6-dev-armel-cross is installed)
+ahead of the sysroot. So the cross file puts the sysroot first by hand: -nostdinc with the sysroot's
+usr/include and GCC's own include directory after it, -B for the start files and -L and -rpath-link
+for the libraries. Only GCC's libgcc.a, crtbegin and crtend then come from the compiler. And it
+undefines _TIME_BITS, which Debian 13's armel compiler defines to 64 by default (Debian's 64-bit
+time_t transition): webOS's userland, and glibc's default, is 32-bit time_t.
+
+Then the build is
 
     meson setup --cross-file build/testguest/cross.ini build/guest-virt-testguest -Dsoc=virt -Dwebos=testguest
     meson compile -C build/guest-virt-testguest
@@ -24,8 +32,8 @@ then the build is
 
 import os
 from pathlib import Path
-import platform
 import shutil
+import subprocess
 import sys
 
 TOP = Path(__file__).resolve().parents[1]
@@ -37,33 +45,59 @@ TARGET = 'chip = "virt"\nrelease = "testguest"\n'
 
 def fields(tree):
     info = vendor.buildinfo(tree / "BUILDINFO")
-    for name in (
-        "Version",
-        "Toolchain",
-        "Toolchain-Directory",
-        "Toolchain-Prefix",
-        "Toolchain-Flags",
-    ):
+    for name in ("Version", "Architecture", "Target-Triplet", "Target-Flags"):
         if not info.get(name):
             raise vendor.Error(f"{tree}/BUILDINFO has no {name}")
+    if info["Architecture"] != "armel":
+        raise vendor.Error(f"{tree}/BUILDINFO: Architecture {info['Architecture']}, not armel")
     return info
 
 
-def toolchain(info):
-    """The unpacked toolchain BUILDINFO's Toolchain pins: its bin/ directory."""
-    name, digest, url = info["Toolchain"].split()
-    directory = vendor.CACHE / name.removesuffix(".tar.xz")
-    marker = directory.with_name(directory.name + ".sha256")
-    if not (directory.is_dir() and marker.is_file() and marker.read_text().strip() == digest):
-        tarball = vendor.CACHE / "download" / name
-        vendor.download(url, tarball, digest)
-        vendor.unpack(tarball, directory, digest)
-    return directory / info["Toolchain-Directory"] / "bin"
+def compiler(triplet):
+    """The directory of the system's cross compiler for triplet (Debian's gcc-<triplet>), and its
+    own include directory (stddef.h, stdarg.h, arm_neon.h)."""
+    gcc = shutil.which(triplet + "-gcc")
+    if not gcc:
+        raise vendor.Error(
+            f"no {triplet}-gcc: install gcc-{triplet} (the guest build-dependencies)"
+        )
+    r = subprocess.run([gcc, "-print-file-name=include"], capture_output=True, text=True)
+    include = Path(r.stdout.strip())
+    if r.returncode or not (include / "stddef.h").is_file():
+        raise vendor.Error(f"{gcc}: no include directory of its own ({r.stdout.strip()!r})")
+    return Path(gcc).parent, include
 
 
-def cross(out, bindir, prefix, sysroot, flags):
+def sysroot_flags(sysroot, include):
+    """The options that make Debian's cross compiler take headers, start files and libraries from
+    sysroot before its own tool directory: (compile, link)."""
+    s = str(sysroot)
+    # GCC's own directory with -idirafter: Meson drops an -isystem of a directory the compiler
+    # searches by default. Debian 13's armel compiler defines _TIME_BITS=64 (and
+    # _FILE_OFFSET_BITS=64) by default; webOS's userland is 32-bit time_t, glibc's default.
+    compile_ = [
+        "--sysroot=" + s,
+        "-nostdinc",
+        "-isystem" + s + "/usr/include",
+        "-idirafter" + str(include),
+        "-U_TIME_BITS",
+    ]
+    link = [
+        "--sysroot=" + s,
+        f"-B{s}/usr/lib/",
+        f"-B{s}/lib/",
+        f"-L{s}/lib",
+        f"-L{s}/usr/lib",
+        f"-Wl,-rpath-link,{s}/lib:{s}/usr/lib",
+    ]
+    return compile_, link
+
+
+def cross(out, bindir, prefix, sysroot, include, flags):
     tool = lambda t: repr(str(bindir / (prefix + t)))
-    args = ", ".join(repr(a) for a in ["--sysroot=" + str(sysroot), *flags])
+    compile_, link = sysroot_flags(sysroot, include)
+    args = ", ".join(repr(a) for a in [*compile_, *flags])
+    link_args = ", ".join(repr(a) for a in [*link, *flags])
     pc = ", ".join(repr(str(sysroot / d)) for d in ("usr/lib/pkgconfig", "usr/share/pkgconfig"))
     return f"""# Written by scripts/testguest-setup (docs/dev/architecture/test-guest.md):
 #   meson setup --cross-file {out}/cross.ini build/guest-virt-testguest -Dsoc=virt -Dwebos=testguest
@@ -83,7 +117,7 @@ pkg_config_libdir = [{pc}]
 
 [built-in options]
 c_args = [{args}]
-c_link_args = [{args}]
+c_link_args = [{link_args}]
 
 [host_machine]
 system = 'linux'
@@ -104,20 +138,17 @@ def main(argv):
     if argv[:1] in (["-h"], ["--help"]) or len(argv) > 1:
         sys.exit(__doc__)
     out = Path(argv[0]).resolve() if argv else TOP / "build/testguest"
-    if platform.machine() != "x86_64":
-        sys.exit("testguest-setup: the test guest's toolchain (Bootlin's) runs on x86_64 only")
     try:
         tree = vendor.tree("testguest", "amd64")
         info = fields(tree)
-        bindir = toolchain(info)
+        triplet = info["Target-Triplet"]
+        bindir, include = compiler(triplet)
     except vendor.Error as e:
         sys.exit(f"testguest-setup: {e}")
     out.mkdir(parents=True, exist_ok=True)
     write(
         out / "cross.ini",
-        cross(
-            out, bindir, info["Toolchain-Prefix"], tree / "sysroot", info["Toolchain-Flags"].split()
-        ),
+        cross(out, bindir, triplet + "-", tree / "sysroot", include, info["Target-Flags"].split()),
     )
     image = out / "image"
     image.mkdir(exist_ok=True)

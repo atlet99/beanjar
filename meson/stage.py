@@ -14,7 +14,9 @@ OPs, applied in order:
                              does not reach the layer; a meson.build in it (the module's build
                              description) is not copied
     --built-tree SRC DEST    as --tree, for a tree made by another target whose stamp the
-                             caller depends on: its files are not listed in the depfile
+                             caller depends on: its files are not listed in the depfile, and
+                             are not stripped or checked here (the step that made the tree did,
+                             with the tools of its own architecture)
     --file SRC DEST MODE     install file SRC as DEST with MODE (octal)
     --link TARGET DEST       symlink DEST -> TARGET
     --dir DEST MODE          directory DEST with MODE
@@ -109,6 +111,7 @@ def main():
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
     deps = []
+    built = set()  # the files --built-tree copied: left as they are
 
     def dest(rel):
         p = os.path.normpath(os.path.join(tmp, rel))
@@ -135,6 +138,12 @@ def main():
             )
             if op == "tree":
                 normalise_modes(src, os.path.normpath(os.path.join(tmp, rel)))
+            else:
+                for dirpath, dirnames, filenames in os.walk(src):
+                    built.update(
+                        os.path.normpath(os.path.join(tmp, rel, os.path.relpath(dirpath, src), n))
+                        for n in filenames
+                    )
         elif op == "file":
             src, rel, mode = args
             deps.append(src)
@@ -143,6 +152,7 @@ def main():
                 os.unlink(d)
             shutil.copyfile(src, d)
             os.chmod(d, int(mode, 8))
+            built.discard(d)
         elif op == "link":
             target, rel = args
             d = dest(rel)
@@ -157,7 +167,9 @@ def main():
 
     elves = []
     for dirpath, dirnames, filenames in os.walk(tmp):
-        elves += [os.path.join(dirpath, n) for n in filenames if is_elf(os.path.join(dirpath, n))]
+        elves += [
+            p for p in (os.path.join(dirpath, n) for n in filenames) if p not in built and is_elf(p)
+        ]
     if opts.strip:
         for p in elves:
             mode = os.stat(p).st_mode

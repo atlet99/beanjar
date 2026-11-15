@@ -103,8 +103,8 @@ if guest_lane
   netcast45 = webos == 'netcast45'
   # The open test guest (webos 'testguest', docs/dev/architecture/test-guest.md): its userland is
   # beanjar-vendor's, so this build makes its one layer, the checks of guest/testguest built against
-  # the userland's sysroot, and the arm64 pieces every target shares, with the userland's pinned
-  # toolchain as the 32-bit cross compiler (build/testguest/cross.ini, scripts/testguest-setup):
+  # the userland's sysroot, and the arm64 pieces every target shares, with Debian's armel cross
+  # compiler on that sysroot as the 32-bit one (build/testguest/cross.ini, scripts/testguest-setup):
   # CI's way to a bootable guest without LG's SDK.
   testguest = webos == 'testguest'
   guest_target = soc + '-' + webos
@@ -161,7 +161,7 @@ if guest_lane
                'goldilocks': '2.24', 'goldilocks2': '2.24', 'jhericurl': '2.28',
                'kisscurl': '2.28', 'mullet': '2.31', 'number1': '2.31', 'ombre': '2.35',
                'ponytail': '2.35', 'queue': '2.39', 'spacebuns': '2.39', 'simplesmart': '2.19', 'netcast45': '2.16',
-               'testguest': '2.41'}[webos]
+               'testguest': '2.42'}[webos]
   # stage.py for 32-bit ARM trees: strip, and check the glibc ceiling.
   arm_stage = [python, stage_py, '--strip', strip, '--readelf', readelf, '--glibc-max', glibc_max]
   layers_dir = meson.project_build_root() / 'stage/layers'   # the assembled layer trees

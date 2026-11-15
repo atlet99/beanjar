@@ -8,11 +8,12 @@
 #   scripts/testguest-ci.sh
 #
 # 1. Packages: the build dependencies of roles guest and host (packaging/debian/build-deps.sh),
-#    which have what running a VM needs.
+#    which have what running a VM needs and Debian's cross compilers (armel for the 32-bit checks,
+#    arm64 for the kernel, the initramfs and the 64-bit check with its glibc).
 # 2. The guest: scripts/testguest-setup takes beanjar-vendor's userland (packaging/vendor.toml, or
-#    the tarball BEANJAR_VENDOR_TESTGUEST names) and its toolchain into build/vendor, then
-#    build/guest-virt-testguest builds the testguest layer (the checks, against the userland's
-#    sysroot), the kernel and the initramfs, published to build/.
+#    the tarball BEANJAR_VENDOR_TESTGUEST names) into build/vendor, then build/guest-virt-testguest
+#    builds the testguest layer (the 32-bit checks against the userland's sysroot, and the 64-bit
+#    one on Debian's AArch64 glibc), the kernel and the initramfs, published to build/.
 # 3. The host build, build/host: the prebuilt QEMU (packaging/vendor.toml) and the media helper.
 # 4. scripts/testguest-check, in a library of its own (build/testguest/library); its exit status is
 #    this script's. The results are also in build/testguest/results.txt, the VM's logs and the

@@ -3,10 +3,10 @@
 # Boot a real VM without LG firmware: the open test guest (beanjar-vendor's Buildroot userland under
 # our checks, guest/testguest) on the guest kernel, through the normal launcher, under TCG on
 # GitHub's x86_64 runner, and its checks (GPU through virtio-gpu and virgl, the virtio-serial ports,
-# the 9p shares, input, the 32-bit ABI bridge, the guest's own power-off) with pass or fail and
-# numbers (docs/dev/architecture/test-guest.md). scripts/testguest-ci.sh does the work, in a
-# debian:trixie container as the other workflows. What is kept between runs: the vendored downloads
-# (the userland, its toolchain, QEMU) and Meson's package cache (the kernel's and busybox's
+# the 9p shares, input, the 32-bit ABI bridge, a 64-bit ARM program, the guest's own power-off)
+# with pass or fail and numbers (docs/dev/architecture/test-guest.md). scripts/testguest-ci.sh does
+# the work, in a debian:trixie container as the other workflows. What is kept between runs: the
+# vendored downloads (the userland, QEMU) and Meson's package cache (the kernel's and busybox's
 # tarballs). The results and the VM's logs are the run's artifact.
 name: Test guest
 
@@ -50,7 +50,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      # beanjar-vendor's tarballs and the userland's toolchain, by the file that pins them
+      # beanjar-vendor's tarballs, by the file that pins them
       - name: Vendored downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

@@ -4,7 +4,7 @@
 # The test guest's runner, started once at boot (/etc/init.d/S99testguest): runs each check and
 # writes the results, key=value lines, to the out share as testguest/results.txt (renamed into
 # place when complete, so the host never reads half a file) and to the console. Each check's lines
-# are its program's (gpu.*, ports.*, input.*, shares.*) and <check>=pass or fail; result= is pass
+# are its program's (gpu.*, ports.*, input.*, shares.*, bridge.*, arm64.*) and <check>=pass or fail; result= is pass
 # when every check passed. The host's test command (scripts/testguest-check) waits for the file.
 out=/mnt/host/out/testguest
 mkdir -p "$out" || { echo "tg-run: no out share at /mnt/host/out" >&2; exit 1; }
@@ -61,6 +61,9 @@ check input tg-input "$out/input-ready" 60
 # bridge when the VM runs USERLAND=qemu-user (bridge.userland says which); after input, as it
 # creates an input device of its own
 check bridge tg-bridge
+# a 64-bit ARM program on its own glibc in /usr/lib64, as newer firmware ships them; its file check
+# writes to the out share
+check arm64 tg-arm64 "$out"
 if [ $failed = 0 ]; then echo "result=pass" >> "$tmp"; else echo "result=fail" >> "$tmp"; fi
 echo "checks.failed=$failed" >> "$tmp"
 mv "$tmp" "$out/results.txt"

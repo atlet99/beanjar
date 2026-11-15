@@ -32,6 +32,6 @@ arm64 = "2c24a05a82b35b927099a76d0362814b9da2c7ef01efcb3fd80afc0e4512b14a"
 
 # The test guest's userland, Buildroot's: scripts/testguest-setup, docs/dev/architecture/test-guest.md
 [testguest]
-tag = "testguest-2026.02.3+beanjar1"
-guest = "armhf"
-armhf = "32f4c61ffa461808380ecc95fa4f1888a4fa5cfe2b1d3bf9b8be7b48cc0ed451"
+tag = "testguest-2026.02.3+beanjar2"
+guest = "armel"
+armel = "51238cf0bf67ab500b8143e014a4178362c2e835257eac9c115b412666a2616e"

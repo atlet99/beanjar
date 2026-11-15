@@ -18,7 +18,7 @@ no other source of these programs: no system package and no local build stands i
 
 A pin with guest = "<arch>" is a program that runs inside the guest, not on the host: it has one
 tarball, for that architecture, which every host architecture takes (qemu-user's qemu-arm: arm64;
-the test guest's userland, docs/dev/architecture/test-guest.md: armhf). guest = ["<arch>", ...]
+the test guest's userland, docs/dev/architecture/test-guest.md: armel). guest = ["<arch>", ...]
 pins a tarball for each of the guest architectures named (qemu-user: arm64 for the arm64 guest
 kernel, amd64 for the experimental x86-64 one): PROGRAM is the first, PROGRAM:ARCH another one,
 which BEANJAR_VENDOR_<PROGRAM>_<ARCH> overrides.

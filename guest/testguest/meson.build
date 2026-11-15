@@ -8,6 +8,8 @@
 #   usr/bin/tg-ports    the virtio-serial ports and the media and video wire formats (include/)
 #   usr/bin/tg-input    a key from QEMU's virtio keyboard
 #   usr/bin/tg-bridge   the 32-bit ABI through the kernel's compat table
+# and the 64-bit ARM side, arm64/ (stage/testguest-arm64, taken as it is): an AArch64 glibc in
+# usr/lib64 and usr/bin/tg-arm64, a program linked against it.
 tg_inc = include_directories('../../include')
 tg_args = ['-Wall', '-Wextra', '-O2']
 tg_gpu = executable('tg-gpu', 'src/tg-gpu.c',
@@ -21,14 +23,17 @@ tg_input = executable('tg-input', 'src/tg-input.c',
 tg_bridge = executable('tg-bridge', 'src/tg-bridge.c',
   c_args: tg_args,
   dependencies: dependency('threads'))
+subdir('arm64')
 testguest_args = ['--tree', meson.current_source_dir() / 'rootfs', '.']
 foreach exe : [tg_gpu, tg_ports, tg_input, tg_bridge]
   testguest_args += ['--file', exe, 'usr/bin/' + exe.name(), '755']
 endforeach
+testguest_args += ['--built-tree', tg_arm64_tree, '.']
 layers += {'testguest': custom_target('testguest-layer',
   output: 'testguest-layer.stamp',
   depfile: 'testguest-layer.d',
   command: arm_stage + ['--out', layers_dir / 'testguest', '--stamp', '@OUTPUT@', '--depfile', '@DEPFILE@']
     + testguest_args,
+  input: tg_arm64_stage,   # restaged when that tree changes
   build_by_default: true)}
 layer_meta += {'testguest': meson.current_source_dir() / 'layer.toml'}
