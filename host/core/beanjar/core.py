@@ -1094,6 +1094,9 @@ class Library:
             refusal = vmsettings.guest_kernel_host_refusal(guest_kernel, platform_module.machine())
             if refusal:
                 raise Error(refusal, "guest_kernel")
+            refusal = vmsettings.guest_kernel_package_refusal(guest_kernel, paths.Tree(self.repo))
+            if refusal:
+                raise Error(refusal, "guest_kernel")
         if userland == "qemu-user" or guest_kernel != vmsettings.DEFAULT_GUEST_KERNEL:
             # refused on some platforms (vmsettings.NATIVE_ONLY)
             try:

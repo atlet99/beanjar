@@ -25,9 +25,12 @@ experimental x86-64 guest kernel's, where the tree has one (beanjar-vendor's fro
 (`hardware.userland = "qemu-user"`): `/usr/share/beanjar/qemu-user/arm64/qemu-arm` for the arm64
 guest kernel, and on amd64 `/usr/share/beanjar/qemu-user/amd64/qemu-arm` for the x86-64 one, each
 where the host build published it (once `packaging/vendor.toml` pins `qemu-user`, or
-`BEANJAR_VENDOR_QEMU_USER` and `BEANJAR_VENDOR_QEMU_USER_AMD64` name tarballs). `beanjar-guest`
-carries the x86-64 guest kernel and its initramfs in `/usr/share/beanjar/guest/x86_64` where the
-guest lane published them, as it does on an x86-64 build machine (meson option `x86_64_kernel`).
+`BEANJAR_VENDOR_QEMU_USER` and `BEANJAR_VENDOR_QEMU_USER_AMD64` name tarballs). The
+optional `beanjar-guest-x86-64` (amd64; depends on `beanjar-guest` of the same version and on
+`beanjar-qemu`; suggested by `beanjar`, never installed by it) carries the x86-64 guest kernel and
+its initramfs in `/usr/share/beanjar/guest/x86_64` where the guest lane published them, as it does
+on an x86-64 build machine (meson option `x86_64_kernel`); the Guest workflow releases it beside
+`beanjar-guest`. Without it `guest_kernel=x86-64` is refused, naming the package.
 
 ### The prebuilt programs
 

@@ -120,17 +120,18 @@ print(*(targets.name(t) for t in targets.all_targets()))' "$TOP/host/core")
 	t3=$(date +%s)
 
 	step "packages"
-	rm -f "$OUT"/debs/beanjar-guest_*
+	rm -f "$OUT"/debs/beanjar-guest_* "$OUT"/debs/beanjar-guest-x86-64_*
 	python3 "$TOP/packaging/debian/build.py" --guest-only --guest-publish "$OUT/guest-publish" \
 		--output "$OUT/debs"
 	t4=$(date +%s)
-	show beanjar-guest
+	show beanjar-guest beanjar-guest-x86-64
 	echo "seconds: build-deps $((t1 - t0)), SDKs $((t2 - t1)), guest builds $((t3 - t2)), packages $((t4 - t3)), total $((t4 - t0))"
 }
 
 show() { # show PACKAGE...: the lane's .deb files and their dependencies
 	for name; do
 		for deb in "$OUT/debs/${name}"_*.deb; do
+			[ -f "$deb" ] || continue
 			echo "$(basename "$deb"): $(du -h "$deb" | cut -f1), Depends: $(dpkg-deb -f "$deb" Depends)"
 		done
 	done

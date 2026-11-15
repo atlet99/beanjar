@@ -424,6 +424,9 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
         refusal = vmsettings.guest_kernel_host_refusal(guest_kernel, platform.machine())
         if refusal:
             raise Error(refusal)
+        refusal = vmsettings.guest_kernel_package_refusal(guest_kernel, tree)
+        if refusal:
+            raise Error(refusal)
         say(
             "guest kernel: x86-64 (experimental): q35 under "
             f"{accel.upper()}, the ARM userland under qemu-arm"

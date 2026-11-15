@@ -218,7 +218,7 @@ def _build_module():
 
 def test_installed_x86_64_guest_kernel_paths(tmp_path):
     """An installed host finds the experimental x86-64 guest kernel's pieces where the packages
-    put them: the kernel and initramfs in beanjar-guest's x86_64/, qemu-system-x86_64 beside
+    put them: the kernel and initramfs in beanjar-guest-x86-64's x86_64/, qemu-system-x86_64 beside
     qemu-system-aarch64 with -L the shared QEMU data, and each guest kernel's qemu-arm in
     beanjar-qemu's qemu-user/<guest architecture>/; no environment override needed."""
     tree = paths.Tree(tmp_path)
@@ -349,9 +349,10 @@ def test_qemu_package_refuses_a_qemu_user_of_another_architecture(tmp_path):
         build.stage_qemu(tmp_path, hp, "amd64")
 
 
-def test_guest_package_x86_64_kernel(tmp_path):
-    """beanjar-guest carries the x86-64 kernel and initramfs in x86_64/ where the guest lane
-    published them, and is as before where it did not."""
+def test_guest_package_has_no_x86_64_kernel_and_its_own_package_has(tmp_path):
+    """beanjar-guest carries only the arm64 kernel; the x86-64 kernel and initramfs are
+    beanjar-guest-x86-64's, at the paths the launcher resolves, and it is not built where the guest
+    lane published no x86-64 kernel."""
     build = _build_module()
     gp = tmp_path / "publish"
     for name in ("Image", "initramfs.cpio.gz", "x86_64/bzImage", "x86_64/initramfs.cpio.gz"):
@@ -359,18 +360,59 @@ def test_guest_package_x86_64_kernel(tmp_path):
         (gp / name).write_bytes(name.encode())
     g = tmp_path / "guest"
     build.stage_kernels(gp, g)
-    assert _files(g) == [
-        "Image",
-        "initramfs.cpio.gz",
-        "x86_64/bzImage",
-        "x86_64/initramfs.cpio.gz",
-    ]
+    assert _files(g) == ["Image", "initramfs.cpio.gz"]
+    x = build.stage_x86_64(tmp_path, gp)
+    base = x / "usr/share/beanjar/guest"
+    assert _files(base) == ["x86_64/bzImage", "x86_64/initramfs.cpio.gz"]
     tree = paths.Tree(tmp_path)
     (tmp_path / "installation.toml").write_text('version="test"\n')
     for path in tree.guest_kernel("x86-64"):
-        assert (g / os.path.relpath(path, "/usr/share/beanjar/guest")).is_file()
+        assert (base / os.path.relpath(path, "/usr/share/beanjar/guest")).is_file()
     for name in ("x86_64/bzImage", "x86_64/initramfs.cpio.gz"):
         (gp / name).unlink()
-    g2 = tmp_path / "guest2"
-    build.stage_kernels(gp, g2)
-    assert _files(g2) == ["Image", "initramfs.cpio.gz"]
+    assert build.stage_x86_64(tmp_path / "other", gp) is None
+
+
+def test_x86_64_package_control(tmp_path):
+    build = _build_module()
+    root = tmp_path / "pkg"
+    (root / "usr/share/beanjar/guest/x86_64").mkdir(parents=True)
+    build.control(
+        root,
+        "beanjar-guest-x86-64",
+        "0.2.3",
+        "amd64",
+        "beanjar-guest (= 0.2.3), beanjar-qemu",
+        build.X86_64_DESCRIPTION,
+    )
+    text = (root / "DEBIAN/control").read_text()
+    fields = dict(line.split(": ", 1) for line in text.splitlines() if not line.startswith(" "))
+    assert fields["Package"] == "beanjar-guest-x86-64"
+    assert fields["Architecture"] == "amd64"
+    assert fields["Depends"] == "beanjar-guest (= 0.2.3), beanjar-qemu"
+    assert "Recommends" not in fields and "Suggests" not in fields
+    assert "experimental x86-64 guest kernel" in fields["Description"]
+    assert "ARM webOS" in text
+
+
+def test_host_suggests_but_never_recommends_the_x86_64_package(tmp_path):
+    build = _build_module()
+    root = tmp_path / "pkg"
+    root.mkdir()
+    build.control(root, "beanjar", "0.2.3", "amd64", "x", "d", suggests="beanjar-guest-x86-64")
+    text = (root / "DEBIAN/control").read_text()
+    assert "Suggests: beanjar-guest-x86-64\n" in text
+    assert "Recommends" not in text
+
+
+def test_x86_64_kernel_refused_when_installed_without_its_package(tmp_path):
+    from beanjar import vmsettings
+
+    tree = paths.Tree(tmp_path)
+    assert vmsettings.guest_kernel_package_refusal("x86-64", tree) is None  # a checkout
+    (tmp_path / "installation.toml").write_text('version="test"\n')
+    refusal = vmsettings.guest_kernel_package_refusal("x86-64", tree)
+    assert "beanjar-guest-x86-64" in refusal
+    assert vmsettings.guest_kernel_package_refusal("arm64", tree) is None
+    with mock.patch("os.path.isfile", return_value=True):
+        assert vmsettings.guest_kernel_package_refusal("x86-64", tree) is None

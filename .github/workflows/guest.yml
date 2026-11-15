@@ -51,7 +51,11 @@ jobs:
             echo "tag $GITHUB_REF_NAME does not name the version built, $version: tag this commit guest-$version" >&2
             exit 1
           fi
-          sha256sum "$1" > SHA256SUMS
+          # the experimental x86-64 kernel's package (amd64 build machines), beside the guest's
+          set -- "$1" beanjar-guest-x86-64_*_amd64.deb
+          [ -f "$2" ] || { echo "no beanjar-guest-x86-64 package built" >&2; exit 1; }
+          [ "$(dpkg-deb -f "$2" Version)" = "$version" ] || { echo "beanjar-guest-x86-64 is not version $version" >&2; exit 1; }
+          sha256sum "$@" > SHA256SUMS
           cat SHA256SUMS
       - name: Upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -59,6 +63,7 @@ jobs:
           name: beanjar-debs-guest
           path: |
             build/ci-packages/debs/beanjar-guest_*_all.deb
+            build/ci-packages/debs/beanjar-guest-x86-64_*_amd64.deb
             build/ci-packages/debs/SHA256SUMS
           if-no-files-found: error
 
@@ -82,4 +87,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" --verify-tag --repo "$GITHUB_REPOSITORY" \
             --title "beanjar-guest ${GITHUB_REF_NAME#guest-}" \
             --notes "beanjar-guest ${GITHUB_REF_NAME#guest-}, built from $GITHUB_SHA by the Guest workflow." \
-            beanjar-guest_*_all.deb SHA256SUMS
+            beanjar-guest_*_all.deb beanjar-guest-x86-64_*_amd64.deb SHA256SUMS

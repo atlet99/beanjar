@@ -11,7 +11,8 @@ tap for the programs a VM needs from outside Beanjar ("macOS: the Homebrew tap")
 | `beanjar-ui` | all | GTK manager and viewer windows, desktop entry and icon |
 | `beanjar-vnc` | arm64, amd64 | VNC server for the TV picture, sound and H.264 video, with its private neatvnc and aml |
 | `beanjar-web` | all | Web viewer |
-| `beanjar-guest` | all | Virtual-TV kernel, initramfs, modules, guest SSH tools and built layers for supported firmware families; the experimental x86-64 guest kernel and its initramfs |
+| `beanjar-guest` | all | Virtual-TV kernel, initramfs, modules, guest SSH tools and built layers for supported firmware families |
+| `beanjar-guest-x86-64` | amd64 | The experimental x86-64 guest kernel and its initramfs; depends on `beanjar-guest` of the same version and on `beanjar-qemu`; only suggested by `beanjar` on amd64 |
 | `beanjar-qemu` | arm64, amd64 | Patched QEMU; on amd64 also its qemu-system-x86_64; qemu-user's static qemu-arm for each guest kernel the host runs (arm64's everywhere, x86-64's on amd64) |
 
 `beanjar` depends on a guest package of the same `0.Y` (packaging/debian/README.md), a hint
@@ -95,8 +96,8 @@ remain under `scripts/`.
   guest/
     Image                         virtual-TV kernel
     initramfs.cpio.gz
-    x86_64/bzImage                experimental x86-64 guest kernel
-    x86_64/initramfs.cpio.gz      its initramfs, with its modules
+    x86_64/bzImage                experimental x86-64 guest kernel (beanjar-guest-x86-64)
+    x86_64/initramfs.cpio.gz      its initramfs, with its modules (beanjar-guest-x86-64)
     modules/                      virtual-TV kernel modules
     layers/common/                shared guest support
     layers/soc/<soc>/              SoC-specific components
@@ -127,7 +128,9 @@ qemu-user's qemu-arm is guest data too, but it comes from beanjar-vendor with th
 (meson/vendor.py publishes `build/qemu-user` and, on amd64, `build/qemu-user-amd64`), so the
 host lane's `beanjar-qemu` carries it, in `share/beanjar/qemu-user/<guest arch>`. The x86-64
 guest kernel is built by the guest lane on an x86-64 build machine and goes into
-`beanjar-guest`, which is architecture all: an arm64 host carries it unused.
+its own optional package, `beanjar-guest-x86-64` (amd64): `beanjar-guest` stays architecture all
+without it, so an arm64 host carries nothing it cannot use. Nothing pulls it in; the launcher refuses
+`guest_kernel=x86-64` without it and names the package (`vmsettings.guest_kernel_package_refusal`).
 `libexec` holds host executables and host launchers only.
 
 Host Python helpers are executable code and belong under `/usr/lib/beanjar/helpers`,

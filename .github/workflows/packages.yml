@@ -142,5 +142,5 @@ jobs:
             --title "beanjar $version" \
             --notes "beanjar $version host packages for Debian 13 (amd64, arm64), built from $GITHUB_SHA by the Packages workflow.
 
-          They need beanjar-guest of the same host-guest contract, released separately: [$GUEST_TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/${GUEST_TAG//+/%2B}) (beanjar-guest_${guest}_all.deb), the newest of that contract when this was released." \
+          They need beanjar-guest of the same host-guest contract, released separately: [$GUEST_TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/${GUEST_TAG//+/%2B}) (beanjar-guest_${guest}_all.deb), the newest of that contract when this was released. The experimental x86-64 guest kernel is its own package on that release, beanjar-guest-x86-64 (amd64)." \
             ./*.deb SHA256SUMS

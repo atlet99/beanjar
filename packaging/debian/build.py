@@ -191,7 +191,7 @@ def write(path, text, mode=0o644):
     path.chmod(mode)
 
 
-def control(root, name, version, arch, depends, description, recommends=None):
+def control(root, name, version, arch, depends, description, recommends=None, suggests=None):
     size = sum(p.stat().st_size for p in root.rglob("*") if p.is_file()) // 1024
     write(
         root / "DEBIAN/control",
@@ -200,6 +200,7 @@ def control(root, name, version, arch, depends, description, recommends=None):
         f"Installed-Size: {size}\n"
         + (f"Depends: {depends}\n" if depends else "")
         + (f"Recommends: {recommends}\n" if recommends else "")
+        + (f"Suggests: {suggests}\n" if suggests else "")
         + f"Homepage: https://github.com/mariotaku/beanjar\n"
         f"Description: {description}\n",
     )
@@ -701,17 +702,28 @@ def stage_ui(work, hp):
 
 
 def stage_kernels(gp, g):
-    """The guest kernel and initramfs, and the experimental x86-64 guest kernel's in x86_64/
-    (hardware.guest_kernel = "x86-64", amd64 hosts only; its modules are inside its initramfs)
-    where the guest lane published them, as it does on an x86-64 build machine
-    (guest/kernel/meson.build, x86_64_kernel)."""
+    """The guest kernel and initramfs of beanjar-guest (the experimental x86-64 one is
+    beanjar-guest-x86-64's, stage_x86_64)."""
     for file in ("Image", "initramfs.cpio.gz"):
         copy(gp / file, g / file)
-    if (gp / "x86_64/bzImage").is_file():
-        for file in ("bzImage", "initramfs.cpio.gz"):
-            copy(gp / "x86_64" / file, g / "x86_64" / file)
-    else:
-        print(f"note: {gp} has no x86_64/bzImage: beanjar-guest ships no x86-64 kernel", flush=True)
+
+
+def stage_x86_64(work, gp):
+    """The beanjar-guest-x86-64 tree (amd64): the experimental x86-64 guest kernel and its
+    initramfs, with its modules inside, in /usr/share/beanjar/guest/x86_64 (hardware.guest_kernel =
+    "x86-64", amd64 hosts only), where the guest lane published them, as it does on an x86-64 build
+    machine (guest/kernel/meson.build, x86_64_kernel). None, with a note, where it did not."""
+    if not (gp / "x86_64/bzImage").is_file():
+        print(f"note: {gp} has no x86_64/bzImage: no beanjar-guest-x86-64", flush=True)
+        return None
+    root = work / "beanjar-guest-x86-64"
+    for file in ("bzImage", "initramfs.cpio.gz"):
+        copy(gp / "x86_64" / file, root / "usr/share/beanjar/guest/x86_64" / file)
+    copy(
+        TOP / "packaging/debian/README.md",
+        root / "usr/share/doc/beanjar-guest-x86-64/README.md",
+    )
+    return root
 
 
 def stage_guest(work, gp, stamp):
@@ -763,6 +775,14 @@ def audit_private(*roots):
                 raise SystemExit(f"private key in payload: {path.relative_to(root)}")
 
 
+X86_64_DESCRIPTION = (
+    "Beanjar experimental x86-64 guest kernel\n"
+    " The x86-64 kernel and initramfs for running ARM webOS firmware on an x86-64 host\n"
+    " (guest_kernel=x86-64 in a VM's settings): the ARM userland runs under qemu-arm\n"
+    " from beanjar-qemu. Experimental; arm64 hosts do not need it."
+)
+
+
 def package_guest(a, identity, work):
     """beanjar-guest from the guest publish directory, its version the guest lane's."""
     gp = (a.guest_publish or a.publish).resolve()
@@ -797,6 +817,22 @@ def package_guest(a, identity, work):
         "Beanjar virtual TV kernel and guest components",
     )
     package(guest, a.output / f"beanjar-guest_{stamp['version']}_all.deb", stamp["commit_epoch"])
+    x86_64 = stage_x86_64(work, gp)
+    if x86_64:
+        audit_private(x86_64)
+        control(
+            x86_64,
+            "beanjar-guest-x86-64",
+            stamp["version"],
+            "amd64",
+            f"beanjar-guest (= {stamp['version']}), beanjar-qemu",
+            X86_64_DESCRIPTION,
+        )
+        package(
+            x86_64,
+            a.output / f"beanjar-guest-x86-64_{stamp['version']}_amd64.deb",
+            stamp["commit_epoch"],
+        )
 
 
 def main():
@@ -879,6 +915,8 @@ def main():
             host_dependencies(version, libs, identity),
             "Beanjar TV firmware VMs: the core, its command line and the host runtime",
             recommends=f"beanjar-ui (= {version})",
+            # the experimental x86-64 guest kernel (guest lane, amd64 hosts only): never pulled in
+            suggests="beanjar-guest-x86-64" if arch == "amd64" else None,
         )
         vnc_libs = merge_depends(
             (

@@ -3,6 +3,7 @@
 """A VM's settings (vm.toml): their names, values, help and defaults, the checks of
 a whole configuration (validate), and the launcher environment they make (launcher_env)."""
 
+import os
 import re
 
 from . import nvm, targets, vmconfig
@@ -78,6 +79,19 @@ def guest_kernel_host_refusal(guest_kernel, machine):
     """Why this host (platform.machine()) cannot run guest_kernel, or None."""
     if guest_kernel == "x86-64" and machine not in ("x86_64", "AMD64"):
         return f"guest_kernel=x86-64 needs an x86-64 host, not {machine}"
+    return None
+
+
+def guest_kernel_package_refusal(guest_kernel, tree):
+    """Why an installed host (paths.Tree) lacks the kernel of guest_kernel, or None: the x86-64
+    one is the optional package beanjar-guest-x86-64. A checkout is not asked: its start says
+    which build file is missing."""
+    if guest_kernel == "x86-64" and tree.installed:
+        if not all(os.path.isfile(f) for f in tree.guest_kernel(guest_kernel)):
+            return (
+                "guest_kernel=x86-64 needs the beanjar-guest-x86-64 package: "
+                "install it (apt install beanjar-guest-x86-64)"
+            )
     return None
 
 

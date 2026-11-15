@@ -126,10 +126,12 @@ the extra RAM and the swap.
 under KVM (TCG without `/dev/kvm`) and runs the whole ARM userland under qemu-arm, which is much
 faster than full TCG. It implies `userland=qemu-user`, is refused with `userland=native` and for
 NetCast and SimpleSmart, and only webOS 1 (WT1H) has been booted with it so far. With the Debian
-packages it needs `beanjar-qemu` for amd64, which carries its qemu-system-x86_64 and qemu-arm;
-`beanjar-guest` carries the x86-64 kernel.
+packages, install `beanjar-guest-x86-64` (amd64 only, never installed automatically) first: it
+carries the x86-64 kernel and pulls in `beanjar-qemu`, which has its qemu-system-x86_64 and
+qemu-arm. Without it the setting is refused, naming the package.
 
 ```sh
+sudo apt install beanjar-guest-x86-64
 beanjar settings tv1 set guest_kernel=x86-64
 ```
 
