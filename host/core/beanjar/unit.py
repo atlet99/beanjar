@@ -103,6 +103,7 @@ ENV_NAMES = frozenset(
         "USERLAND",
         "GUEST_KERNEL",
         "QEMU_ARM",
+        "QEMU_AARCH64",
         "QEMU_X86_64",
         "GPU_DEVICE",
         "VHOST_USER_GPU",

@@ -1424,7 +1424,15 @@ def module_params(target, derived=None, vm=None, broadcast=None):
 
 
 def boot_conf(
-    target, layers, derived=None, part_nodes=(), vm=None, fw=None, broadcast=None, userland="native"
+    target,
+    layers,
+    derived=None,
+    part_nodes=(),
+    vm=None,
+    fw=None,
+    broadcast=None,
+    userland="native",
+    aarch64=False,
 ):
     """The text of /host/boot.conf, which guest/initramfs/rootfs/init
     sources and carries out: NAME="value" lines, lists space-separated. layers: the layers the
@@ -1435,7 +1443,8 @@ def boot_conf(
     own parameters of a module, {module: (words...)}, after those (the TEE's tee_huk=). fw: the
     firmware directory, whose paks it names (release). broadcast: the board's broadcast standard
     (board_broadcast), which picks the board (board_cmdline). userland: qemu-user adds USERLAND,
-    which has init run the 32-bit programs under /host/qemu-arm (docs/dev/architecture/qemu-user-bridge.md)."""
+    which has init run the 32-bit programs under /host/qemu-arm (docs/dev/architecture/qemu-user-bridge.md);
+    aarch64 (the x86-64 guest kernel's) adds USERLAND_AARCH64, the 64-bit ones under /host/qemu-aarch64."""
     s, r = soc(target), release(target)
     derived = derived or {}
     vm = vm or {}
@@ -1552,6 +1561,17 @@ def boot_conf(
                 ),
             )
             if userland == "qemu-user"
+            else ()
+        ),
+        *(
+            (
+                (
+                    "USERLAND_AARCH64",
+                    "qemu-user",
+                    "run the 64-bit ARM programs under /host/qemu-aarch64 (binfmt_misc)",
+                ),
+            )
+            if userland == "qemu-user" and aarch64
             else ()
         ),
         ("SOC_MODULES", _words(m.name for m in s.modules), "kernel modules to load after lgemu.ko"),

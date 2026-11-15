@@ -235,7 +235,8 @@ class ShareTest(unittest.TestCase):
 
     def test_userland(self):
         """A USERLAND=qemu-user launch puts its interpreter at /host/qemu-arm and names it in
-        boot.conf; a native one has neither."""
+        boot.conf, and the x86-64 guest kernel's qemu-aarch64 at /host/qemu-aarch64, named in
+        USERLAND_AARCH64; a native one has none of them."""
         host = share.dirs(self.run_dir)[2]
         arm = os.path.join(self.tmp, "qemu-arm")
         with open(arm, "wb") as f:
@@ -243,11 +244,32 @@ class ShareTest(unittest.TestCase):
         share.assemble(self.tree, H13_AFRO, self.run_dir, [], self.notes.append, qemu_arm=arm)
         with open(os.path.join(host, "qemu-arm"), "rb") as f:
             self.assertEqual(f.read(), b"\x7fELF")
-        conf = boot_conf(os.path.join(host, "boot.conf"), ["USERLAND"])
+        conf = boot_conf(os.path.join(host, "boot.conf"), ["USERLAND", "USERLAND_AARCH64"])
         self.assertEqual(conf["USERLAND"], "qemu-user")
+        self.assertFalse(os.path.exists(os.path.join(host, "qemu-aarch64")))
+        self.assertEqual(conf["USERLAND_AARCH64"], "")
+        # the x86-64 guest kernel's: qemu-aarch64 beside it, named in USERLAND_AARCH64
+        aarch64 = os.path.join(self.tmp, "qemu-aarch64")
+        with open(aarch64, "wb") as f:
+            f.write(b"\x7fELF64")
+        share.assemble(
+            self.tree,
+            H13_AFRO,
+            self.run_dir,
+            [],
+            self.notes.append,
+            qemu_arm=arm,
+            qemu_aarch64=aarch64,
+        )
+        with open(os.path.join(host, "qemu-aarch64"), "rb") as f:
+            self.assertEqual(f.read(), b"\x7fELF64")
+        conf = boot_conf(os.path.join(host, "boot.conf"), ["USERLAND", "USERLAND_AARCH64"])
+        self.assertEqual(conf["USERLAND"], "qemu-user")
+        self.assertEqual(conf["USERLAND_AARCH64"], "qemu-user")
         share.assemble(self.tree, H13_AFRO, self.run_dir, [], self.notes.append)
         self.assertFalse(os.path.exists(os.path.join(host, "qemu-arm")))
         self.assertEqual(boot_conf(os.path.join(host, "boot.conf"), ["USERLAND"])["USERLAND"], "")
+        self.assertFalse(os.path.exists(os.path.join(host, "qemu-aarch64")))
 
     def test_log_counter_helper_in_normal_share(self):
         # Normal assembly must supply save-logs.sh's dependency without vm put.

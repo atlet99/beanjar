@@ -47,6 +47,10 @@ Environment (both):
   QEMU_ARM  that qemu-arm (paths.Tree.qemu_arm): a local build for development; default
             beanjar-vendor's qemu-user, once it is pinned: build/qemu-user/bin/qemu-arm (aarch64)
             for the arm64 kernel, build/qemu-user-amd64/bin/qemu-arm (x86-64) for the x86-64 one
+  QEMU_AARCH64  the x86-64 kernel's qemu-aarch64 for the 64-bit ARM programs
+            (paths.Tree.qemu_aarch64): a local build for development; default
+            build/qemu-user-amd64/bin/qemu-aarch64. Without one those programs do not run; the
+            arm64 kernel runs them natively
   QEMU_X86_64  the x86-64 kernel's qemu-system-x86_64 (paths.Tree.qemu_x86_64): a local build for
             development; default the vendored one, build/qemu/bin/qemu-system-x86_64 (amd64)
   DEBUG_MODE  debug, event or release (vm.toml's firmware.debug_mode; default: the board's own
@@ -304,8 +308,9 @@ class Plan:
         ) = None
         self.broadcast = None  # the board's broadcast standard (targets.board_broadcast)
         # USERLAND: "native" or "qemu-user" as resolved (vmsettings.resolve_userland), with
-        # qemu_arm the interpreter the guest gets; GUEST_KERNEL: "arm64" or "x86-64"
-        self.userland, self.qemu_arm = "native", None
+        # qemu_arm the interpreter the guest gets; GUEST_KERNEL: "arm64" or "x86-64", whose
+        # qemu-user guest also gets qemu_aarch64 for the 64-bit ARM programs
+        self.userland, self.qemu_arm, self.qemu_aarch64 = "native", None, None
         self.guest_kernel = vmsettings.DEFAULT_GUEST_KERNEL
         self.layers, self.ssh_port, self.partmap = [], keys.ROOTSSH_PORT, None
         self.guest_layers = []  # share.resolve_layers': each a read-only disk, layerimage.py
@@ -450,6 +455,13 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
             raise Error(
                 f"userland qemu-user needs qemu-arm with the compat bridge: QEMU_ARM=PATH, or "
                 f"{where} {tree.build(vendored, 'bin', 'qemu-arm')}"
+            )
+        p.qemu_aarch64 = tree.qemu_aarch64(env, guest_kernel)
+        if guest_kernel == "x86-64":
+            say(
+                "userland: 64-bit ARM programs under qemu-aarch64"
+                if p.qemu_aarch64
+                else "userland: no qemu-aarch64 (QEMU_AARCH64=PATH): 64-bit ARM programs do not run"
             )
     # default: the headless layer on webOS; none on SimpleSmart, which has no webOS layers
     layers = env.get(

@@ -479,6 +479,12 @@ class BootConfTest(unittest.TestCase):
         self.assertNotIn("USERLAND", targets.boot_conf(("h13", "afro"), layers))
         text = targets.boot_conf(("h13", "afro"), layers, userland="qemu-user")
         self.assertIn('USERLAND="qemu-user"\n', text)
+        self.assertNotIn("USERLAND_AARCH64", text)
+        # the x86-64 guest kernel's qemu-aarch64; never without qemu-user
+        text = targets.boot_conf(("h13", "afro"), layers, userland="qemu-user", aarch64=True)
+        self.assertIn('USERLAND="qemu-user"\n', text)
+        self.assertIn('USERLAND_AARCH64="qemu-user"\n', text)
+        self.assertNotIn("USERLAND", targets.boot_conf(("h13", "afro"), layers, aarch64=True))
 
     def test_pointer_wakeup_release_and_soc(self):
         """Tested targets use the native cursor-on pulse without enabling untested W20H."""

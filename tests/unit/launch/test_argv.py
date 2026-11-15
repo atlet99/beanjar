@@ -920,6 +920,9 @@ class ArgvTest(unittest.TestCase):
             f.write("")
         self.assertEqual(tree.qemu_arm({}), vendored)
         self.assertEqual(tree.qemu_arm({"QEMU_ARM": arm}), arm)
+        # the arm64 guest kernel runs 64-bit ARM programs natively: no qemu-aarch64
+        self.assertIsNone(p.qemu_aarch64)
+        self.assertIsNone(tree.qemu_aarch64({"QEMU_AARCH64": arm}))
 
     def test_userland_auto(self):
         """USERLAND=auto, the default, resolves at each start by the host and the accelerator
@@ -1055,6 +1058,22 @@ class ArgvTest(unittest.TestCase):
         self.assertEqual(append[0], "console=ttyS0")
         self.assertNotIn("webos.time_scale=4", append)
         self.assertEqual((p.guest_kernel, p.userland, p.qemu_arm), ("x86-64", "qemu-user", arm))
+        # no qemu-aarch64 yet: said, not refused
+        self.assertIsNone(p.qemu_aarch64)
+        self.assertIn(
+            "userland: no qemu-aarch64 (QEMU_AARCH64=PATH): 64-bit ARM programs do not run", notes
+        )
+        aarch64 = os.path.join(self.top, "build/qemu-user-amd64/bin/qemu-aarch64")
+        with open(aarch64, "w") as f:
+            f.write("")
+        p2, notes = plan(QEMU_X86_64=fake)
+        self.assertEqual(p2.qemu_aarch64, aarch64)
+        self.assertIn("userland: 64-bit ARM programs under qemu-aarch64", notes)
+        self.assertEqual(p2.argv, argv)  # the command line is the same
+        local = os.path.join(self.tmp, "qemu-aarch64")
+        with open(local, "w") as f:
+            f.write("")
+        self.assertEqual(plan(QEMU_X86_64=fake, QEMU_AARCH64=local)[0].qemu_aarch64, local)
         self.assertIn(
             "guest kernel: x86-64 (experimental): q35 under KVM, the ARM userland under qemu-arm",
             notes,

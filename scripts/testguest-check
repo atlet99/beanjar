@@ -7,6 +7,7 @@
   scripts/testguest-check [--firmware DIR] [--name NAME] [--display egl-headless|none]
                           [--timeout S] [--keep] [--library DIR] [--logs DIR] [--tag TAG]
                           [--reason TEXT] [--userland native|qemu-user]
+                          [--guest-kernel arm64|x86-64]
 
 Creates the VM NAME (default testguest-check, which must not exist) on the test guest's image
 (default build/testguest/image, scripts/testguest-setup), starts it, sends keys to its virtio
@@ -118,6 +119,13 @@ def main():
         choices=("native", "qemu-user"),
         help="native (default), or qemu-user: the 32-bit programs under qemu-arm (compat bridge)",
     )
+    ap.add_argument(
+        "--guest-kernel",
+        default="arm64",
+        choices=("arm64", "x86-64"),
+        help="arm64 (default), or x86-64: the experimental x86-64 guest kernel, the 32-bit "
+        "programs under qemu-arm and the 64-bit ones under qemu-aarch64 (x86-64 hosts)",
+    )
     a = ap.parse_args()
 
     tags = [x for t in a.tag for x in ("--tag", t)]
@@ -134,6 +142,8 @@ def main():
     host = []
     rc = 2
     try:
+        if a.guest_kernel != "arm64":
+            beanjar(["settings", a.name, "set", f"guest_kernel={a.guest_kernel}"], a.library)
         if a.userland != "native":
             beanjar(["settings", a.name, "set", f"userland={a.userland}"], a.library)
         t0 = time.monotonic()
