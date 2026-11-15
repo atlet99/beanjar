@@ -13,9 +13,18 @@ repository = "mariotaku/beanjar-vendor"
 
 # QEMU with Beanjar's display patches: build/qemu, beanjar-qemu
 [qemu]
-tag = "qemu-10.0.2+beanjar1"
-amd64 = "735fae3b23688b878ef85c9400fbe6c63f87fbe5977e089c3a4b83382c3de6d5"
-arm64 = "3b0d91ddbc9cf3f173702b207598e504170ce3d85ad72b9bcea57bb4f6b01b7c"
+tag = "qemu-10.0.2+beanjar2"
+amd64 = "4872a52404375bc7c3ff7af7d68c211bceda34b518f29c816a8aaf6c1d9ba78b"
+arm64 = "d3bea77cee63bde013d88249ec5b70992e33263805c516f0499e61bb7207361f"
+
+# The static qemu-arm with the compat bridge, which runs in the guest
+# (docs/dev/architecture/qemu-user-bridge.md): arm64 for the arm64 guest kernel, build/qemu-user;
+# amd64, with qemu-aarch64, for the experimental x86-64 one, build/qemu-user-amd64 (amd64 hosts)
+[qemu-user]
+tag = "qemu-user-10.0.2+beanjar1"
+guest = ["arm64", "amd64"]
+arm64 = "6431daeccf4155262739acd03807cda20a4ad54c4e6a16b319b6d8dc212a5fe1"
+amd64 = "5fc917f8b9873c927b4e31381d6907f4b0706d7ac96fda8ccaf047387d3b5eb9"
 
 # FFmpeg with the V4L2 Request API hwaccels, /usr/lib/beanjar/ffmpeg: the media helper's
 # decoding and beanjar-vnc's video (beanjar)

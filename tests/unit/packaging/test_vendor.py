@@ -29,13 +29,14 @@ def load_build():
 
 def test_pins():
     pins = vendor.pins()
-    assert set(pins) == {"qemu", "ffmpeg", "neatvnc", "testguest"}
+    assert set(pins) == {"qemu", "qemu-user", "ffmpeg", "neatvnc", "testguest"}
     for program, pin in pins.items():
         assert pin["tag"] == f"{program}-{pin['version']}"
         assert pin["repository"] == "mariotaku/beanjar-vendor"
-        for arch in (pin["guest"],) if pin.get("guest") else vendor.ARCHS:
+        for arch in vendor.guests(pin) or vendor.ARCHS:
             int(pin[arch], 16)
     assert pins["testguest"]["guest"] == "armel"
+    assert pins["qemu-user"]["guest"] == ["arm64", "amd64"]
     name, url = vendor.asset(pins["qemu"], "qemu", "arm64")
     assert name == f"qemu-{pins['qemu']['version']}-arm64.tar.xz"
     # the '+' of a version is %2B in the URL, in the tag and in the file name
@@ -117,8 +118,8 @@ def test_guest_pin(tmp_path, capsys):
     pin.write_text(f'repository = "x/y"\n[bar]\ntag = "bar-2.0+beanjar1"\narm64 = "{digest}"\n')
     with pytest.raises(vendor.Error, match="no SHA-256 for amd64"):
         vendor.pins(pin)
-    vendor.main(["pinned", "qemu-user", "qemu"])
-    assert capsys.readouterr().out.split() == ["qemu"]
+    vendor.main(["pinned", "qemu-user", "qemu-user:amd64", "qemu", "unpinned"])
+    assert capsys.readouterr().out.split() == ["qemu-user", "qemu-user:amd64", "qemu"]
 
 
 def test_override(tmp_path, monkeypatch):
