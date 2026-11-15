@@ -229,8 +229,9 @@ h2 {
   height: .75rem;
   margin-right: 2.5rem;
   border-radius: 50%;
-  background: var(--beak);
-  box-shadow: 1.25rem 0 var(--jar), 2.5rem 0 #3E4849;
+  /* macOS's close, minimise and zoom colours, left to right */
+  background: #FF5F57;
+  box-shadow: 1.25rem 0 #FEBC2E, 2.5rem 0 #28C840;
 }
 
 .term-ctl {
