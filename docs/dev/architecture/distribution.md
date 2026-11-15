@@ -303,21 +303,20 @@ program say the same version.
 downloads), and running `gclient` in the formula fetches unpinned tooling at install time. So
 beanjar-vendor's `angle/source.sh` makes one archive: the DEPS checkout with git dependencies only,
 cut down to what the build reads, without git metadata, and byte-for-byte reproducible from the
-same inputs (about 120 MB). It is published with ANGLE's release in beanjar-vendor and pinned by
-SHA-256. The toolchain stays out of it, since it is binary and per architecture: Chromium's clang
-and gn are `on_arm`/`on_intel` resources at the URLs and checksums DEPS gives, ninja is Homebrew's.
+same inputs (about 125 MB). It is published with ANGLE's release in beanjar-vendor and pinned by
+SHA-256. The toolchain stays out of it, since it is binary and per host: Chromium's clang, its
+llvm-otool and gn are resources at the URLs and checksums DEPS gives, ninja is Homebrew's.
 
-**Bottles** come from beanjar-vendor's Homebrew workflow on GitHub's macOS runners, arm64
-(macos-15) and Intel (macos-15-intel), not from this repository's CI. Each formula is built with
+The formulae are for Apple silicon only (`depends_on arch: :arm64`); Intel Macs are not supported.
+
+**Bottles** come from beanjar-vendor's Homebrew workflow on GitHub's arm64 macOS runners
+(macos-15), not from this repository's CI. Each formula is built with
 `brew install --build-bottle`, then `brew test` (the checks beanjar-vendor runs on its tarballs:
 an EGL context on Metal, virglrenderer started on ANGLE, QEMU's version, displays, devices and a
-QMP `query-status`), `brew linkage --test`, `brew audit --strict` and `brew bottle --json`. On the
-Intel runners ANGLE gets no Metal display, so the GL parts of the tests are skipped there, as in
-beanjar-vendor's own checks. Bottles are built for the runners' macOS (Sequoia); Homebrew uses them
-on later releases too, and builds from source where none fits. Homebrew itself has no bottles for
-Intel Macs (its Tier 3), and `--build-bottle` refuses dependencies it cannot pour, so the workflow
-installs each formula's dependencies first; on Intel that builds Homebrew's Python, GLib and the
-rest from source, as it does for Intel users.
+QMP `query-status`), `brew linkage --test`, `brew audit --strict` and `brew bottle --json`. The
+runners have a Metal device (the paravirtual one of macOS's virtualisation), so the GL checks run
+in full. Bottles are built for the runners' macOS (Sequoia); Homebrew uses them on later releases
+too, and builds from source where none fits.
 
 **Keeping the two repositories in step.** beanjar-vendor's `homebrew/check.sh` fails its workflow
 when a formula's version, source or pinned file differs from what beanjar-vendor builds, or when a
@@ -327,11 +326,10 @@ beanjar-vendor's `homebrew/sync.sh <this checkout>` and commit the copy there (`
 only). Once this repository is public, the workflow's `TAP_SOURCE` names it at a commit and the
 copy goes.
 
-**Releasing.** A formula gets bottles when beanjar-vendor publishes them: the bottles of both
-architectures in a release `<formula>-<version>`, the root URL `homebrew/bottle.sh` gives them,
+**Releasing.** A formula gets bottles when beanjar-vendor publishes them: the arm64 bottles in a release `<formula>-<version>`, the root URL `homebrew/bottle.sh` gives them,
 and ANGLE's source archive in ANGLE's release. The workflow's last job runs
-`brew bottle --merge --write`, which writes each formula's `bottle do` block (root URL and a
-SHA-256 per macOS and architecture); those formulae are committed here. Until then the formulae
+`brew bottle --merge --write`, which writes each formula's `bottle do` block (root URL and the
+bottle's SHA-256 for each macOS it was built on); those formulae are committed here. Until then the formulae
 have no `bottle do` block and `beanjar-angle`'s source cannot be downloaded, so they install only
 in that workflow. A `beanjar` formula for Beanjar itself can join them once its macOS runner and
 viewer exist.

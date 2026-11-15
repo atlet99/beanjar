@@ -18,7 +18,8 @@ They use Homebrew's own libraries (GLib, pixman, libslirp and so on) rather than
 
 ## Installing
 
-macOS 15 or newer, on Apple silicon or Intel, with [Homebrew](https://brew.sh):
+A Mac with Apple silicon (Intel Macs are not supported), macOS 15 or newer and
+[Homebrew](https://brew.sh):
 
 ```sh
 brew tap webosbrew/beanjar https://github.com/webosbrew/beanjar
@@ -34,9 +35,7 @@ with Homebrew's own `qemu`, `libepoxy` or `virglrenderer`, which can be installe
 Beanjar will run its QEMU from `$(brew --prefix beanjar-qemu)/bin/qemu-system-aarch64`.
 
 Where a bottle exists for your macOS and processor, Homebrew downloads it; otherwise it builds the
-formula from source, which for `beanjar-angle` needs Xcode and takes a while. On Intel Macs
-Homebrew itself no longer has bottles (it supports them only at its lowest tier), so there it
-builds Homebrew's own dependencies (Python, GLib and the rest) from source too.
+formula from source, which for `beanjar-angle` needs Xcode and takes a while.
 
 ## Updating and removing
 
