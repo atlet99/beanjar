@@ -112,6 +112,9 @@ start and the start says which and why: natively under TCG and where KVM's CPU h
 force one. NetCast and SimpleSmart firmware only run natively, and do not start on a host that
 cannot.
 
+Without 32-bit Arm KVM, `qemu-user` is what keeps a VM fast: the guest kernel still runs under
+KVM, and only the TV's own programs are translated, not the whole machine as under full TCG.
+
 Each program under qemu-arm carries qemu-arm's own memory as well, so a start that runs the
 userland under qemu-user, for whatever reason, gives the guest half as much RAM again as `mem`,
 and a swap disk in the host's RAM as large again: `mem` stays the TV's own memory, the start logs
