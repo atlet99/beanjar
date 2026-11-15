@@ -28,5 +28,6 @@ Depends: meson,
  fonts-dejavu-core,
  pkgconf,
  libexpat1-dev,
+ libelf-dev,
  squashfs-tools
 Description: Beanjar guest build tools for the x86_64 workstation
