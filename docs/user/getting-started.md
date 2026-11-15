@@ -82,7 +82,9 @@ sudo apt install ./build/packages/beanjar-guest_<version>_all.deb \
 ```
 
 `beanjar-vnc` (the TV picture over VNC) and `beanjar-web` (VMs in a browser) are optional, and so
-is `beanjar-qemu`, the patched QEMU (without it the VMs run on Debian's); see the
+is `beanjar-qemu`, the patched QEMU (without it the VMs run on Debian's), except for a VM whose
+userland runs under qemu-user or, on amd64, the experimental `guest_kernel=x86-64`: their qemu-arm
+and qemu-system-x86_64 are only in `beanjar-qemu`. See the
 [packages guide](../../packaging/debian/README.md) for the packages.
 
 The packages install the commands `beanjar` (the CLI; without arguments it opens the manager

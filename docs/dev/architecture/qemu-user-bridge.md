@@ -91,9 +91,10 @@ development until beanjar-vendor publishes a release), else the vendored one, wh
 publishes once `packaging/vendor.toml` pins `qemu-user` (`meson/vendor.py`): build/qemu-user, its
 aarch64 program, for the arm64 guest kernel on every host, and on amd64 hosts also
 build/qemu-user-amd64, its x86-64 one, for the x86-64 guest kernel (`guest = ["arm64", "amd64"]`;
-`BEANJAR_VENDOR_QEMU_USER` and `BEANJAR_VENDOR_QEMU_USER_AMD64` take a CI artifact instead). The
-Debian packages do not ship it; an installed launcher looks for
-`/usr/share/beanjar/guest/bin/qemu-arm`. A launch without an interpreter fails. `share.assemble`
+`BEANJAR_VENDOR_QEMU_USER` and `BEANJAR_VENDOR_QEMU_USER_AMD64` take a CI artifact instead).
+`beanjar-qemu` ships what the host build published: `/usr/share/beanjar/qemu-user/arm64/qemu-arm`,
+and on amd64 `/usr/share/beanjar/qemu-user/amd64/qemu-arm`, where an installed launcher looks
+for them. A launch without an interpreter fails. `share.assemble`
 copies the interpreter to `/host/qemu-arm`, and boot.conf gets `USERLAND="qemu-user"`. The QEMU
 command line changes in two places, its RAM and a swap disk.
 
@@ -225,3 +226,7 @@ start says it is experimental.
   `-vga none`, `console=ttyS0`, and the virt machine's devices, which are all PCI; q35's root bus
   has 30 free slots. Its QEMU is the vendored qemu-system-x86_64 (beanjar-vendor's amd64 QEMU
   tarball) or `QEMU_X86_64`, never one from PATH, which would lack the display patches.
+- **Packages**: the amd64 `beanjar-qemu` carries qemu-system-x86_64 (`/usr/libexec/beanjar`, its
+  firmware in the shared `/usr/share/beanjar/qemu`, `-L`) and the x86-64 qemu-arm;
+  `beanjar-guest` the kernel and initramfs in `/usr/share/beanjar/guest/x86_64`
+  ([distribution](distribution.md)).

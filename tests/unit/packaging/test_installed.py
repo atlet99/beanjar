@@ -207,3 +207,170 @@ def test_shlibs_file_takes_dpkg_shlibdeps_output():
     for text in ("", "misc:Depends=foo\n", "shlibs:Depends=\n", "a\nb\n"):
         with pytest.raises(SystemExit, match="shlibs:Depends="):
             build.shlibs_depends(text)
+
+
+def _build_module():
+    spec = importlib.util.spec_from_file_location("debian_build", TOP / "packaging/debian/build.py")
+    build = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build)
+    return build
+
+
+def test_installed_x86_64_guest_kernel_paths(tmp_path):
+    """An installed host finds the experimental x86-64 guest kernel's pieces where the packages
+    put them: the kernel and initramfs in beanjar-guest's x86_64/, qemu-system-x86_64 beside
+    qemu-system-aarch64 with -L the shared QEMU data, and each guest kernel's qemu-arm in
+    beanjar-qemu's qemu-user/<guest architecture>/; no environment override needed."""
+    tree = paths.Tree(tmp_path)
+    (tmp_path / "installation.toml").write_text('version="test"\n')
+    assert tree.guest_kernel("x86-64") == (
+        "/usr/share/beanjar/guest/x86_64/bzImage",
+        "/usr/share/beanjar/guest/x86_64/initramfs.cpio.gz",
+    )
+    assert tree.guest_kernel("arm64") == (
+        "/usr/share/beanjar/guest/Image",
+        "/usr/share/beanjar/guest/initramfs.cpio.gz",
+    )
+    assert tree.vendored_qemu_x86_64() == "/usr/libexec/beanjar/qemu-system-x86_64"
+    real_isfile = os.path.isfile
+    present = {
+        "/usr/libexec/beanjar/qemu-system-x86_64",
+        "/usr/share/beanjar/qemu-user/arm64/qemu-arm",
+        "/usr/share/beanjar/qemu-user/amd64/qemu-arm",
+    }
+    with (
+        mock.patch("os.path.isfile", side_effect=lambda p: p in present or real_isfile(p)),
+        mock.patch("os.access", return_value=True),
+    ):
+        assert tree.qemu_x86_64({}) == (
+            "/usr/libexec/beanjar/qemu-system-x86_64",
+            ["-L", "/usr/share/beanjar/qemu"],
+        )
+        assert tree.qemu_arm({}, "x86-64") == "/usr/share/beanjar/qemu-user/amd64/qemu-arm"
+        assert tree.qemu_arm({}, "arm64") == "/usr/share/beanjar/qemu-user/arm64/qemu-arm"
+        assert tree.qemu_arm({"QEMU_ARM": str(tmp_path / "installation.toml")}, "x86-64") == str(
+            tmp_path / "installation.toml"
+        )
+    with mock.patch("os.path.isfile", side_effect=lambda p: p not in present and real_isfile(p)):
+        assert tree.qemu_x86_64({}) == (None, [])
+        assert tree.qemu_arm({}, "x86-64") is None
+
+
+def _elf(path, arch):
+    """A file whose ELF header names arch's e_machine (all build.elf_arch reads)."""
+    machine = {"amd64": 62, "arm64": 183}[arch]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\x7fELF" + bytes(14) + machine.to_bytes(2, "little") + bytes(44))
+
+
+def _vendor_tree(root, program, arch, binaries, version="10.0.2+beanjar2", depends=None):
+    for binary in binaries:
+        _elf(root / binary, arch)
+    (root / "share/doc" / program).mkdir(parents=True)
+    (root / "share/doc" / program / "COPYING").write_text("GPL\n")
+    info = f"Program: {program}\nVersion: {version}\nArchitecture: {arch}\n"
+    if depends is not None:
+        info += f"Depends: {depends}\n"
+    (root / "BUILDINFO").write_text(info)
+
+
+def _publish(tmp_path, arch, x86_64=True, qemu_user=("arm64", "amd64")):
+    hp = tmp_path / "publish"
+    binaries = ["bin/qemu-system-aarch64", "libexec/vhost-user-gpu"]
+    if x86_64:
+        binaries.append("bin/qemu-system-x86_64")
+    _vendor_tree(hp / "qemu", "qemu", arch, binaries, depends="libc6 (>= 2.38)")
+    (hp / "qemu/share/qemu").mkdir(parents=True)
+    (hp / "qemu/share/qemu/bios-256k.bin").write_bytes(b"bios")
+    for guest in qemu_user:
+        directory = "qemu-user" if guest == "arm64" else f"qemu-user-{guest}"
+        programs = ["bin/qemu-arm"] + (["bin/qemu-aarch64"] if guest == "amd64" else [])
+        _vendor_tree(hp / directory, "qemu-user", guest, programs, "10.0.2+beanjar1")
+    return hp
+
+
+def _files(root):
+    return sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
+
+
+def test_qemu_package_amd64_ships_the_x86_64_guest_kernel_programs(tmp_path):
+    """beanjar-qemu on amd64: qemu-system-x86_64 beside qemu-system-aarch64, and the qemu-arm of
+    both guest kernels, each with its licence texts, BUILDINFO and a copyright stanza."""
+    build = _build_module()
+    hp = _publish(tmp_path, "amd64")
+    q, depends = build.stage_qemu(tmp_path, hp, "amd64")
+    files = _files(q)
+    for path in (
+        "usr/libexec/beanjar/qemu-system-aarch64",
+        "usr/libexec/beanjar/qemu-system-x86_64",
+        "usr/libexec/beanjar/vhost-user-gpu",
+        "usr/share/beanjar/qemu/bios-256k.bin",
+        "usr/share/beanjar/qemu-user/arm64/qemu-arm",
+        "usr/share/beanjar/qemu-user/amd64/qemu-arm",
+        "usr/share/beanjar/qemu-user/amd64/qemu-aarch64",
+        "usr/share/doc/beanjar-qemu/qemu-user/arm64/BUILDINFO",
+        "usr/share/doc/beanjar-qemu/qemu-user/amd64/COPYING",
+    ):
+        assert path in files
+    assert build.elf_arch(q / "usr/share/beanjar/qemu-user/arm64/qemu-arm") == "arm64"
+    copyright = (q / "usr/share/doc/beanjar-qemu/copyright").read_text()
+    assert "Files: usr/share/beanjar/qemu-user/amd64/*" in copyright
+    assert "release qemu-user-10.0.2+beanjar1" in copyright
+    assert depends == "libc6 (>= 2.38)"
+
+
+def test_qemu_package_arm64_carries_only_arm64_qemu_user(tmp_path):
+    """beanjar-qemu on arm64: no x86-64 program, even where a stale amd64 qemu-user tree or a
+    qemu-system-x86_64 is in the publish directory; its qemu-user is the arm64 guest kernel's."""
+    build = _build_module()
+    hp = _publish(tmp_path, "arm64")
+    q, _ = build.stage_qemu(tmp_path, hp, "arm64")
+    files = _files(q)
+    assert "usr/share/beanjar/qemu-user/arm64/qemu-arm" in files
+    assert not any("x86_64" in f or "/amd64" in f for f in files), files
+
+
+def test_qemu_package_without_the_unreleased_parts(tmp_path):
+    """A QEMU tree without qemu-system-x86_64 and no qemu-user published (the pins of before):
+    beanjar-qemu as it was."""
+    build = _build_module()
+    hp = _publish(tmp_path, "amd64", x86_64=False, qemu_user=())
+    q, _ = build.stage_qemu(tmp_path, hp, "amd64")
+    files = _files(q)
+    assert "usr/libexec/beanjar/qemu-system-aarch64" in files
+    assert not any("x86_64" in f or "qemu-user" in f for f in files), files
+
+
+def test_qemu_package_refuses_a_qemu_user_of_another_architecture(tmp_path):
+    build = _build_module()
+    hp = _publish(tmp_path, "amd64", qemu_user=("arm64",))
+    _vendor_tree(hp / "qemu-user-amd64", "qemu-user", "arm64", ["bin/qemu-arm"])
+    with pytest.raises(SystemExit, match="qemu-user for amd64"):
+        build.stage_qemu(tmp_path, hp, "amd64")
+
+
+def test_guest_package_x86_64_kernel(tmp_path):
+    """beanjar-guest carries the x86-64 kernel and initramfs in x86_64/ where the guest lane
+    published them, and is as before where it did not."""
+    build = _build_module()
+    gp = tmp_path / "publish"
+    for name in ("Image", "initramfs.cpio.gz", "x86_64/bzImage", "x86_64/initramfs.cpio.gz"):
+        (gp / name).parent.mkdir(parents=True, exist_ok=True)
+        (gp / name).write_bytes(name.encode())
+    g = tmp_path / "guest"
+    build.stage_kernels(gp, g)
+    assert _files(g) == [
+        "Image",
+        "initramfs.cpio.gz",
+        "x86_64/bzImage",
+        "x86_64/initramfs.cpio.gz",
+    ]
+    tree = paths.Tree(tmp_path)
+    (tmp_path / "installation.toml").write_text('version="test"\n')
+    for path in tree.guest_kernel("x86-64"):
+        assert (g / os.path.relpath(path, "/usr/share/beanjar/guest")).is_file()
+    for name in ("x86_64/bzImage", "x86_64/initramfs.cpio.gz"):
+        (gp / name).unlink()
+    g2 = tmp_path / "guest2"
+    build.stage_kernels(gp, g2)
+    assert _files(g2) == ["Image", "initramfs.cpio.gz"]

@@ -103,6 +103,18 @@ Comment: QEMU {version} with Beanjar's display patches, as beanjar-vendor builds
  COPYING, COPYING.LIB, LICENSE, pc-bios-README and NOTICE are in /usr/share/doc/beanjar-qemu,
  with the build's BUILDINFO. On Debian systems the GPL is in /usr/share/common-licenses/GPL-2.
 """
+# beanjar-qemu's for each qemu-user tree it carries (stage_qemu).
+QEMU_USER_COPYRIGHT = """
+Files: usr/share/beanjar/qemu-user/{arch}/*
+Copyright: Fabrice Bellard and the QEMU contributors
+License: GPL-2.0-only
+Comment: QEMU {version}'s linux-user (qemu-arm, and qemu-aarch64 where it is there) with
+ Beanjar's compat bridge patches, static, run inside the {arch} guest kernel, as beanjar-vendor
+ builds it ({repository}, release {tag}, which carries the upstream QEMU tarball it is built
+ from). QEMU's COPYING, COPYING.LIB, LICENSE and NOTICE are in
+ /usr/share/doc/beanjar-qemu/qemu-user/{arch}, with the build's BUILDINFO, which names the
+ static libraries linked in.
+"""
 
 
 def guest_range(version, identity):
@@ -396,13 +408,14 @@ def merge_depends(*fields):
     return ", ".join(f"{g} (>= {versions[g]})" if versions.get(g) else g for g in merged)
 
 
-def vendor_tree(hp, program, arch):
-    """The prebuilt program's tree the host build published (hp/<program>, meson/vendor.py) and
-    its BUILDINFO, checked to be for arch."""
+def vendor_tree(hp, program, arch, directory=None):
+    """The prebuilt program's tree the host build published (hp/<program>, meson/vendor.py; a guest
+    pin's other architecture under hp/<directory>, qemu-user-amd64) and its BUILDINFO, checked to
+    be for arch."""
     sys.path.insert(0, str(TOP / "meson"))
     import vendor
 
-    tree = hp / program
+    tree = hp / (directory or program)
     if not (tree / "BUILDINFO").is_file():
         raise SystemExit(f"missing input: {tree}/BUILDINFO")
     info = vendor.buildinfo(tree / "BUILDINFO")
@@ -420,6 +433,7 @@ def vendor_licence(text, info):
         version=info["Version"],
         tag=f"{info['Program']}-{info['Version']}",
         repository=VENDOR_REPOSITORY,
+        arch=info.get("Architecture"),
     )
 
 
@@ -610,13 +624,33 @@ def stage_host(work, hp, arch, ident):
     return host, vnc
 
 
+def qemu_user_trees(hp, arch):
+    """[(guest architecture, directory)] of the qemu-user trees beanjar-qemu ships on arch: the
+    arm64 one (hp/qemu-user, for the arm64 guest kernel) on every host, the amd64 one
+    (hp/qemu-user-amd64, the experimental x86-64 guest kernel's) on amd64 only. Each only where
+    the host build published it, which it does once packaging/vendor.toml pins qemu-user or
+    BEANJAR_VENDOR_QEMU_USER(_AMD64) names a tarball (meson/vendor.py)."""
+    wanted = [("arm64", "qemu-user")] + ([("amd64", "qemu-user-amd64")] if arch == "amd64" else [])
+    return [(guest, directory) for guest, directory in wanted if (hp / directory).is_dir()]
+
+
 def stage_qemu(work, hp, arch):
     """The beanjar-qemu tree from the prebuilt QEMU the host build published (hp/qemu, already
     stripped), and its Depends, the tree's BUILDINFO's (libepoxy's dlopened libEGL and libOpenGL
-    included)."""
+    included). On amd64 it also carries the tree's qemu-system-x86_64, the experimental x86-64
+    guest kernel's (paths.Tree.qemu_x86_64), where the tree has one, and on every host the
+    published qemu-user trees' static programs (qemu_user_trees), which run inside the guest:
+    /usr/share/beanjar/qemu-user/<guest architecture>/qemu-arm (paths.Tree.qemu_arm), and the
+    amd64 tree's qemu-aarch64 beside it (paths.Tree.qemu_aarch64)."""
     tree, info = vendor_tree(hp, "qemu", arch)
     q = work / "beanjar-qemu"
-    for relative in ("bin/qemu-system-aarch64", "libexec/vhost-user-gpu"):
+    programs = ["bin/qemu-system-aarch64", "libexec/vhost-user-gpu"]
+    if arch == "amd64":
+        if (tree / "bin/qemu-system-x86_64").is_file():
+            programs.append("bin/qemu-system-x86_64")
+        else:
+            print(f"note: {tree} has no qemu-system-x86_64: beanjar-qemu ships none", flush=True)
+    for relative in programs:
         # vhost-user-gpu: QEMU's own backend, the VM's GPU in its own process on an ARM host
         # (qemu.gpu_process); its libraries are a subset of qemu-system-aarch64's
         binary = q / "usr/libexec/beanjar" / Path(relative).name
@@ -626,7 +660,24 @@ def stage_qemu(work, hp, arch):
     copy(tree / "share/qemu", q / "usr/share/beanjar/qemu")
     copy(tree / "share/doc/qemu", q / "usr/share/doc/beanjar-qemu")
     copy(tree / "BUILDINFO", q / "usr/share/doc/beanjar-qemu/BUILDINFO")
-    write(q / "usr/share/doc/beanjar-qemu/copyright", vendor_licence(QEMU_COPYRIGHT, info))
+    copyright = vendor_licence(QEMU_COPYRIGHT, info)
+    for guest, directory in qemu_user_trees(hp, arch):
+        user, user_info = vendor_tree(hp, "qemu-user", guest, directory)
+        if not (user / "bin/qemu-arm").is_file():
+            raise SystemExit(f"missing input: {user}/bin/qemu-arm")
+        # qemu-arm, and the amd64 tree's qemu-aarch64 for the x86-64 guest kernel's 64-bit ARM
+        # programs (paths.Tree.qemu_aarch64) where it has one: every program of its bin/
+        for program in sorted((user / "bin").iterdir()):
+            binary = q / "usr/share/beanjar/qemu-user" / guest / program.name
+            copy(program, binary)
+            if elf_arch(binary) != guest:
+                raise SystemExit(f"wrong qemu-user architecture: {program}")
+        doc = q / "usr/share/doc/beanjar-qemu/qemu-user" / guest
+        copy(user / "share/doc/qemu-user", doc)
+        copy(user / "BUILDINFO", doc / "BUILDINFO")
+        copyright += vendor_licence(QEMU_USER_COPYRIGHT, dict(user_info, Architecture=guest))
+    write(q / "usr/share/doc/beanjar-qemu/copyright", copyright)
+    # qemu-user's programs are static: no Depends of their own
     return q, merge_depends(info["Depends"])
 
 
@@ -649,13 +700,26 @@ def stage_ui(work, hp):
     return ui
 
 
+def stage_kernels(gp, g):
+    """The guest kernel and initramfs, and the experimental x86-64 guest kernel's in x86_64/
+    (hardware.guest_kernel = "x86-64", amd64 hosts only; its modules are inside its initramfs)
+    where the guest lane published them, as it does on an x86-64 build machine
+    (guest/kernel/meson.build, x86_64_kernel)."""
+    for file in ("Image", "initramfs.cpio.gz"):
+        copy(gp / file, g / file)
+    if (gp / "x86_64/bzImage").is_file():
+        for file in ("bzImage", "initramfs.cpio.gz"):
+            copy(gp / "x86_64" / file, g / "x86_64" / file)
+    else:
+        print(f"note: {gp} has no x86_64/bzImage: beanjar-guest ships no x86-64 kernel", flush=True)
+
+
 def stage_guest(work, gp, stamp):
     """The beanjar-guest tree from the guest publish directory (and the guest's source-only files),
     with its installation.toml: the version its build lane stamped, never the host's."""
     guest = work / "beanjar-guest"
     g = guest / "usr/share/beanjar/guest"
-    for file in ("Image", "initramfs.cpio.gz"):
-        copy(gp / file, g / file)
+    stage_kernels(gp, g)
     for module in beanjar_targets.payload_modules():
         copy(gp / (module + ".ko"), g / "modules" / (module + ".ko"))
     copy(gp / "lls/lls-probe", g / "bin/lls-probe")

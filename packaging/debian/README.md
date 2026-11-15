@@ -19,7 +19,15 @@ in `/usr/lib/beanjar/neatvnc` (Debian trixie has only neatvnc 0.9.1), and its so
 `beanjar-qemu` is the patched QEMU (`/usr/libexec/beanjar/qemu-system-aarch64`, its
 `vhost-user-gpu` beside it, and its data in `/usr/share/beanjar/qemu`). `beanjar` depends on it or
 on Debian's `qemu-system-arm` and `qemu-system-modules-opengl`; the launcher runs `beanjar-qemu`
-whenever it is installed.
+whenever it is installed. On amd64 it also carries the QEMU tree's `qemu-system-x86_64`, the
+experimental x86-64 guest kernel's, where the tree has one (beanjar-vendor's from QEMU
+10.0.2+beanjar2). It carries qemu-user's static `qemu-arm` too, which runs inside the guest
+(`hardware.userland = "qemu-user"`): `/usr/share/beanjar/qemu-user/arm64/qemu-arm` for the arm64
+guest kernel, and on amd64 `/usr/share/beanjar/qemu-user/amd64/qemu-arm` for the x86-64 one, each
+where the host build published it (once `packaging/vendor.toml` pins `qemu-user`, or
+`BEANJAR_VENDOR_QEMU_USER` and `BEANJAR_VENDOR_QEMU_USER_AMD64` name tarballs). `beanjar-guest`
+carries the x86-64 guest kernel and its initramfs in `/usr/share/beanjar/guest/x86_64` where the
+guest lane published them, as it does on an x86-64 build machine (meson option `x86_64_kernel`).
 
 ### The prebuilt programs
 
@@ -43,7 +51,8 @@ roles `host` and `host-arm64` (`packaging/debian/build-deps`) to match.
   directory.
 - `beanjar-vnc` ships `libneatvnc` and `libaml` in `/usr/lib/beanjar/neatvnc/lib`, beside Debian's
   `libneatvnc0` and `libaml0t64` (Weston's), and takes FFmpeg from the `beanjar` it depends on.
-- `beanjar-qemu` is the QEMU tree, already stripped.
+- `beanjar-qemu` is the QEMU tree, already stripped, and the qemu-user trees' `qemu-arm`, with
+  their licence texts and `BUILDINFO` in `/usr/share/doc/beanjar-qemu/qemu-user/<guest arch>`.
 
 Each package depends on what its own binaries need (dpkg-shlibdeps, with the private libraries
 on its search path and adding no dependency) and on what the prebuilt tree's `BUILDINFO` says the

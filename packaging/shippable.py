@@ -8,7 +8,8 @@ the build published (tests/integration/packaging/test_published.py).
 
     packaging/shippable.py [PUBLISH_DIR]      (default build/)
 
-Reads PUBLISH_DIR/initramfs.cpio.gz (newc, parsed here: no cpio needed) and what a package ships
+Reads PUBLISH_DIR/initramfs.cpio.gz (and x86_64/initramfs.cpio.gz, the experimental x86-64 guest
+kernel's, where it is there; newc, parsed here: no cpio needed) and what a package ships
 of PUBLISH_DIR/components: the selected variants, as packaging/debian/build.py copies them, not
 stale ones no target selects any more (meson/components.py's shipped()); of a staged package's
 layers, all of it. Exit status 77 (skip) if there is no initramfs: the guest build has not
@@ -110,14 +111,18 @@ def main():
     if not os.path.isfile(cpio):
         print(f"SKIP: no {cpio} (the guest build publishes it)")
         return 77
-    bad, n = [], 0
-    for name, mode, data in cpio_entries(cpio):
-        n += 1
-        bad += [
-            f"{cpio}: {name}: {p}"
-            for p in problems(name, data if mode & 0o170000 == 0o100000 else b"")
-        ]
-    print(f"{cpio}: {n} entries")
+    bad = []
+    # and the experimental x86-64 guest kernel's, where it is published (x86_64/)
+    x86_64 = os.path.join(top, "x86_64", "initramfs.cpio.gz")
+    for cpio in [cpio] + ([x86_64] if os.path.isfile(x86_64) else []):
+        n = 0
+        for name, mode, data in cpio_entries(cpio):
+            n += 1
+            bad += [
+                f"{cpio}: {name}: {p}"
+                for p in problems(name, data if mode & 0o170000 == 0o100000 else b"")
+            ]
+        print(f"{cpio}: {n} entries")
     layers = os.path.join(
         top, "components" if os.path.isdir(os.path.join(top, "components")) else "layers"
     )

@@ -11,8 +11,8 @@ tap for the programs a VM needs from outside Beanjar ("macOS: the Homebrew tap")
 | `beanjar-ui` | all | GTK manager and viewer windows, desktop entry and icon |
 | `beanjar-vnc` | arm64, amd64 | VNC server for the TV picture, sound and H.264 video, with its private neatvnc and aml |
 | `beanjar-web` | all | Web viewer |
-| `beanjar-guest` | all | Virtual-TV kernel, initramfs, modules, guest SSH tools and built layers for supported firmware families |
-| `beanjar-qemu` | arm64, amd64 | Patched QEMU |
+| `beanjar-guest` | all | Virtual-TV kernel, initramfs, modules, guest SSH tools and built layers for supported firmware families; the experimental x86-64 guest kernel and its initramfs |
+| `beanjar-qemu` | arm64, amd64 | Patched QEMU; on amd64 also its qemu-system-x86_64; qemu-user's static qemu-arm for each guest kernel the host runs (arm64's everywhere, x86-64's on amd64) |
 
 `beanjar` depends on a guest package of the same `0.Y` (packaging/debian/README.md), a hint
 for apt, plus Debian's host libraries and tools. At run time the launcher checks what the guest
@@ -87,6 +87,7 @@ remain under `scripts/`.
   viewer-headless                 headless viewer helper
   media-helper                    native media helper
   qemu-system-aarch64             patched QEMU (beanjar-qemu)
+  qemu-system-x86_64              the x86-64 guest kernel's, amd64 only (beanjar-qemu)
   vhost-user-gpu                  its GPU process (beanjar-qemu)
 
 /usr/share/beanjar/
@@ -94,6 +95,8 @@ remain under `scripts/`.
   guest/
     Image                         virtual-TV kernel
     initramfs.cpio.gz
+    x86_64/bzImage                experimental x86-64 guest kernel
+    x86_64/initramfs.cpio.gz      its initramfs, with its modules
     modules/                      virtual-TV kernel modules
     layers/common/                shared guest support
     layers/soc/<soc>/              SoC-specific components
@@ -106,6 +109,8 @@ remain under `scripts/`.
     binds.conf                    guest bind configuration
     installation.toml             guest version, commit and payload digest
   qemu/                           data of the patched QEMU (beanjar-qemu)
+  qemu-user/<arch>/qemu-arm       qemu-user's static qemu-arm, run inside the guest kernel of
+                                  <arch>: arm64, and amd64 on amd64 hosts (beanjar-qemu)
 
 /usr/share/applications/
   org.webosbrew.beanjar.desktop
@@ -118,6 +123,11 @@ remain under `scripts/`.
 Guest executables are placed in `share` because they are data consumed by the
 virtual machine, rather than programs executed natively by the host. The ARM LLS
 probe also belongs in `share/beanjar/guest/bin`, even when invoked through qemu-arm.
+qemu-user's qemu-arm is guest data too, but it comes from beanjar-vendor with the host build
+(meson/vendor.py publishes `build/qemu-user` and, on amd64, `build/qemu-user-amd64`), so the
+host lane's `beanjar-qemu` carries it, in `share/beanjar/qemu-user/<guest arch>`. The x86-64
+guest kernel is built by the guest lane on an x86-64 build machine and goes into
+`beanjar-guest`, which is architecture all: an arm64 host carries it unused.
 `libexec` holds host executables and host launchers only.
 
 Host Python helpers are executable code and belong under `/usr/lib/beanjar/helpers`,
@@ -198,6 +208,7 @@ change from eliminating preassembled package combinations.
 | `/usr/bin/beanjar-web`, `/usr/lib/beanjar/web/` | `beanjar-web` |
 | `/usr/bin/beanjar-vnc` | `beanjar-vnc` |
 | `/usr/share/beanjar/guest/` | `beanjar-guest` |
+| `/usr/share/beanjar/qemu/`, `/usr/share/beanjar/qemu-user/`, QEMU's programs in `/usr/libexec/beanjar/` | `beanjar-qemu` |
 | `/usr/libexec/beanjar/qemu-system-aarch64`, `/usr/share/beanjar/qemu/` | `beanjar-qemu` |
 | Desktop entry and application icon | `beanjar-ui` |
 

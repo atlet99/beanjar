@@ -442,9 +442,14 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
         p.qemu_arm = tree.qemu_arm(env, guest_kernel)
         if not p.qemu_arm and not dry:
             vendored = "qemu-user-amd64" if guest_kernel == "x86-64" else "qemu-user"
+            where = (
+                "beanjar-qemu's"
+                if tree.installed
+                else "beanjar-vendor's qemu-user pinned in packaging/vendor.toml,"
+            )
             raise Error(
                 f"userland qemu-user needs qemu-arm with the compat bridge: QEMU_ARM=PATH, or "
-                f"beanjar-vendor's qemu-user pinned in packaging/vendor.toml (build/{vendored})"
+                f"{where} {tree.build(vendored, 'bin', 'qemu-arm')}"
             )
     # default: the headless layer on webOS; none on SimpleSmart, which has no webOS layers
     layers = env.get(

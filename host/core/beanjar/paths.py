@@ -443,11 +443,15 @@ class Tree:
                 return os.path.join("/usr/share/beanjar/guest/modules", *p)
             if p in [("lls", "lls-probe"), ("lls", "lls-probe.so")]:
                 return "/usr/share/beanjar/guest/bin/" + p[1]
+            # the experimental x86-64 guest kernel and its initramfs (beanjar-guest)
+            if p in [("x86_64", "bzImage"), ("x86_64", "initramfs.cpio.gz")]:
+                return os.path.join("/usr/share/beanjar/guest", *p)
+            # qemu-user's qemu-arm (beanjar-qemu), by the guest kernel's architecture it runs on:
+            # arm64's on every host, amd64's on amd64 hosts
             if p == ("qemu-user", "bin", "qemu-arm"):
-                return "/usr/share/beanjar/guest/bin/qemu-arm"
-            if p[:1] == ("x86_64",) or p == ("qemu-user-amd64", "bin", "qemu-arm"):
-                # the experimental x86-64 guest kernel's pieces, which no package ships yet
-                return self.cache(*p)
+                return "/usr/share/beanjar/qemu-user/arm64/qemu-arm"
+            if p == ("qemu-user-amd64", "bin", "qemu-arm"):
+                return "/usr/share/beanjar/qemu-user/amd64/qemu-arm"
             if p[:2] in [("qemu", "bin"), ("qemu", "libexec")]:
                 return os.path.join("/usr/libexec/beanjar", *p[2:])
             if p[:2] == ("qemu", "share"):

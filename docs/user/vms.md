@@ -125,7 +125,9 @@ the extra RAM and the swap.
 `guest_kernel=x86-64` is **experimental**: on an x86_64 machine it boots an x86-64 guest kernel
 under KVM (TCG without `/dev/kvm`) and runs the whole ARM userland under qemu-arm, which is much
 faster than full TCG. It implies `userland=qemu-user`, is refused with `userland=native` and for
-NetCast and SimpleSmart, and only webOS 1 (WT1H) has been booted with it so far.
+NetCast and SimpleSmart, and only webOS 1 (WT1H) has been booted with it so far. With the Debian
+packages it needs `beanjar-qemu` for amd64, which carries its qemu-system-x86_64 and qemu-arm;
+`beanjar-guest` carries the x86-64 kernel.
 
 ```sh
 beanjar settings tv1 set guest_kernel=x86-64
