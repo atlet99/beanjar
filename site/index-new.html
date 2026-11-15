@@ -22,7 +22,7 @@
     <meta name="twitter:card" content="summary_large_image">
     <link href="site.css" rel="stylesheet">
     <!-- Apple systems get the traffic lights on the terminal card; the rest, and anyone without scripts, the generic buttons. -->
-    <script>if (/Mac|iPhone|iPad|iPod/.test(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent)) document.documentElement.classList.add("os-mac");</script>
+    <script>if ([navigator.userAgentData?.platform, navigator.platform, navigator.userAgent].some(s => /Mac|iPhone|iPad|iPod/.test(s || ""))) document.documentElement.classList.add("os-mac");</script>
   </head>
   <body>
     <a class="skip-link visually-hidden-focusable px-3 py-2" href="#main">Skip to content</a>
