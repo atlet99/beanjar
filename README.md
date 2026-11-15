@@ -32,6 +32,8 @@ You need Debian 13 (trixie) or Raspberry Pi OS based on it, on one of:
 - another arm64 machine with KVM: KVM runs the guest kernel and only the TV's 32-bit programs are translated by qemu-user inside the guest, so it stays fast without 32-bit Arm KVM;
 - an x86_64 PC, which emulates the TV's ARM CPU with QEMU's TCG: it works, but more slowly. The experimental `guest_kernel = "x86-64"` setting (package `beanjar-guest-x86-64`, opt-in) gives an x86_64 PC with KVM the same qemu-user route, translating only the TV's programs instead of the whole machine.
 
+On Windows 11, Beanjar runs in WSL2 with a Debian 13 distribution, as on an x86_64 PC; see [Running Beanjar on Windows with WSL](docs/user/wsl.md).
+
 Download the Debian packages from the [releases page](https://github.com/mariotaku/beanjar/releases): the host packages from the newest `host-<version>` release, and `beanjar-guest` from the `guest-<version>` release its notes name. Then:
 
 ```sh

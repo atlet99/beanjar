@@ -6,7 +6,7 @@ from here.
 
 ## Requirements
 
-- Debian 13 (trixie) on the host.
+- Debian 13 (trixie) on the host, or in WSL2 on Windows 11 (see [WSL](wsl.md)).
 - An x86_64 machine, which by default runs the whole guest under QEMU's TCG (full software
   emulation, slow), or an arm64 machine with AArch32 at EL0, which runs it under KVM (a Raspberry
   Pi 5 does). The firmware's userland is 32-bit ARM: on an arm64 CPU without AArch32 at EL0, KVM
