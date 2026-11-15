@@ -725,7 +725,7 @@ class Bg:
         with core.running_lock() as lock:
             self.refuse_beyond_limit(lock.limit)
             try:
-                how.start(self, env, words, mem=qemu.vm_mem(env))
+                how.start(self, env, words, mem=qemu.vm_guest_ram(env))
             except core.Error as e:
                 raise Error(str(e)) from None
         # Until the initramfs shell is up, the launcher fails, or 120 s pass.

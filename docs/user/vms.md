@@ -112,6 +112,13 @@ start and the start says which and why: natively under TCG and where KVM's CPU h
 force one. NetCast and SimpleSmart firmware only run natively, and do not start on a host that
 cannot.
 
+Each program under qemu-arm carries qemu-arm's own memory as well, so a start that runs the
+userland under qemu-user, for whatever reason, gives the guest half as much RAM again as `mem`:
+`mem` stays the TV's own memory, the start logs `memory: 2048 MB for the TV + 1024 MB for
+qemu-user's overhead`, `beanjar list` shows MEM as `2048+1024`, `beanjar info` shows `tv_ram` and
+`guest_ram`, and the host must have the larger amount free to start it. webOS is still told the
+TV's own memory (the model's board parameters); only the guest kernel sees the extra RAM.
+
 `guest_kernel=x86-64` is **experimental**: on an x86_64 machine it boots an x86-64 guest kernel
 under KVM (TCG without `/dev/kvm`) and runs the whole ARM userland under qemu-arm, which is much
 faster than full TCG. It implies `userland=qemu-user`, is refused with `userland=native` and for

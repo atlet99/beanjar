@@ -14,7 +14,8 @@ from here.
   use. On an x86_64 machine with KVM, the experimental `hardware.guest_kernel = "x86-64"` does the
   same with an x86-64 guest kernel.
 - Memory for each VM: its firmware model's RAM (1.25 GB for WT1H, 1.5 GB for W19P, for example)
-  plus 1 GiB of headroom by default, and under TCG another 1 GiB for QEMU's translation cache. A
+  plus 1 GiB of headroom by default, and under TCG another 1 GiB for QEMU's translation cache; a
+  VM whose userland runs under qemu-user gets half its model's RAM again for qemu-arm's own. A
   start that the host's free memory does not cover is refused.
 - For the windows (the VM manager and the viewer): GTK 4 and libadwaita 1.7 or newer for Python.
   Without them the CLI, VNC and the web viewer still work.

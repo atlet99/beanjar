@@ -53,8 +53,9 @@ Environment (both):
             debugMode=, 3 = debug): the TV's debug status. The guest's /proc/cmdline has that one
             debugMode= (webos.debugmode= for /init, or the board words on the kernel's line,
             Release.board_in_kernel), and nvm.prepare brings the EEPROM's debug status to it
-  MEM, SMP  guest RAM in MiB (default: the firmware's model's DDR, its board.cmdline's
-            hwopt=: nvm.board_ram) / CPUs (default 4)
+  MEM, SMP  the TV's RAM in MiB (default: the firmware's model's DDR, its board.cmdline's
+            hwopt=: nvm.board_ram) / CPUs (default 4). A qemu-user start gives the guest more
+            (-m: vmsettings.guest_ram_mib, the TV's and qemu-user's overhead) and says so
   NET_LINK  where the guest's NIC is attached (vm.toml's network.link; docs/dev/architecture/network.md):
               nat     (default) behind this host, on its own 10.0.2.0/24, as NET_MODE says
               lan     on the host's wired LAN (the library's lan_parent), a TV of its own there:
@@ -332,8 +333,8 @@ def _get(env, k, default=""):
 
 
 def vm_mem(env, tree=paths.TREE):
-    """The guest RAM in MiB a launch with env gives the VM, as plan does (MEM, else the firmware's
-    model's: nvm.board_ram); None if it is not known."""
+    """The TV's RAM in MiB a launch with env gives the VM, as plan does (MEM, else the firmware's
+    model's: nvm.board_ram); None if it is not known. The guest's own is vm_guest_ram's."""
     try:
         if env.get("MEM"):
             return int(env["MEM"])
@@ -344,6 +345,31 @@ def vm_mem(env, tree=paths.TREE):
         )
     except (ValueError, OSError, targets.Error):
         return None
+
+
+def vm_userland(env):
+    """The userland (native or qemu-user) a launch with env resolves to, as plan does on this host
+    (vmsettings.resolve_userland, without the firmware's refusals); None for a setting that does
+    not resolve."""
+    guest_kernel = env.get("GUEST_KERNEL") or vmsettings.DEFAULT_GUEST_KERNEL
+    accel = vm_accel(env)
+    try:
+        return vmsettings.resolve_userland(
+            env.get("USERLAND") or vmsettings.DEFAULT_USERLAND,
+            guest_kernel,
+            accel,
+            host_aarch32_el0() if accel == "kvm" and guest_kernel == "arm64" else None,
+        )[0]
+    except vmsettings.Error:
+        return None
+
+
+def vm_guest_ram(env, tree=paths.TREE):
+    """The guest's RAM in MiB (QEMU's -m) a launch with env gets: the TV's (vm_mem) with
+    qemu-user's overhead on top when its userland resolves to qemu-user
+    (vmsettings.guest_ram_mib); None if the TV's is not known."""
+    mem = vm_mem(env, tree)
+    return None if mem is None else vmsettings.guest_ram_mib(mem, vm_userland(env))
 
 
 def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
@@ -416,9 +442,15 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
         "headless" if targets.release(p.target).always_layers == targets.WEBOS_LAYERS else "",
     )
     try:
-        mem = env.get("MEM") or str(nvm.board_ram(p.target, tree, p.broadcast))
-    except (targets.Error, OSError) as e:
+        tv_mem = int(env.get("MEM") or nvm.board_ram(p.target, tree, p.broadcast))
+    except (targets.Error, OSError, ValueError) as e:
         raise Error(str(e)) from None
+    # -m: the TV's RAM, and qemu-user's own on top of it (vmsettings.guest_ram_mib). What webOS is
+    # told the set has comes from the board's hwopt= (board.cmdline), not from -m.
+    mem = str(vmsettings.guest_ram_mib(tv_mem, p.userland))
+    note = vmsettings.memory_note(tv_mem, p.userland)
+    if note:
+        say(note)
     smp = _get(env, "SMP", "4")
     kernel, initrd = tree.guest_kernel(guest_kernel)
     for f in (kernel, initrd, os.path.join(fw, targets.root_pak(p.target) + ".pak")):

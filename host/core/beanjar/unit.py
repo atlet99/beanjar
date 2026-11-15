@@ -263,8 +263,9 @@ def resources(mem, env=None):
 
 def start(unit, env, words=(), tree=paths.TREE, mem=None, keep=()):
     """Start UNIT.service with env_for(env, keep) as its environment (as a setsid child would have
-    it); mem: the VM's RAM in MiB, which bounds the unit's memory (resources). The user lingers
-    first (core.linger), so the VM outlives the session that started it."""
+    it); mem: the guest's RAM in MiB (qemu.vm_guest_ram), which bounds the unit's memory
+    (resources). The user lingers first (core.linger), so the VM outlives the session that
+    started it."""
     linger()
     env = _python_env(env_for(env, keep), tree)
     me = f"{shlex.quote(sys.executable)} -m beanjar.unit"

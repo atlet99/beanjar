@@ -35,6 +35,7 @@ from beanjar import (
     qemu,
     share,
     tomlfile,
+    vmsettings,
 )
 
 from launchkit import (
@@ -832,15 +833,27 @@ class ArgvTest(unittest.TestCase):
         return p.argv, notes
 
     def test_userland(self):
-        """USERLAND=qemu-user changes no QEMU argument: the plan carries the interpreter
-        (QEMU_ARM, else build/qemu-user/bin/qemu-arm) for the host share. An unknown value, and
-        qemu-user on a refused platform, are errors; native is the default."""
-        native, _ = self.qemu_plan("tcg")
+        """USERLAND=qemu-user changes one QEMU argument, -m: the guest gets half the TV's RAM
+        again for qemu-user's own (vmsettings.guest_ram_mib), and the start says so; the plan
+        carries the interpreter (QEMU_ARM, else build/qemu-user/bin/qemu-arm) for the host share.
+        An unknown value, and qemu-user on a refused platform, are errors; native is the
+        default."""
+        native, native_notes = self.qemu_plan("tcg")
         arm = os.path.join(self.tmp, "qemu-arm")
         with open(arm, "w") as f:
             f.write("")
-        bridged, _ = self.qemu_plan("tcg", USERLAND="qemu-user", QEMU_ARM=arm)
-        self.assertEqual(bridged, native)
+        bridged, notes = self.qemu_plan("tcg", USERLAND="qemu-user", QEMU_ARM=arm)
+        m = native.index("-m") + 1
+        self.assertEqual(native[m], "1280")  # the fake model's DDR
+        self.assertEqual(bridged[m], "1920")
+        self.assertEqual(bridged[:m] + bridged[m + 1 :], native[:m] + native[m + 1 :])
+        self.assertIn("memory: 1280 MB for the TV + 640 MB for qemu-user's overhead", notes)
+        self.assertFalse([n for n in native_notes if n.startswith("memory:")])
+        # an explicit MEM is the TV's too
+        bridged, notes = self.qemu_plan("tcg", USERLAND="qemu-user", QEMU_ARM=arm, MEM="2048")
+        self.assertEqual(bridged[m], "3072")
+        self.assertIn("memory: 2048 MB for the TV + 1024 MB for qemu-user's overhead", notes)
+        self.assertEqual(self.qemu_plan("tcg", MEM="2048")[0][m], "2048")
         env = dict(FW=self.fw, STATE="none", **net("direct"), SLOT="1")
 
         def plan(**more):
@@ -921,6 +934,35 @@ class ArgvTest(unittest.TestCase):
             ):
                 plan("kvm", False, platform)
 
+    def test_guest_ram(self):
+        """The guest's RAM (-m) is the TV's (MEM, else the model's) with half as much again for
+        qemu-user's own when the userland resolves to qemu-user, whatever made it so; native
+        starts get the TV's alone. vm_userland and vm_guest_ram, which the host's memory check and
+        the unit's MemoryHigh use, resolve it as plan does."""
+        self.assertEqual(vmsettings.guest_ram_mib(2048, "qemu-user"), 3072)
+        self.assertEqual(vmsettings.guest_ram_mib(1537, "qemu-user"), 1537 + 768)
+        self.assertEqual(vmsettings.guest_ram_mib(2048, "native"), 2048)
+        self.assertEqual(vmsettings.guest_ram_mib(2048, None), 2048)
+        self.assertEqual(
+            vmsettings.memory_note(2048, "qemu-user"),
+            "memory: 2048 MB for the TV + 1024 MB for qemu-user's overhead",
+        )
+        self.assertIsNone(vmsettings.memory_note(2048, "native"))
+
+        def resolved(aarch32=None, **env):
+            with mock.patch.object(qemu, "host_aarch32_el0", return_value=aarch32):
+                env = dict(MEM="2048", **env)
+                return qemu.vm_userland(env), qemu.vm_guest_ram(env)
+
+        self.assertEqual(resolved(ACCEL="tcg"), ("native", 2048))
+        self.assertEqual(resolved(True, ACCEL="kvm"), ("native", 2048))
+        self.assertEqual(resolved(False, ACCEL="kvm"), ("qemu-user", 3072))
+        self.assertEqual(resolved(ACCEL="kvm", GUEST_KERNEL="x86-64"), ("qemu-user", 3072))
+        self.assertEqual(resolved(ACCEL="tcg", USERLAND="qemu-user"), ("qemu-user", 3072))
+        self.assertEqual(resolved(True, ACCEL="kvm", USERLAND="native"), ("native", 2048))
+        self.assertEqual(resolved(ACCEL="tcg", USERLAND="bogus"), (None, 2048))
+        self.assertIsNone(qemu.vm_guest_ram({"FW": "/nonexistent/fw"}))
+
     def test_x86_64(self):
         """GUEST_KERNEL=x86-64 (experimental): q35 on an x86-64 host, under KVM when /dev/kvm
         opens, else TCG; -vga none, the 8250 console, build/x86_64's kernel and initramfs, the
@@ -978,6 +1020,8 @@ class ArgvTest(unittest.TestCase):
             notes,
         )
         self.assertIn("userland: qemu-user (the x86-64 guest kernel has no AArch32)", notes)
+        self.assertEqual(argv[12], "1920")  # the fake model's 1280 and qemu-user's 640
+        self.assertIn("memory: 1280 MB for the TV + 640 MB for qemu-user's overhead", notes)
         # the vendored one, without QEMU_X86_64
         vendored = tree.vendored_qemu_x86_64()
         os.makedirs(os.path.dirname(vendored), exist_ok=True)

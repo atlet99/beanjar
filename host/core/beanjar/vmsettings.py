@@ -118,6 +118,34 @@ def resolve_userland(setting, guest_kernel, accel, aarch32_el0, platform=None):
     return userland, f"userland: {userland} ({why})"
 
 
+# qemu-user's own memory in the guest, as a share of the TV's (mem): every 32-bit process runs
+# under a qemu-arm of its own, with its heap, its page tracking of the guest program and its
+# translated code on top of the program's own memory. mem stays the TV's RAM (what its firmware is
+# built for); a qemu-user start gives the guest this much more (guest_ram_mib).
+QEMU_USER_OVERHEAD_PERCENT = 50
+
+
+def qemu_user_overhead_mib(mem, userland):
+    """The RAM in MiB a start with userland (native or qemu-user, as resolved) adds to the TV's
+    mem MiB for qemu-user's own: QEMU_USER_OVERHEAD_PERCENT of it, rounded down to a whole MiB;
+    0 for native."""
+    return int(mem) * QEMU_USER_OVERHEAD_PERCENT // 100 if userland == "qemu-user" else 0
+
+
+def guest_ram_mib(mem, userland):
+    """The guest's RAM in MiB (QEMU's -m) for a TV of mem MiB with userland as resolved: mem, and
+    qemu-user's overhead on top (qemu_user_overhead_mib)."""
+    return int(mem) + qemu_user_overhead_mib(mem, userland)
+
+
+def memory_note(mem, userland):
+    """The line a start logs for its RAM when qemu-user adds to it, else None."""
+    extra = qemu_user_overhead_mib(mem, userland)
+    if not extra:
+        return None
+    return f"memory: {int(mem)} MB for the TV + {extra} MB for qemu-user's overhead"
+
+
 # mitm_flows (qemu.py MITM_FLOWS): how many flows the mode=mitm inspector keeps, 0 for all of them;
 # the default is not written out. A kept flow costs mitmweb about 2.5 MB per 1000 for DNS, 7.5 MB
 # per 1000 for HTTP(S) with a few KB of body, 19 MB per 1000 for HTTPS on a new TLS connection each
@@ -242,7 +270,13 @@ SETTING_HELP = {
         "boot a global firmware as that broadcast standard's model",
         "the firmware's own, else the chip's default",
     ),
-    "mem": ("MIB", "the firmware's model's own", "guest RAM in MiB", None),
+    "mem": (
+        "MIB",
+        "the firmware's model's own",
+        "the TV's RAM in MiB; a start with userland qemu-user gives the guest half as much again "
+        "for qemu-user's own memory",
+        None,
+    ),
     "smp": ("N", str(vmconfig.DEFAULTS["smp"]), "CPUs", None),
     "free_page_reporting": (
         "|".join(ONOFF),

@@ -31,7 +31,8 @@ def vm_row(vm):
         "fw": vm.firmware_dir(),
         "firmware": vm.firmware_name(),
         "fw_external": vm.firmware_external(),
-        "mem": vm.mem(),
+        "mem": vm.mem(),  # the TV's RAM
+        "guest_ram": vm.guest_ram(),  # QEMU's -m: under qemu-user more (VM.guest_ram)
         "smp": c.get("smp"),
         "display": c.get("display", ""),
         "network": vmsettings.network_label(c.get("link"), c.get("mode")),
@@ -52,7 +53,7 @@ def vm_row(vm):
 def unit_row(name, props):
     """A VM's unit in beanjar.slice that is no library's VM (a regress target's, one of another
     RUN_DIR): what its unit and its main process's environment (the launcher's) tell."""
-    from .. import keys, netns, nvm, targets, paths
+    from .. import keys, netns, nvm, qemu, targets, paths
 
     tag, vm_name = vmunits.unit_tag(name)
     env = hostprocs.proc_env(int(props.get("MainPID") or 0) or None)
@@ -106,6 +107,11 @@ def unit_row(name, props):
         "firmware": str((m or {}).get("name") or os.path.basename(fw.rstrip("/"))),
         "fw_external": False,
         "mem": int(mem) if str(mem or "").isdigit() else None,
+        "guest_ram": (
+            vmsettings.guest_ram_mib(mem, qemu.vm_userland(env))
+            if str(mem or "").isdigit()
+            else None
+        ),
         "smp": env.get("SMP"),
         "display": env.get("DISPLAY_BACKEND", ""),
         "network": vmsettings.network_label(env.get("NET_LINK"), env.get("NET_MODE")),
@@ -205,7 +211,7 @@ def cmd_list(lib, a):
             False,
         ),
         ("PLATFORM", lambda r: r["platform"] or "", False),
-        ("MEM", lambda r: str(r["mem"] or ""), True),
+        ("MEM", mem_cell, True),
         ("SMP", lambda r: str(r["smp"] or ""), True),
         ("GPU", lambda r: gpu.short(r["gpu"]) if r["pid"] else "", True),
         ("DISPLAY", lambda r: r["display"] or "", False),
@@ -359,12 +365,24 @@ def info_data(vm):
         "unit": vm.unit() or None,
         "reason": vm.reason(),
         **vm.summary(),
+        # the TV's RAM (mem, else the model's) and the guest's, -m: under qemu-user more
+        "tv_ram": vm.mem(),
+        "guest_ram": vm.guest_ram(),
         "model_key": vm.has_model_key(),
         "identity": vm.identity_dir,
         "ssh": ssh_commands(vm),
         "inspector": inspector_info(vm),
         "gpu": gpu.measure([(pid, vm.config.get("layers"))])[0],
     }
+
+
+def mem_cell(row):
+    """list's MEM: the TV's RAM in MiB, with qemu-user's overhead added as +N when the guest gets
+    more (2048+1024)."""
+    mem, ram = row["mem"], row.get("guest_ram")
+    if not mem:
+        return ""
+    return f"{mem}+{ram - mem}" if ram and ram != mem else str(mem)
 
 
 def cmd_info(lib, a):

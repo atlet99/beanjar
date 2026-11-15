@@ -1842,6 +1842,30 @@ class ManagerTest(unittest.TestCase):
         self.assertIsNone(self.listing()["a"]["reason"])
         self.cli("stop", "a")
 
+    def test_qemu_user_guest_ram(self):
+        """A VM whose userland resolves to qemu-user keeps mem as the TV's RAM and gets half as
+        much again for qemu-user's own: list shows MEM as 1024+512, info its tv_ram and
+        guest_ram, and the start's admission asks the host for the guest's RAM."""
+        self.cli("create", "a", "--import", "--firmware", self.fw_src, "--mem", "1024")
+        rows = self.listing()
+        self.assertEqual((rows["a"]["mem"], rows["a"]["guest_ram"]), (1024, 1024))
+        self.cli("settings", "a", "set", "userland=qemu-user")
+        rows = self.listing()
+        self.assertEqual((rows["a"]["mem"], rows["a"]["guest_ram"]), (1024, 1536))
+        self.assertRegex(self.cli("list"), r"\b1024\+512\b")
+        info = self.info("a")
+        self.assertEqual((info["mem"], info["tv_ram"], info["guest_ram"]), (1024, 1024, 1536))
+        vm = self.lib().vm("a")
+        need = capacity.reservation_mib(1536, vm.launch_env())
+        self.mem_available(need - 1)
+        out = self.cli("start", "a", ok=False)
+        self.assertIn(
+            "not enough free memory to start VM a: it needs 1536 MiB (1024 for the TV and 512 for "
+            f"qemu-user's overhead) and {capacity.START_HEADROOM_MIB} MiB of headroom",
+            out,
+        )
+        self.assertEqual(self.listing()["a"]["state"], "Off")
+
     def test_start_stop_two_vms(self):
         """VMs run side by side, each started once (its start.lock), as long as the host's free
         memory covers the next one's RAM and the headroom (capacity.admission)."""

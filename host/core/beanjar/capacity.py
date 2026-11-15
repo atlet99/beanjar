@@ -12,7 +12,8 @@ from . import hostconfig, hostprocs, vmunits
 
 
 # The start's admission (Library.start): a VM starts if the host's MemAvailable, less what the
-# library's other starting and running VMs may still claim, covers its RAM (-m, VM.mem) and
+# library's other starting and running VMs may still claim, covers its RAM (-m, VM.guest_ram: the
+# TV's, VM.mem, and under qemu-user that userland's own on top) and
 # memory_headroom_mib more, left to the host, its other VMs' growth and a GUI. The default is
 # 1 GiB; a host may tune it with beanjar host config. A VM's unit
 # is held to the same sum under KVM (unit.start: MemoryHigh), so that is what it reserves. Under TCG
@@ -123,7 +124,7 @@ def claim_mib(vm):
         )
         cap, used = _unit_mib(props.get("MemoryHigh")), _unit_mib(props.get("MemoryCurrent"))
     if cap is None:
-        mem = vm.mem()
+        mem = vm.guest_ram()
         if mem is None:
             return 0
         cap = reservation_mib(mem, vm.launch_env())
@@ -135,11 +136,13 @@ def claim_mib(vm):
 
 def admission(vm):
     """None if the host has the memory to start vm (MemAvailable, less the claims of the library's
-    other starting and running VMs (claim_mib), covers its RAM and the host's memory_headroom_mib), else why
-    not; None too if either is not known. Library.start asks under admission_lock."""
-    mem, avail = vm.mem(), mem_available_mib()
+    other starting and running VMs (claim_mib), covers its RAM (VM.guest_ram: under qemu-user more
+    than the TV's mem) and the host's memory_headroom_mib), else why not; None too if either is not
+    known. Library.start asks under admission_lock."""
+    mem, avail = vm.guest_ram(), mem_available_mib()
     if mem is None or avail is None:
         return None
+    tv = vm.mem()
     others = [(o.name, claim_mib(o)) for o in vm.library.vms() if o.name != vm.name]
     claimed = sum(c for _, c in others)
     headroom = memory_headroom_mib()
@@ -149,8 +152,9 @@ def admission(vm):
     tb = need - int(mem) - headroom
     held = ", ".join(f"{n} {c} MiB" for n, c in others if c)
     return (
-        f"not enough free memory to start VM {vm.name}: it needs {mem} MiB and {headroom} MiB "
-        f"of headroom"
+        f"not enough free memory to start VM {vm.name}: it needs {mem} MiB"
+        + (f" ({tv} for the TV and {mem - tv} for qemu-user's overhead)" if mem != tv else "")
+        + f" and {headroom} MiB of headroom"
         + (f" and {tb} MiB of TCG translation cache" if tb else "")
         + f", and the host has {avail} MiB available"
         + (f", {claimed} MiB of it claimed by VMs starting or running ({held})" if claimed else "")

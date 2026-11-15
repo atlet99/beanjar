@@ -367,6 +367,20 @@ class VM:
         except (Error, targets.Error, OSError):
             return None
 
+    def userland(self):
+        """The userland (native or qemu-user) its next start resolves to on this host
+        (qemu.vm_userland), None for one that does not resolve."""
+        from . import qemu
+
+        return qemu.vm_userland(self.launch_env())
+
+    def guest_ram(self):
+        """The guest's RAM in MiB (QEMU's -m): its TV's (mem) with qemu-user's overhead on top
+        when its userland resolves to qemu-user (vmsettings.guest_ram_mib); None if mem is not
+        known. What the host must have for it (capacity) is this."""
+        mem = self.mem()
+        return None if mem is None else vmsettings.guest_ram_mib(mem, self.userland())
+
     def platform_title(self):
         """Its platform with its version as the viewer's title shows it ("webOS 4.5": its target's,
         targets.platform_title); empty if its firmware is not one this tree boots."""

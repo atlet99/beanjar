@@ -95,7 +95,24 @@ build/qemu-user-amd64, its x86-64 one, for the x86-64 guest kernel (`guest = ["a
 Debian packages do not ship it; an installed launcher looks for
 `/usr/share/beanjar/guest/bin/qemu-arm`. A launch without an interpreter fails. `share.assemble`
 copies the interpreter to `/host/qemu-arm`, and boot.conf gets `USERLAND="qemu-user"`. The QEMU
-command line does not change.
+command line changes in one place, its RAM.
+
+Each 32-bit process under qemu-arm carries qemu-arm's own heap, its tracking of the guest
+program's pages and its translated code on top of the program's own memory, so a qemu-user start
+gives the guest `vmsettings.QEMU_USER_OVERHEAD_PERCENT` (50 %) of `mem` more (`-m`:
+`vmsettings.guest_ram_mib`) and logs `memory: 2048 MB for the TV + 1024 MB for qemu-user's
+overhead`. `mem` stays the TV's RAM. The host's memory admission and the unit's MemoryHigh
+(`capacity`, `qemu.vm_guest_ram`, `VM.guest_ram`) use the larger size; `beanjar list` shows MEM as
+`2048+1024` and `beanjar info` both (`tv_ram`, `guest_ram`). What webOS is told the set has is the
+model's board parameters (board.cmdline's `hwopt=`), which do not follow `-m`; the balloon is never
+inflated and the media pool has its own size, so neither changes.
+
+Measured on WT1H at the Live TV "No Signal" screen 120 s after boot-done (x86-64 PC, `mem` 2048):
+natively under TCG the processes held 232 MiB anonymous memory and the guest had 1546 MiB
+available; under qemu-user (x86-64 guest kernel, `-m 3072`) 1514 MiB and 1106 MiB. The overhead
+is about 1.3 GiB, of which about 930 MiB is qemu-arm's translated code (one 128 MiB code buffer
+per process), so it follows the number of processes and how much code they ran rather than `mem`,
+and 50 % leaves the guest about 440 MiB less available than a native run of the same TV.
 
 `guest/initramfs/rootfs/init` reads boot.conf, and before it runs any firmware program it copies
 the interpreter into the initramfs and registers it for 32-bit little-endian ARM ELF executables
