@@ -156,9 +156,10 @@ the interpreter into the initramfs and registers it for 32-bit little-endian ARM
 with the flags `POFE`. `P` keeps argv[0], `O` opens the binary, `F` opens the interpreter at
 registration so it serves the firmware's namespace and root, and `E` is described above. Every
 32-bit program of the firmware then runs under qemu-arm, init included. Its `binfmt` function
-registers any interpreter the launcher puts into `/host`; the AArch64 programs of newer firmware
-(`/usr/lib64` on queue and spacebuns) would take a second entry there, `qemu-aarch64` on the x86-64
-kernel with flag `E` and their ioctls passed through unchanged.
+registers any interpreter the launcher puts into `/host`. On the arm64 kernel the AArch64 programs
+of newer firmware (`/usr/lib64` on queue and spacebuns) run natively, as binfmt claims only 32-bit
+ELF; on the x86-64 kernel boot.conf's `USERLAND_AARCH64` has init register `/host/qemu-aarch64`
+for 64-bit little-endian AArch64 ELF executables with the same flags (below).
 
 To check that nothing runs natively, add `arm64.no32bit_el0` to the kernel command line
 (`KERNEL_ARGS`). The kernel then reports no 32-bit EL0, so a native 32-bit exec fails with
@@ -222,6 +223,20 @@ start says it is experimental.
   `prctl(PR_SET_MM_MAP)`, which needs `CONFIG_CHECKPOINT_RESTORE` (in `webos_virt_defconfig`) and
   no capability: webOS's initctl finds the service it notifies systemd for by its command line,
   and every `Type=notify` service readied through it timed out while that read `qemu-arm ...`.
+- **qemu-aarch64** (the same amd64 tarball, patch 0007): the 64-bit ARM programs, which an arm64
+  kernel runs natively. `QEMU_AARCH64`, else the one beside the vendored x86-64 qemu-arm
+  (build/qemu-user-amd64/bin/qemu-aarch64; installed, `/usr/share/beanjar/qemu-user/amd64/`), goes
+  to `/host/qemu-aarch64` with `USERLAND_AARCH64="qemu-user"` in boot.conf (`share.assemble`); a
+  start without one says so and starts anyway, as only queue and spacebuns ship AArch64 programs.
+  The QEMU command line is the same either way. AArch64 and x86-64 are both LP64 with the same
+  alignment and ioctl encoding, so no bridge is needed: with `guest_base` 0, which qemu picks for a
+  64-bit guest when the address is free, an ioctl qemu has no table entry for goes to the kernel
+  unchanged (stock qemu answers ENOTTY). The generic fixes (`/proc/<pid>/cmdline`, guest-only
+  `/proc/self/status`, `SO_PEERGROUPS`, `kill()` of qemu's threads) apply to it as to qemu-arm. Its
+  guest lives in the x86-64 process's 47-bit address space, below where a 48-bit AArch64 kernel's
+  `mmap` would put it; only a fixed mapping above 128 TiB would fail. The test guest's `tg-arm64`
+  passes under it (`scripts/testguest-check --guest-kernel x86-64`, [test guest](test-guest.md)),
+  its DRM version ioctl on the render node included.
 - **Machine** (`qemu.plan`): `-M q35`, `-accel kvm -cpu host` (or `-cpu max -accel tcg`),
   `-vga none`, `console=ttyS0`, and the virt machine's devices, which are all PCI; q35's root bus
   has 30 free slots. Its QEMU is the vendored qemu-system-x86_64 (beanjar-vendor's amd64 QEMU

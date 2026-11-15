@@ -150,7 +150,7 @@ Each check adds `<check>=pass` or `fail`; `result=pass` when all passed.
 | `shares` (`tg-run`) | the read-only `host` share's `boot.conf` read and a write there refused; 32 MiB written to the `out` share, read back and compared | `shares.out_write_ms`, `shares.out_read_ms` |
 | `input` (`tg-input.c`) | the evdev node of QEMU's virtio keyboard; once open, it creates `testguest/input-ready` and waits up to 60 s for a key | `input.key`, `input.wait_ms` |
 | `bridge` (`tg-bridge.c`, the same program as `tests/integration/bridge/bridgetest.c`) | the 32-bit ABI through the kernel's compat table: uinput and evdev, DRM and virtio-gpu ioctls, a robust mutex, signals, fork, exec and wait, `/proc/<pid>/exe`; after `input`, as it creates an input device of its own | `bridge.userland` (`native`, or `qemu-user` under qemu-arm), `bridge.failed` |
-| `arm64` (`arm64/tg-arm64.c`) | a 64-bit ARM program on the AArch64 glibc in `/usr/lib64`: 8-byte pointers, `uname` says aarch64, `clock_gettime`, a file written to the out share, read back and removed, a thread, fork and wait, and DRM's version ioctl on the render node naming `virtio_gpu`; it runs natively on the arm64 guest kernel whatever `hardware.userland` says | `arm64.machine`, `arm64.failed` |
+| `arm64` (`arm64/tg-arm64.c`) | a 64-bit ARM program on the AArch64 glibc in `/usr/lib64`: 8-byte pointers, `uname` says aarch64, `clock_gettime`, a file written to the out share, read back and removed, a thread, fork and wait, and DRM's version ioctl on the render node naming `virtio_gpu`; it runs natively on the arm64 guest kernel whatever `hardware.userland` says, and under qemu-aarch64 on the x86-64 one | `arm64.machine`, `arm64.failed` |
 
 `webos.ir` and `webos.memory` are held by the initramfs's pumps and `webos.standby` must not be
 opened (holding it open is the guest's standby), so the check only finds them. Times in the guest
@@ -171,6 +171,9 @@ and VNC reach) once `input-ready` appears, waits for `results.txt`, then adds th
 `--userland qemu-user` sets the VM's `hardware.userland`, so the guest's 32-bit programs run under
 qemu-arm with the compat bridge ([qemu-user bridge](qemu-user-bridge.md); qemu-arm from `QEMU_ARM`),
 which the `bridge` check reports as `bridge.userland=qemu-user`.
+`--guest-kernel x86-64` sets `hardware.guest_kernel` (x86-64 hosts): the experimental x86-64
+guest kernel, the 32-bit programs under qemu-arm and `tg-arm64` under qemu-aarch64 (`QEMU_ARM`,
+`QEMU_AARCH64` and `QEMU_X86_64` name local builds).
 
 It prints every result, deletes the VM (unless `--keep`; `--logs DIR` keeps its logs and the guest's
 output) and exits 0 when all passed, 1 when one failed, 2 when the run itself failed. One run on the
