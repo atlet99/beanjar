@@ -6,8 +6,7 @@ emulated. With `userland = "qemu-user"` the arm64 guest kernel still runs under 
 hypervisor, and each 32-bit program runs under `qemu-arm` inside the guest (`"auto"`, the default,
 does that by itself on such a host). qemu-arm translates
 the instructions, but it does not convert the system calls: it hands them to the guest kernel's
-own AArch32 compat syscall table. The study behind it, with measurements and how translation was
-verified, is [docs/research/qemu-user-bridge.md](../../research/qemu-user-bridge.md).
+own AArch32 compat syscall table.
 
 ## Why a bridge
 
@@ -197,9 +196,8 @@ whose owner died, signal restart and EINTR, a real-time signal, fork, exec and w
 
 `guest_kernel = "x86-64"` (`GUEST_KERNEL`) runs the same idea on an x86-64 host: an x86-64 guest
 kernel on QEMU's q35 machine, under KVM where `/dev/kvm` opens and TCG otherwise, with the whole
-ARM userland under an x86-64 qemu-arm. The study is
-[An x86-64 guest kernel](../../research/qemu-user-bridge.md#an-x86-64-guest-kernel-2026-11-15).
-It is refused on another host, with `userland = "native"` and on NetCast and SimpleSmart, and a
+ARM userland under an x86-64 qemu-arm. It is refused on another host, with
+`userland = "native"` and on NetCast and SimpleSmart, and a
 start says it is experimental.
 
 - **Kernel**: the same tree, patches and `webos_virt_defconfig` with

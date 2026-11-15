@@ -1,6 +1,6 @@
 # 55QNED85TUA, the US 55-inch QNED85: the models DB lists it for this OTA ID (W24H 33.31.68.01).
 # The default board (board_cmdline in guest/targets/soc/), from W24H's own generators
-# (host/tools/research/model-config.py, 23.23.30 and 33.31.68 agree): hw-option-gen decodes K24,
+# (23.23.30 and 33.31.68 agree): hw-option-gen decodes K24,
 # countryType US, 2G, LCD, UD, EPI, 60 Hz panel and SoC output, 1920x1080 graphics; nyx-option-gen
 # ATSC. countryGrp 2: configd's USA RMM grpCode. tvregion ATSC: the broadcast system. chip=K24 is
 # the literal of W24H's U-Boot (boot.pak). ToolOpt: LLS's factory default record of this line,

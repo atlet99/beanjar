@@ -76,9 +76,9 @@ peripheral_modules = custom_target('peripheral-modules',
 
 
 # The experimental x86-64 guest kernel (vm.toml's hardware.guest_kernel = "x86-64", the q35 machine
-# under KVM; docs/research/qemu-user-bridge.md), build/x86_64/bzImage: the same source tree and the
-# same defconfig with configs/x86_64.config over it, built with ARCH=x86_64 by the build machine's
-# own compiler, and the out-of-tree modules above built against it, each from the same sources. On
+# under KVM; docs/dev/architecture/qemu-user-bridge.md), build/x86_64/bzImage: the same source
+# tree and the same defconfig with configs/x86_64.config over it, built with ARCH=x86_64 by the
+# build machine's own compiler, and the out-of-tree modules above built against it, each from the same sources. On
 # an x86-64 build machine only (option x86_64_kernel), never with kernel_debug; once in
 # <shared_dir>/kernel/<key> as the arm64 kernel is. guest/initramfs makes its initramfs from these.
 x86_64_kernel = get_option('x86_64_kernel').disable_auto_if(

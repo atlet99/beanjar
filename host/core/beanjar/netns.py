@@ -101,9 +101,9 @@ DHCP_SERVER = "10.0.2.254"
 # TUN_TABLE, whose one route is the device; ICMP is not matched and goes to slirp. The replies come
 # out of the device and are forwarded to the TAP like any other packet. mitm_addon.py raises
 # mitmproxy's UDP idle timeout (its TUN_UDP_TIMEOUT: an idle UDP flow closed in Python while the
-# TUN side keeps the 5-tuple lost the guest's DNS). docs/research/network-proxy.md has the
-# measurements. mitmweb is the user's own (mitmtool.py); what this start found (its path, version
-# and, when it cannot serve, the problem) goes to RUN_DIR/MITM_INFO_FILE.
+# TUN side keeps the 5-tuple lost the guest's DNS). mitmweb is the user's own (mitmtool.py); what
+# this start found (its path, version and, when it cannot serve, the problem) goes to
+# RUN_DIR/MITM_INFO_FILE.
 TUN_DEV = "mitm0"
 TUN_TABLE = "101"
 MITM_INFO_FILE = "mitmweb.json"

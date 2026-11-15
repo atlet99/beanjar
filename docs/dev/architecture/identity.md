@@ -40,8 +40,7 @@ the per-firmware upstream root bundles were removed.
 
 Identity files and writable state are not redistributable build outputs. The
 [distribution rules](../guides/build.md#what-may-be-distributed) distinguish reusable artifacts
-from installation-specific material. Persistence measurements in the research record are
-bounded by their named firmware, representations searched and test dates.
+from installation-specific material.
 
 ## Development migration
 

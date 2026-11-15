@@ -1,7 +1,7 @@
 # OLED55B5PJA, the Japanese 55-inch B5: the models DB lists it for W25H's ARIB firmware
 # (HE_DTV_W25H_AFADJAAA, the only W25H queue build; its Japanese models are the OLED B5 alone),
 # which boots it by its model_id.json region (targets.Soc.broadcast_boards). From that firmware's
-# own generators (queue 43.22.66, host/tools/research/model-config.py): hw-option-gen decodes the
+# own generators (queue 43.22.66): hw-option-gen decodes the
 # line as K24N, countryType JP, 2G, OLED, UD, EPI, 120 Hz panel and SoC output (the B5's native
 # 120 Hz panel, LG's product specifications), 1920x1080 graphics; nyx-option-gen ARIB. countryGrp
 # 18: nyxDeviceInfo's group of the line, configd's JP RMM group (JPN). ToolOpt: LLS's factory

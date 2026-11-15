@@ -194,8 +194,7 @@ subproject tree without one).
 
 `meson subprojects download` leaves a tree that exists alone, Meson only warns about a changed
 wrap for subprojects it configures, `meson subprojects update --reset` fails on a missing tree, and
-nothing in Meson locks a download against another build doing the same
-([study](../../research/meson-native-build-helpers.md)). So each tree has a `fetch-<name>` target (`meson/fetch.py`):
+nothing in Meson locks a download against another build doing the same. So each tree has a `fetch-<name>` target (`meson/fetch.py`):
 it records a key of the wrap and its patch files in the tree and, when they change, deletes the
 tree and has Meson download it again; its depfile names the wrap and the patches. Editing, adding
 or removing a patch therefore rebuilds what uses the tree at the next `meson compile`, from a

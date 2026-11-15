@@ -302,7 +302,10 @@ Measured 2026-10-25 on the x86 PC (WSL, Mesa 25.0.7), RTX 4070 Ti (`--vaapi-adap
 decoded to fake-qemu's picture (`avc1.4D4C1E`, Main); on `w22o-number1` 76 units in 5 s from
 `beanjar vnc video-pipe` decoded without an error, and the web viewer (headless Chromium 156)
 showed "VAAPI" and drew 17.7 frames a second from 8 kbit/s on a nearly still YouTube page, with no
-RFB bytes underneath. The Intel UHD 770 is in the research note.
+RFB bytes underneath. The same PC's Intel UHD 770 is no use for this: with Windows driver
+31.0.101.3222 the d3d12 VA driver offers it only video processing, and with 32.0.101.7092 it lists
+H.264 `EncSlice` but `h264_vaapi` hangs at the first frame (Mesa waits on the encode fence without
+a timeout).
 
 **When it encodes.** The encoder runs on a thread of its own, which owns the clients. It is
 opened for the first client and closed after the last (`video encoder closed: no clients`). A video client counts as a client

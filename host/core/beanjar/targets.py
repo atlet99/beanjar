@@ -38,8 +38,8 @@ from . import memory, paths
 # records the target in its manifest.toml. BRING_UP: the models whose target is still being brought up
 # (a target file's bring_up): scripts/regress leaves it out of its default set and runs it only when
 # named with --target. Remove the model there once its target passes regress --headless.
-# A target file's tested = false: the target has never booted (made from its firmware's facts alone,
-# docs/research/target-combinations.md). It is built and packaged like any other, but regress leaves
+# A target file's tested = false: the target has never booted (made from its firmware's facts
+# alone). It is built and packaged like any other, but regress leaves
 # it out of its default set and runs it only when named, and creating or starting a VM of it says
 # UNTESTED (untested_warning). Remove the line once the target passes regress --headless.
 

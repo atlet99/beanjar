@@ -22,7 +22,7 @@ BARE = re.compile(r"(?<![\w&/#])#\d{1,4}\b")
 LINK = re.compile(r"github\.com/[\w.-]+/beanjar/(?:issues|pull)/\d+")
 
 # Files whose "#<digits>" are colours
-SKIPPED_SUFFIXES = (".css", ".html", ".js", ".svg")
+SKIPPED_SUFFIXES = (".css", ".scss", ".html", ".js", ".svg")
 
 # What "#<digits>" means besides an issue: ARM immediates and register lists, an RFC name, a
 # kernel banner. Each is matched against the text before the number.

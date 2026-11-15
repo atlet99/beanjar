@@ -32,5 +32,4 @@ must not be inferred from another's.
 Guest reset and formatting act on the VM's attached state disks. They do not change the supplied
 firmware collection. Map encoding/decoding, CRCs, partition nodes and launcher attachments have
 host-side tests in `tests/unit/launch/test_partmap.py`. Stock boots establish whether the declared
-map satisfies a particular firmware's lookups; the research record retains those measured
-results and the limits of the selected tables.
+map satisfies a particular firmware's lookups.

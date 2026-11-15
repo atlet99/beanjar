@@ -40,8 +40,8 @@ DEFAULT_USERLAND = "auto"
 # guest_kernel (qemu.py GUEST_KERNEL): the guest kernel's architecture. arm64 is the default and
 # the only one that runs the 32-bit programs natively. x86-64 is experimental: an x86-64 kernel on
 # the q35 machine (KVM when /dev/kvm opens, else TCG), with the whole ARM userland under qemu-arm
-# (docs/research/qemu-user-bridge.md, "An x86-64 guest kernel"). It needs an x86-64 host and
-# implies userland qemu-user.
+# (docs/dev/architecture/qemu-user-bridge.md, "The x86-64 guest kernel"). It needs an x86-64 host
+# and implies userland qemu-user.
 GUEST_KERNELS = ("arm64", "x86-64")
 DEFAULT_GUEST_KERNEL = "arm64"
 
@@ -180,7 +180,7 @@ def memory_note(mem, userland):
 # mitm_flows (qemu.py MITM_FLOWS): how many flows the mode=mitm inspector keeps, 0 for all of them;
 # the default is not written out. A kept flow costs mitmweb about 2.5 MB per 1000 for DNS, 7.5 MB
 # per 1000 for HTTP(S) with a few KB of body, 19 MB per 1000 for HTTPS on a new TLS connection each
-# (docs/research/network-proxy.md): 5000 bounds the last at about 100 MB.
+# (measured with mitmweb 12.3.1): 5000 bounds the last at about 100 MB.
 MITM_FLOWS = 5000
 # mitm_flow_bytes (qemu.py MITM_FLOW_BYTES): the bytes of bodies those flows may hold, as "200M";
 # unset (the default) is no limit

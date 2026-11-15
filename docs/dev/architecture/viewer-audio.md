@@ -72,5 +72,4 @@ core still links no codec.
 
 Use the [TV feature suite](../guides/build.md#tv-feature-suite) and the viewer's capture options
 to check the relevant path. A recorded waveform verifies delivered samples; it does not by
-itself verify acoustic output or a host device's latency. Target-specific results and historical
-host limitations remain in the research records.
+itself verify acoustic output or a host device's latency.

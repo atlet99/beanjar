@@ -104,4 +104,4 @@ FD/seal and lease ownership fixtures are in the same directory.
 
 Protected media is outside the implemented boundary. Supported factory names and advertised
 caps do not imply every codec, native-app route, trick-play mode or secure-buffer path has
-been exercised. Research records distinguish observed results from unverified interfaces.
+been exercised.
