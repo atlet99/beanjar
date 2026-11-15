@@ -4,8 +4,10 @@
  * qemu-user compat bridge (docs/dev/architecture/qemu-user-bridge.md) must pass through when a
  * guest runs it under qemu-arm (USERLAND=qemu-user): uinput and evdev (16-byte events for a 32-bit
  * reader), DRM and virtio-gpu ioctls, a robust mutex whose owner died, signals that restart or
- * interrupt a blocking read, a real-time signal, fork, exec and wait, and /proc/<pid>/exe naming
- * the program. Natively every check passes too, so it checks either userland.
+ * interrupt a blocking read, a real-time signal, fork, exec and wait, /proc/<pid>/exe naming
+ * the program, and /proc/<pid>/cmdline holding the program's own argv, its own and another
+ * process's (webOS's initctl finds a service by it). Natively every check passes too, so it checks
+ * either userland.
  *
  *   bridgetest
  *
@@ -237,6 +239,50 @@ static void test_exec(const char *self)
     CHECK("wait-signal-status", WIFSIGNALED(st) && WTERMSIG(st) == SIGTERM, "status 0x%x", st);
 }
 
+/* /proc/<pid>/cmdline as one string, its NULs shown as spaces */
+static void read_cmdline(const char *path, char *out, size_t size)
+{
+    out[0] = 0;
+    int fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return;
+    ssize_t n = read(fd, out, size - 1);
+    close(fd);
+    if (n <= 0)
+        n = 0;
+    out[n] = 0;
+    for (ssize_t i = 0; i < n; i++)
+        if (!out[i])
+            out[i] = i == n - 1 ? 0 : ' ';
+}
+
+static void test_cmdline(const char *self, char **argv)
+{
+    char got[512], want[512] = "";
+    for (char **a = argv; *a; a++)
+        snprintf(want + strlen(want), sizeof(want) - strlen(want), "%s%s", a == argv ? "" : " ",
+                 *a);
+    read_cmdline("/proc/self/cmdline", got, sizeof(got));
+    CHECK("self-cmdline", !strcmp(got, want), "'%s' want '%s'", got, want);
+    pid_t c = fork();
+    if (!c) {
+        execl(self, "bridgetest-cmdline", "--pause", (char *)NULL);
+        _exit(99);
+    }
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/cmdline", (int)c);
+    const char *other = "bridgetest-cmdline --pause";
+    for (int i = 0; i < 100; i++) { /* until the child has run its exec, at most 5 s */
+        read_cmdline(path, got, sizeof(got));
+        if (!strcmp(got, other))
+            break;
+        usleep(50000);
+    }
+    CHECK("other-cmdline", !strcmp(got, other), "%s: '%s' want '%s'", path, got, other);
+    kill(c, SIGKILL);
+    waitpid(c, NULL, 0);
+}
+
 /* true if a mapping of this program's processes names a file containing what. qemu-user fakes
  * /proc/self/maps (the guest's own mappings only), so a child's maps are read instead. */
 static int mapped(const char *what)
@@ -266,6 +312,9 @@ int main(int argc, char **argv)
 {
     if (argc > 1 && !strcmp(argv[1], "--child"))
         return strcmp(argv[0], "bridgetest-child") ? 1 : 42;
+    if (argc > 1 && !strcmp(argv[1], "--pause"))
+        for (;;)
+            pause();
     setvbuf(stdout, NULL, _IOLBF, 0);
     struct utsname u;
     uname(&u);
@@ -278,6 +327,7 @@ int main(int argc, char **argv)
     test_robust();
     test_signals();
     test_exec(argc > 0 && strchr(argv[0], '/') ? argv[0] : "/proc/self/exe");
+    test_cmdline(argc > 0 && strchr(argv[0], '/') ? argv[0] : "/proc/self/exe", argv);
     {
         pid_t c = fork();
         if (!c) {
