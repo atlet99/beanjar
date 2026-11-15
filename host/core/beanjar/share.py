@@ -31,6 +31,7 @@ import os
 import re
 import shutil
 import stat
+import sys
 from typing import NamedTuple
 
 from . import layermeta, targets
@@ -387,24 +388,281 @@ def _free(dest):
     return d
 
 
-def save(log_dir, saved):
-    """Move one finished log directory of the guest's out/logs into saved (a name taken there gets
-    .2, .3 ...); returns where it went."""
-    os.makedirs(saved, exist_ok=True)
-    dest = _free(os.path.join(saved, os.path.basename(log_dir)))
-    shutil.move(log_dir, dest)
+# Saving the guest's logs. Everything under out/ is the guest's: as root it makes real host symlinks
+# (to any path), FIFOs and sockets there through 9p (security_model=none). So the host never
+# follows a name it finds there, never opens anything there but a regular file, and never writes
+# there: a finished log directory is copied, regular files and directories only, into a directory
+# of its own under the saved logs, through descriptors opened without following links; what is
+# left out is listed in SKIPPED; the launcher's own logs (HOST_LOGS) go into that copy, never into
+# the share; the guest's directory is removed afterwards without following links.
+
+SKIPPED = "skipped.txt"  # in a saved log directory: what of the guest's was not saved
+HOST_LOGS = ("webos.log", "console.log", "qemu.out", "netstub.log")  # the launcher's, at stop
+MAX_DEPTH = 32  # directories below a log directory that are copied; deeper ones are listed
+_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+_NEW_FILE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+def _say(line):
+    print(line, file=sys.stderr, flush=True)
+
+
+def _plain(name):
+    """A name of one directory entry, nothing that walks elsewhere."""
+    return bool(name) and name not in (".", "..") and "/" not in name and "\0" not in name
+
+
+def _kind(mode):
+    for test, kind in (
+        (stat.S_ISREG, "file"),
+        (stat.S_ISDIR, "directory"),
+        (stat.S_ISLNK, "symlink"),
+        (stat.S_ISFIFO, "fifo"),
+        (stat.S_ISSOCK, "socket"),
+        (stat.S_ISCHR, "character device"),
+        (stat.S_ISBLK, "block device"),
+    ):
+        if test(mode):
+            return kind
+    return "unknown"
+
+
+def _shown(rel):
+    """A guest's path as one line of text (its newlines, tabs and undecodable bytes escaped)."""
+    return rel.encode("unicode_escape", "backslashreplace").decode("ascii")
+
+
+def _open_log_dir(logs, name):
+    """A descriptor of logs/name, a real directory, or OSError (ELOOP, ENOTDIR for anything else):
+    neither logs nor name is followed if it is a link."""
+    if not _plain(name):
+        raise OSError(errno.EINVAL, "not a plain name")
+    top = os.open(logs, _DIR_FLAGS)
+    try:
+        return os.open(name, _DIR_FLAGS, dir_fd=top)
+    finally:
+        os.close(top)
+
+
+def _done(fd):
+    """Whether the directory fd has .done, a regular file (a link to one is not)."""
+    try:
+        return stat.S_ISREG(os.stat(".done", dir_fd=fd, follow_symlinks=False).st_mode)
+    except OSError:
+        return False
+
+
+def finished(logs, name):
+    """Whether logs/name (logs: the guest's out/logs) is a finished log directory: None while it or
+    its .done is not there, else "" if it is one (a real directory with a regular .done), else why
+    it is refused (a link, or a .done that is not a regular file)."""
+    try:
+        fd = _open_log_dir(logs, name)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        try:
+            st = os.lstat(logs)
+            if not stat.S_ISDIR(st.st_mode):
+                return f"{logs}: a {_kind(st.st_mode)}, not a directory"
+            st = os.lstat(os.path.join(logs, name))
+        except FileNotFoundError:
+            return None
+        except OSError as e:
+            return f"{os.path.join(logs, name)}: {e.strerror}"
+        return f"{os.path.join(logs, name)}: a {_kind(st.st_mode)}, not a directory"
+    try:
+        try:
+            st = os.stat(".done", dir_fd=fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return None
+        if not stat.S_ISREG(st.st_mode):
+            return f"{os.path.join(logs, name, '.done')}: a {_kind(st.st_mode)}, not a file"
+        return ""
+    finally:
+        os.close(fd)
+
+
+def _copy_file(src_fd, name, dest):
+    """The regular file name of the directory src_fd as the new file dest; False (nothing made) if
+    it is not a regular file by the time it is opened."""
+    try:
+        fd = os.open(
+            name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=src_fd
+        )
+    except OSError:
+        return False
+    with open(fd, "rb") as src:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return False
+        with open(os.open(dest, _NEW_FILE, 0o600), "wb") as out:
+            shutil.copyfileobj(src, out)
+            os.fchmod(out.fileno(), stat.S_IMODE(st.st_mode) & 0o777 | 0o600)
+        os.utime(dest, ns=(st.st_atime_ns, st.st_mtime_ns), follow_symlinks=False)
+    return True
+
+
+def _copy_tree(src_fd, dest, rel, skipped, reserved=(), depth=0):
+    """The entries of the directory src_fd into the new directory dest: regular files and
+    directories, walked without following links; each other entry as (relative path, kind, link
+    target) in skipped, and reserved names at the top (the host's own) as shadowed."""
+    with os.scandir(src_fd) as it:
+        names = sorted(e.name for e in it)
+    for name in names:
+        r = f"{rel}/{name}" if rel else name
+        if not _plain(name):
+            skipped.append((r, "bad name", None))
+            continue
+        try:
+            st = os.stat(name, dir_fd=src_fd, follow_symlinks=False)
+        except OSError:
+            continue  # gone meanwhile
+        kind = _kind(st.st_mode)
+        if not rel and name in reserved:
+            skipped.append((r, f"{kind}, shadowed by the host's own", None))
+        elif stat.S_ISREG(st.st_mode):
+            if not _copy_file(src_fd, name, os.path.join(dest, name)):
+                skipped.append((r, "changed while saved", None))
+        elif stat.S_ISDIR(st.st_mode) and depth < MAX_DEPTH:
+            try:
+                sub = os.open(name, _DIR_FLAGS, dir_fd=src_fd)
+            except OSError:
+                skipped.append((r, "changed while saved", None))
+                continue
+            try:
+                os.mkdir(os.path.join(dest, name), 0o700)
+                _copy_tree(sub, os.path.join(dest, name), r, skipped, (), depth + 1)
+                os.chmod(os.path.join(dest, name), stat.S_IMODE(st.st_mode) & 0o777 | 0o700)
+            finally:
+                os.close(sub)
+        elif stat.S_ISDIR(st.st_mode):
+            skipped.append((r, "directory, too deep", None))
+        elif stat.S_ISLNK(st.st_mode):
+            try:
+                target = os.readlink(name, dir_fd=src_fd)
+            except OSError:
+                target = None
+            skipped.append((r, kind, target))
+        else:
+            skipped.append((r, kind, None))
+
+
+def _write_new(path, data):
+    with open(os.open(path, _NEW_FILE, 0o644), "wb") as f:
+        f.write(data)
+
+
+def save(logs, name, saved, host=None, say=_say):
+    """Save the finished log directory logs/name (logs: the guest's out/logs) into saved as
+    saved/name (a name taken there gets .2, .3 ...) and remove it from logs; returns where it went,
+    or None if it is not a finished log directory (finished: then it is left as it is, with a note).
+    host: {name: path} of the launcher's own logs (HOST_LOGS), copied in after the guest's files;
+    each of those names is the host's in the saved directory, whether or not the host has that
+    file: a guest's file of the same name is not saved but listed in SKIPPED, as is everything of
+    the guest's that is not a regular file or a directory."""
+    try:
+        fd = _open_log_dir(logs, name)
+    except OSError:
+        fd = None
+    if fd is None or not _done(fd):
+        if fd is not None:
+            os.close(fd)
+        why = finished(logs, name) or f"{os.path.join(logs, name)}: not a finished log directory"
+        say(f"logs: {why}; left alone")
+        return None
+    try:
+        os.makedirs(saved, exist_ok=True)
+        while True:
+            dest = _free(os.path.join(saved, name))
+            try:
+                os.mkdir(dest, 0o700)
+                break
+            except FileExistsError:
+                continue
+        skipped = []
+        _copy_tree(fd, dest, "", skipped, set(HOST_LOGS) | {SKIPPED})
+    finally:
+        os.close(fd)
+    for f, path in (host or {}).items():
+        if f not in HOST_LOGS:
+            raise ValueError(f"{f}: not one of the launcher's logs")
+        if path and os.path.isfile(path):
+            with (
+                open(path, "rb") as src,
+                open(os.open(os.path.join(dest, f), _NEW_FILE, 0o644), "wb") as out,
+            ):
+                shutil.copyfileobj(src, out)
+    if skipped:
+        _write_new(
+            os.path.join(dest, SKIPPED),
+            (
+                "# What of the guest's log directory was not saved (only its regular files and\n"
+                "# directories are): path, kind, a symlink's target.\n"
+                + "".join(
+                    f"{_shown(r)}\t{kind}" + (f"\t-> {_shown(t)}" if t is not None else "") + "\n"
+                    for r, kind, t in skipped
+                )
+            ).encode(),
+        )
+    os.chmod(dest, 0o755)
+    _discard(logs, name, say)
     return dest
 
 
-def harvest(run_dir, saved):
-    """Move every finished (.done) log directory of RUN_DIR/share/out/logs into saved."""
-    logs = os.path.join(dirs(run_dir)[3], "logs")
+def _discard(logs, name, say):
+    """Remove logs/name, a directory of the guest's, without following links (a link is unlinked)."""
     try:
-        names = sorted(os.listdir(logs))
+        top = os.open(logs, _DIR_FLAGS)
+    except OSError as e:
+        say(f"logs: {logs}: {e.strerror}; {name} not removed")
+        return
+    try:
+        if stat.S_ISDIR(os.stat(name, dir_fd=top, follow_symlinks=False).st_mode):
+            shutil.rmtree(name, dir_fd=top)
+        else:
+            os.unlink(name, dir_fd=top)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        say(f"logs: {os.path.join(logs, name)}: not removed: {e}")
+    finally:
+        os.close(top)
+
+
+def logs_dir(run_dir):
+    """RUN_DIR/share/out/logs, the guest's log directories."""
+    return os.path.join(dirs(run_dir)[3], "logs")
+
+
+def harvest(run_dir, saved, say=_say):
+    """Save (save) every finished log directory of RUN_DIR/share/out/logs into saved; returns
+    where they went. A directory without .done is left for later; any other entry, or a logs that
+    is not a real directory, is left alone with a note."""
+    logs = logs_dir(run_dir)
+    try:
+        top = os.open(logs, _DIR_FLAGS)
     except FileNotFoundError:
         return []
-    return [
-        save(os.path.join(logs, n), saved)
-        for n in names
-        if os.path.isfile(os.path.join(logs, n, ".done"))
-    ]
+    except OSError as e:
+        say(f"logs: {logs}: {e.strerror}; left alone")
+        return []
+    try:
+        names = sorted(os.listdir(top))
+        kinds = {}
+        for n in names:
+            try:
+                kinds[n] = os.stat(n, dir_fd=top, follow_symlinks=False).st_mode
+            except OSError:
+                pass
+    finally:
+        os.close(top)
+    out = []
+    for n, mode in kinds.items():
+        if not stat.S_ISDIR(mode):
+            say(f"logs: {os.path.join(logs, n)}: a {_kind(mode)}, not a directory; left alone")
+        elif finished(logs, n) is not None:
+            d = save(logs, n, saved, say=say)
+            if d:
+                out.append(d)
+    return out

@@ -113,7 +113,6 @@ import json
 import os
 import re
 import shlex
-import shutil
 import socket
 import subprocess
 import sys
@@ -543,19 +542,23 @@ class Bg:
             + (self.env.get("LOG_TAG") or "stop")
         )
         console.send(f"sh /host/guest/scripts/save-logs.sh {name}", 1, self.sock, self.log)
-        guest = os.path.join(
-            share.dirs(self.run_dir)[3], "logs", name
-        )  # the guest's /host/out/logs
+        # The guest's /host/out/logs: everything there is the guest's, links included, so only
+        # share.finished and share.save look at it, and the launcher's own logs go into the saved
+        # copy (share.save), never into the share.
+        logs = share.logs_dir(self.run_dir)
         end = time.monotonic() + 60
-        while not os.path.isfile(os.path.join(guest, ".done")):
+        while (why := share.finished(logs, name)) is None:
             if time.monotonic() >= end:
                 say("logs: no reply from the guest within 60 s")
                 return
             time.sleep(1)
-        for f in ("webos.log", "console.log", "qemu.out", "netstub.log"):
-            if os.path.isfile(os.path.join(self.log_dir, f)):
-                shutil.copy(os.path.join(self.log_dir, f), guest)
-        print(f"logs saved: {share.save(guest, self.saved)}", flush=True)
+        if why:
+            say(f"logs: {why}; not saved")
+            return
+        host = {f: os.path.join(self.log_dir, f) for f in share.HOST_LOGS}
+        saved = share.save(logs, name, self.saved, host, say)
+        if saved:
+            print(f"logs saved: {saved}", flush=True)
 
     def power_off(self, timeout):
         """webOS's own power-off: tvpowerd's powerOff with the force
@@ -619,7 +622,7 @@ class Bg:
 
     def harvest(self):
         """The guest's other finished logs (check-m1.sh's), into SAVED_LOG_DIR."""
-        for d in share.harvest(self.run_dir, self.saved):
+        for d in share.harvest(self.run_dir, self.saved, say):
             print(f"logs saved: {d}", flush=True)
 
     def stop(self):
@@ -1103,7 +1106,7 @@ def main(argv_=None):
                 for rel in share.put(TREE, host, [os.path.abspath(p) for p in a.paths]):
                     print(f"/host/{rel}")
             else:
-                for d in share.harvest(run_dir, saved):
+                for d in share.harvest(run_dir, saved, say):
                     print(f"logs saved: {d}")
             return 0
         if a.cmd == "reset-state":
