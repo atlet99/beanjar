@@ -101,10 +101,10 @@ class Actions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.calls, [["stop", "--json", "local/tv"]])
 
     async def test_refusal(self):
-        self.result = (1, b'{"error": "tv runs for a reason: T31 check"}')
+        self.result = (1, b'{"error": "tv runs for a reason: regress check"}')
         _, (status, done) = await self.stop("/vm/local/tv", "?unplug=1")
         self.assertEqual((status, done["status"]), (409, "failed"))
-        self.assertIn("T31 check", done["message"])
+        self.assertIn("regress check", done["message"])
 
     async def test_one_at_a_time(self):
         gate = asyncio.Event()

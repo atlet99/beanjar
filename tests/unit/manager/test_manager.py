@@ -163,7 +163,7 @@ class ManagerTest(unittest.TestCase):
         )
         os.makedirs(os.path.dirname(os.path.join(self.repo, board)))  # the model's hwopt: its RAM
         shutil.copyfile(os.path.join(TOP, board), os.path.join(self.repo, board))
-        self.src = os.path.join(self.tmp, "src")  # stands for ~/Projects/webos-firmwares
+        self.src = os.path.join(self.tmp, "src")  # stands for the user's firmware collection
         os.makedirs(self.src)
         self.epk = os.path.join(self.src, "fw.epk")
         with open(self.epk, "wb") as f:

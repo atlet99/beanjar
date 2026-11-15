@@ -336,7 +336,7 @@ ssh, at the start of the run): by the host's CPUs over 4 vCPUs per VM (`SMP`; on
 by the number of targets, and by memory: the RAM of the guests that run together (each target's model RAM,
 `targets.ram` through `nvm.board_ram`, or `MEM` for all) must fit in `MemAvailable` less a headroom of 1 GiB
 for the host and a GUI (`HEADROOM_MB`). The test is on the worst case: the `-j` largest guests among the targets. The vCPU and the memory caps both
-apply, on the Pi and with `--local`, and the run says which one capped. (In six-kvm-1 the Pi had 1.8 GB of swap in use and a standby 9.3 s late under two guests; vCPUs alone did not cap it.)
+apply, on the Pi and with `--local`, and the run says which one capped. (A Pi running two guests by vCPUs alone has been seen 1.8 GB into swap with a standby 9.3 s late; the memory cap prevents that.)
 On this PC (24 threads, 31 GB) that is at most 6. Targets start in `TARGETS` order as slots free up; a failure (without
 `--keep-going`) or a leftover process starts no further target, and the running ones finish. Each target's
 leftover check covers only its own instance and runs on the VM host (processes whose command line
@@ -349,7 +349,7 @@ hold the host's `free -m` and `/proc/meminfo` at the start, at ready and before 
 
 `scripts/regress --headless` runs two KVM VMs at once on the Pi (`-j 2`, the default; `-j 1` is serial), each in an instance of its own
 as above (`NET_MODE=direct`, each model's RAM; the instance's directories are under the Pi's checkout). The
-cap reads the Pi's `nproc` (4) and `MemAvailable` (about 5.9 GB with the owner's GUI up): CPUs at
+cap reads the Pi's `nproc` (4) and `MemAvailable` (about 5.9 GB with a desktop session running): CPUs at
 two vCPUs each (KVM's idle vCPUs cost nothing), so `SMP=4` gives 2 VMs and `SMP=2` up to 4, and
 each VM's RAM. Targets are started alternately heavy and light (`HEAVY`: h13-afro, m16p-dreadlocks2,
 m3-goldilocks, `core-boot-done` about 20 s; the others 3 to 8 s), so two heavy VMs boot side by
@@ -360,7 +360,7 @@ The measured local default is `-j 2` with the VM's default four vCPUs.
 
 #### Two lanes: KVM and TCG
 
-Every change is verified on both lanes (decided by the owner, 2026-10-02): KVM on the Pi
+Every change is verified on both lanes: KVM on the Pi
 (`scripts/regress --headless`, `-j 2` is fine) and TCG on this PC (`scripts/regress --headless
 --local -j N`). A failure that is only a timeout under TCG load (bootd's `core-boot-done` timeout,
 a step's `--timeout`, a standby CPU over `STANDBY_CPU`) gets a solo re-run (`--target <target>`, `-j 1`)
