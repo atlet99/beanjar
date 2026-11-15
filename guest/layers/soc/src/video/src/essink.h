@@ -16,6 +16,8 @@ typedef struct {
     struct media_port port;
     gint channel;         /* the decoder port (resource-info), -1 before it is known */
     GstBuffer *prerolled; /* sent from preroll(); render() gets it again */
+    GstBuffer *before;    /* outside the segment by the probe's reckoning: decode-only unless
+                           * preroll() or render() gets it (with the object lock) */
     guint rendered;
     /* video */
     struct stream_info info;

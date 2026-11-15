@@ -220,11 +220,47 @@ static void inspect(EsSink *self, GstBuffer *buf)
     self->posted = TRUE;
 }
 
+/* Video buffers GstBaseSink drops as outside the segment: the frames from the keyframe before an
+ * accurate seek's target, which the decoder needs. The probe sees each buffer first and keeps the
+ * ones its clip (by DTS, else PTS) puts outside; one that preroll() or render() then gets after all
+ * is sent there, once, and one GstBaseSink did drop goes as decode-only before whatever follows it
+ * (the next buffer's probe, a serialized event, EOS). Sending it from the probe as well sent a
+ * frame twice whenever the two disagreed, the first frames of an MP4 with B-frames (DTS before
+ * the segment, PTS in it), and the decoder took the repeated reference frame. */
+static void take_before(EsSink *self, GstBuffer *buf)
+{
+    GST_OBJECT_LOCK(self);
+    if (self->before == buf)
+        gst_buffer_replace(&self->before, NULL);
+    GST_OBJECT_UNLOCK(self);
+}
+
+static void send_before(EsSink *self)
+{
+    GstBuffer *buf;
+    GST_OBJECT_LOCK(self);
+    buf = self->before;
+    self->before = NULL;
+    GST_OBJECT_UNLOCK(self);
+    if (buf) {
+        media_port_buffer(&self->port, GST_BASE_SINK(self), buf, WEBOS_MEDIA_DECODE_ONLY);
+        gst_buffer_unref(buf);
+    }
+}
+
+static void drop_before(EsSink *self)
+{
+    GST_OBJECT_LOCK(self);
+    gst_buffer_replace(&self->before, NULL);
+    GST_OBJECT_UNLOCK(self);
+}
+
 static GstFlowReturn es_sink_preroll(GstBaseSink *base, GstBuffer *buf)
 {
     EsSink *self = ES_SINK(base);
     if (ES_SINK_GET_CLASS(self)->kind != WEBOS_MEDIA_VIDEO)
         return GST_FLOW_OK;
+    take_before(self, buf);
     inspect(self, buf);
     /* The host shows the prerolled frame at once; render() gets the same buffer when PLAYING
      * and does not send it again. */
@@ -242,6 +278,7 @@ static GstFlowReturn es_sink_preroll(GstBaseSink *base, GstBuffer *buf)
 static GstFlowReturn es_sink_render(GstBaseSink *base, GstBuffer *buf)
 {
     EsSink *self = ES_SINK(base);
+    take_before(self, buf);
     inspect(self, buf);
     if (self->prerolled == buf) {
         gst_buffer_replace(&self->prerolled, NULL);
@@ -259,8 +296,6 @@ static GstFlowReturn es_sink_render(GstBaseSink *base, GstBuffer *buf)
     return GST_FLOW_OK; /* rendered WEBOS_MEDIA_LEAD_NS early: the host presents it on time */
 }
 
-/* Video buffers GstBaseSink drops as outside the segment (by DTS, else PTS, as it clips): the
- * frames from the keyframe before an accurate seek's target, which the decoder needs. */
 static GstPadProbeReturn before_segment(GstPad *pad, GstPadProbeInfo *info, gpointer data)
 {
     EsSink *self = data;
@@ -270,6 +305,7 @@ static GstPadProbeReturn before_segment(GstPad *pad, GstPadProbeInfo *info, gpoi
     GstSegment segment;
     if (!buf)
         return GST_PAD_PROBE_OK;
+    send_before(self);
     start = GST_BUFFER_DTS(buf);
     if (!GST_CLOCK_TIME_IS_VALID(start))
         start = GST_BUFFER_PTS(buf);
@@ -279,8 +315,11 @@ static GstPadProbeReturn before_segment(GstPad *pad, GstPadProbeInfo *info, gpoi
     segment = base->segment;
     GST_OBJECT_UNLOCK(base);
     if (segment.format == GST_FORMAT_TIME && GST_CLOCK_TIME_IS_VALID(start) &&
-        !gst_segment_clip(&segment, GST_FORMAT_TIME, start, end, NULL, NULL))
-        media_port_buffer(&self->port, base, buf, WEBOS_MEDIA_DECODE_ONLY);
+        !gst_segment_clip(&segment, GST_FORMAT_TIME, start, end, NULL, NULL)) {
+        GST_OBJECT_LOCK(self);
+        gst_buffer_replace(&self->before, buf);
+        GST_OBJECT_UNLOCK(self);
+    }
     return GST_PAD_PROBE_OK;
 }
 
@@ -311,6 +350,7 @@ static gboolean es_sink_stop(GstBaseSink *base)
     EsSink *self = ES_SINK(base);
     media_port_stop(&self->port, GST_ELEMENT(base));
     gst_buffer_replace(&self->prerolled, NULL);
+    drop_before(self);
     GST_OBJECT_LOCK(self);
     self->posted = FALSE;
     self->logged_caps = FALSE;
@@ -337,6 +377,7 @@ static gboolean es_sink_event(GstBaseSink *base, GstEvent *event)
 {
     EsSink *self = ES_SINK(base);
     if (GST_EVENT_TYPE(event) == GST_EVENT_FLUSH_START) {
+        drop_before(self);
         media_port_event(&self->port, GST_ELEMENT(base), WEBOS_MEDIA_FLUSH);
         gst_buffer_replace(&self->prerolled, NULL);
         GST_OBJECT_LOCK(self);
@@ -349,6 +390,8 @@ static gboolean es_sink_event(GstBaseSink *base, GstEvent *event)
             video_starved(self);
         gst_event_unref(event);
         return TRUE;
+    } else if (GST_EVENT_IS_SERIALIZED(event)) {
+        send_before(self);
     }
     return parent_class->event(base, event);
 }
@@ -359,6 +402,7 @@ static GstFlowReturn es_sink_wait_event(GstBaseSink *base, GstEvent *event)
 {
     EsSink *self = ES_SINK(base);
     GstFlowReturn ret;
+    send_before(self);
     if (GST_EVENT_TYPE(event) != GST_EVENT_EOS)
         return parent_class->wait_event(base, event);
     GST_OBJECT_LOCK(self);
@@ -387,6 +431,7 @@ static void es_sink_finalize(GObject *obj)
 {
     EsSink *self = ES_SINK(obj);
     gst_buffer_replace(&self->prerolled, NULL);
+    gst_buffer_replace(&self->before, NULL);
     media_port_clear(&self->port);
     if (self->clock)
         gst_object_unref(self->clock);

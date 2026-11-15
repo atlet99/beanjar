@@ -152,6 +152,8 @@ typedef struct {
     struct media_port port;
     guint pad_number;
     GstBuffer *prerolled;     /* sent from preroll(); render() gets it again */
+    GstBuffer *before;        /* outside the segment by the probe's reckoning: decode-only unless
+                               * preroll() or render() gets it (with the object lock) */
     struct es_starve *starve; /* the bin's video-underrun when no frame follows the last one due */
 } VdecStub;
 typedef struct {
@@ -243,9 +245,40 @@ static void inspect(VdecStub *sink, GstBuffer *buf)
     post_video_info(sink);
 }
 
+/* The probe's out-of-segment buffer: preroll() or render() got it after all (sent there, once). */
+static void vdec_stub_take_before(VdecStub *sink, GstBuffer *buf)
+{
+    GST_OBJECT_LOCK(sink);
+    if (sink->before == buf)
+        gst_buffer_replace(&sink->before, NULL);
+    GST_OBJECT_UNLOCK(sink);
+}
+
+/* ... or GstBaseSink dropped it: decode-only, before whatever follows it. */
+static void vdec_stub_send_before(VdecStub *sink)
+{
+    GstBuffer *buf;
+    GST_OBJECT_LOCK(sink);
+    buf = sink->before;
+    sink->before = NULL;
+    GST_OBJECT_UNLOCK(sink);
+    if (buf) {
+        media_port_buffer(&sink->port, GST_BASE_SINK(sink), buf, WEBOS_MEDIA_DECODE_ONLY);
+        gst_buffer_unref(buf);
+    }
+}
+
+static void vdec_stub_drop_before(VdecStub *sink)
+{
+    GST_OBJECT_LOCK(sink);
+    gst_buffer_replace(&sink->before, NULL);
+    GST_OBJECT_UNLOCK(sink);
+}
+
 static GstFlowReturn vdec_stub_preroll(GstBaseSink *base, GstBuffer *buf)
 {
     VdecStub *sink = (VdecStub *)base;
+    vdec_stub_take_before(sink, buf);
     inspect(sink, buf);
     /* The host shows the prerolled frame at once (a paused pipeline's picture, e.g. after a
      * seek); render() is called with the same buffer when PLAYING and does not send it again. */
@@ -257,6 +290,7 @@ static GstFlowReturn vdec_stub_preroll(GstBaseSink *base, GstBuffer *buf)
 static GstFlowReturn vdec_stub_render(GstBaseSink *base, GstBuffer *buf)
 {
     VdecStub *sink = (VdecStub *)base;
+    vdec_stub_take_before(sink, buf);
     inspect(sink, buf);
     if (sink->prerolled == buf)
         gst_buffer_replace(&sink->prerolled, NULL);
@@ -266,17 +300,23 @@ static GstFlowReturn vdec_stub_render(GstBaseSink *base, GstBuffer *buf)
     return GST_FLOW_OK; /* rendered WEBOS_MEDIA_LEAD_NS early: the host shows it on time */
 }
 
-/* Buffers GstBaseSink drops as outside the segment (by DTS, else PTS, as it clips): the frames
- * from the keyframe before an accurate seek's target. The decoder needs them. */
+/* Buffers GstBaseSink drops as outside the segment: the frames from the keyframe before an
+ * accurate seek's target, which the decoder needs. The probe sees each buffer first and keeps the
+ * ones its clip (by DTS, else PTS) puts outside; one that preroll() or render() then gets after all
+ * is sent there, once, and one GstBaseSink did drop goes as decode-only before whatever follows it.
+ * Sending it from the probe as well sent a frame twice whenever the two disagreed, the first
+ * frames of an MP4 with B-frames (DTS before the segment, PTS in it). */
 static GstPadProbeReturn vdec_stub_probe(GstPad *pad, GstPadProbeInfo *info, gpointer data)
 {
     VdecStub *sink = data;
     GstBaseSink *base = data;
     GstBuffer *buf = GST_PAD_PROBE_INFO_BUFFER(info);
-    GstClockTime start = GST_BUFFER_DTS(buf), end = GST_CLOCK_TIME_NONE;
+    GstClockTime start, end = GST_CLOCK_TIME_NONE;
     GstSegment segment;
     if (!buf)
         return GST_PAD_PROBE_OK;
+    vdec_stub_send_before(sink);
+    start = GST_BUFFER_DTS(buf);
     if (!GST_CLOCK_TIME_IS_VALID(start))
         start = GST_BUFFER_PTS(buf);
     if (GST_CLOCK_TIME_IS_VALID(start) && GST_BUFFER_DURATION_IS_VALID(buf))
@@ -285,8 +325,11 @@ static GstPadProbeReturn vdec_stub_probe(GstPad *pad, GstPadProbeInfo *info, gpo
     segment = base->segment;
     GST_OBJECT_UNLOCK(base);
     if (segment.format == GST_FORMAT_TIME && GST_CLOCK_TIME_IS_VALID(start) &&
-        !gst_segment_clip(&segment, GST_FORMAT_TIME, start, end, NULL, NULL))
-        media_port_buffer(&sink->port, base, buf, WEBOS_MEDIA_DECODE_ONLY);
+        !gst_segment_clip(&segment, GST_FORMAT_TIME, start, end, NULL, NULL)) {
+        GST_OBJECT_LOCK(sink);
+        gst_buffer_replace(&sink->before, buf);
+        GST_OBJECT_UNLOCK(sink);
+    }
     return GST_PAD_PROBE_OK;
 }
 
@@ -306,6 +349,7 @@ static gboolean vdec_stub_stop(GstBaseSink *base)
     VdecStub *sink = (VdecStub *)base;
     media_port_stop(&sink->port, GST_ELEMENT(base));
     gst_buffer_replace(&sink->prerolled, NULL);
+    vdec_stub_drop_before(sink);
     sink->posted = FALSE;
     es_starve_reset(sink->starve, FALSE);
     return TRUE;
@@ -327,9 +371,12 @@ static gboolean vdec_stub_event(GstBaseSink *base, GstEvent *event)
 {
     VdecStub *sink = (VdecStub *)base;
     if (GST_EVENT_TYPE(event) == GST_EVENT_FLUSH_START) {
+        vdec_stub_drop_before(sink);
         media_port_event(&sink->port, GST_ELEMENT(base), WEBOS_MEDIA_FLUSH);
         gst_buffer_replace(&sink->prerolled, NULL);
         es_starve_reset(sink->starve, FALSE);
+    } else if (GST_EVENT_IS_SERIALIZED(event)) {
+        vdec_stub_send_before(sink);
     }
     return GST_BASE_SINK_CLASS(vdec_stub_parent_class)->event(base, event);
 }
@@ -340,6 +387,7 @@ static GstFlowReturn vdec_stub_wait_event(GstBaseSink *base, GstEvent *event)
 {
     VdecStub *sink = (VdecStub *)base;
     GstFlowReturn ret;
+    vdec_stub_send_before(sink);
     if (GST_EVENT_TYPE(event) != GST_EVENT_EOS)
         return GST_BASE_SINK_CLASS(vdec_stub_parent_class)->wait_event(base, event);
     es_starve_reset(sink->starve, TRUE);
@@ -365,6 +413,7 @@ static void vdec_stub_finalize(GObject *obj)
 {
     VdecStub *sink = (VdecStub *)obj;
     gst_buffer_replace(&sink->prerolled, NULL);
+    gst_buffer_replace(&sink->before, NULL);
     media_port_clear(&sink->port);
     es_starve_free(sink->starve);
     G_OBJECT_CLASS(vdec_stub_parent_class)->finalize(obj);
