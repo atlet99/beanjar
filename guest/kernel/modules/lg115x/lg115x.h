@@ -50,6 +50,9 @@ void lx_capture_remove(void);
 int lx_gpio_add(void);
 void lx_gpio_remove(void);
 
+int lx_sysfs_gpio_add(void);
+void lx_sysfs_gpio_remove(void);
+
 int lx_pe_add(void);
 void lx_pe_remove(void);
 

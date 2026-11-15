@@ -172,6 +172,31 @@ int lx_gpio_add(void)
     return err;
 }
 
+/* ---- the SoC's GPIO lines for /sys/class/gpio: lgemu's chip ---- */
+
+/* Later LX chips' (O22) libdile_gpio drives its pins through /sys/class/gpio by its own pin table
+ * (gGPIMapTable, gGPOMapTable), not through /dev/lg/gpio0. Unset: no chip, every export fails. */
+static struct lgemu_gpiochip sysfs_gpio_chip;
+static unsigned int gpio_lines;
+module_param(gpio_lines, uint, 0444);
+MODULE_PARM_DESC(gpio_lines,
+                 "the GPIO lines of /sys/class/gpio, numbered from 0 (0: no GPIO chip)");
+static char *gpio_level[32];
+static int gpio_level_count;
+module_param_array(gpio_level, charp, &gpio_level_count, 0444);
+MODULE_PARM_DESC(gpio_level, "inputs whose level is not 0, line:level (the board with nothing "
+                             "connected)");
+
+void lx_sysfs_gpio_remove(void)
+{
+    lgemu_gpiochip_remove(&sysfs_gpio_chip);
+}
+
+int lx_sysfs_gpio_add(void)
+{
+    return lgemu_gpiochip_add(&sysfs_gpio_chip, "lg115x", gpio_lines, gpio_level, gpio_level_count);
+}
+
 /* ---- the register driver and the video back end's kdrivers: sys0, be0, afe0, ovi0 ---- */
 
 /* A kdriver whose node only needs answering: a setting (no data back) is accepted, a query

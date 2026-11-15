@@ -4,6 +4,7 @@
 
 base = "o22n"
 
+# gpio_lines and gpio_level: soc/o22.toml's (W24G 33.20.23 has the same libdile_gpio table)
 [[modules]]
 name = "lg115x"
 params = [
@@ -13,6 +14,8 @@ params = [
     "graphic_res=0x07800438",
     "board_opt=0x02904044",
     "ucom=1",
+    "gpio_lines=144",
+    "gpio_level=16:1,98:1,21:1,43:1",
 ]
 
 [[modules]]

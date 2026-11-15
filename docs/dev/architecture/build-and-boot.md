@@ -562,7 +562,7 @@ only, no part of its own): the lazy page store by address that their mmaps fault
 holds the owning module), the counted-ioctl tables behind their `/proc` lists (first-seen log of
 an unknown ioctl, mstar-utopia's `trace_cmd`), the parsing of the chip table's `a:b:c` values and
 the character devices at a vendor's major, and the GPIO chip behind `/sys/class/gpio`
-(`lgemu_gpiochip_add`: base 0, input levels and output latches; rtk's and mstar-utopia's
+(`lgemu_gpiochip_add`: base 0, input levels and output latches; rtk's, mstar-utopia's and lg115x's
 `gpio_lines`/`gpio_level`), whose `gpio_usb_vbus` outputs are the USB ports' power switches
 (`lgemu_gpiochip_usb_vbus`: the root hubs stay without their hub driver until PDM turns one on); `lgemu_i2c_user_xfer` (`i2c.c`) is the register
 access their I2C ioctls make (lg115x's iic, mstar-utopia's HWI2C, rtk's UCOM). It is also published as `build/lgemu.ko` (and synced to the Pi), for a reload from the

@@ -62,6 +62,9 @@
  * LX_GPIO_PARAM_T is 24 bytes in H13's KADP and 36 in M14's and M16P's; H13's query is an _IOW,
  * M16P's an _IOWR. A pin reads what was set on it (nothing on the board drives one); no pin
  * interrupt fires. Each pin a process reads is logged once.
+ * - /sys/class/gpio's lines 0 to gpio_lines - 1, only when the parameter gpio_lines is given:
+ *   lgemu's GPIO chip (lgemu-drv.h), where O22's libdile_gpio exports its pins by number; an input
+ *   reads its gpio_level, 0 unless named (the board with nothing connected).
  * - /dev/lg/pe0: the picture enhancement driver (LG's kdriver/core/pe, pe_drv.c, pe_io.c and
  *   pe_kapi.h, major 156), whose whole interface is one packet ioctl (rw, module and function
  *   types, a size, a buffer). Inits and settings are accepted; the TNR's level query reads 0 (no
@@ -216,6 +219,7 @@ static const struct {
     {"de", lx_de_add, lx_de_remove},
     {"v4l2-capture", lx_capture_add, lx_capture_remove},
     {"gpio", lx_gpio_add, lx_gpio_remove},
+    {"sysfs-gpio", lx_sysfs_gpio_add, lx_sysfs_gpio_remove},
     {"pe", lx_pe_add, lx_pe_remove},
     {"gfx", lx_gfx_add, lx_gfx_remove},
     {"amst", lx_aud_add, lx_aud_remove},

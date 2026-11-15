@@ -45,8 +45,8 @@ lgemu = [
 # PDM (webOS 4.x, no plugin) switches VBUS through libdile_extdevctrl and scans the ports itself,
 # mounting a stick present at boot (W19P, measured) with the ports always powered. Queue's (43.x)
 # plugin makes its writes conditional on its profile (UsbPortManager::socExternalUsbInit), and on
-# W22H 43.22.40 it writes all three at start (measured), as the older plugins do. O22's chips have no GPIO chip,
-# where every write fails: their ports stay powered.
+# W22H 43.22.40 it writes all three at start (measured), as the older plugins do. O22's chips have no
+# gpio_usb_vbus (soc/o22.toml): their ports stay powered.
 # The chips' gpio_usb_vbus (CTRL1..3) and gpio_level (OCD1..3) are from W20L 04.63.25, W20H 04.74.00, W21P 03.70.25,
 # W22P 04.60.90, W22L 04.60.90, W22H 04.60.85, 13.30.61, 23.21.20, 33.31.61 and 43.22.40,
 # W23H 13.41.12, W23P 13.41.13, W24P 33.20.23, W21A 03.53.25, W22A 04.60.90, W23A 13.40.90,
