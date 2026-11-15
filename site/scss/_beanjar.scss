@@ -221,14 +221,21 @@ h2 {
   color: var(--bs-body-color);
 }
 
-/* Laid out like a window's title bar: the title centred, the buttons at the edges. */
+/* Laid out like a window's title bar: elsewhere the title on the left and the buttons on the
+   right, as on Windows; on Apple systems the title centred between the traffic lights and the
+   right edge, as on macOS. */
 .term-bar {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  display: flex;
   align-items: center;
+  gap: .5rem;
 }
 
-.term-title {
+.os-mac .term-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+}
+
+.os-mac .term-title {
   grid-column: 2;
 }
 
@@ -250,6 +257,7 @@ h2 {
 .term-ctl {
   display: flex;
   gap: 1rem;
+  margin-left: auto;
   grid-column: 3;
   justify-self: end;
 }
