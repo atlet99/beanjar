@@ -6,8 +6,12 @@
  * reader), DRM and virtio-gpu ioctls, a robust mutex whose owner died, signals that restart or
  * interrupt a blocking read, a real-time signal, fork, exec and wait, /proc/<pid>/exe naming
  * the program, and /proc/<pid>/cmdline holding the program's own argv, its own and another
- * process's (webOS's initctl finds a service by it). Natively every check passes too, so it checks
- * either userland.
+ * process's (webOS's initctl finds a service by it), and /proc/self/status and statm counting the
+ * program's own memory, which a 32-bit address space bounds (webOS's iconnectivity aborts when its
+ * VmRSS passes a limit), and SO_PEERGROUPS's too-short answer (ERANGE with the length needed, which
+ * systemd grows its buffer by; otherwise PID 1 spins), and no task of this single-threaded process
+ * but itself taking a signal (systemd-udevd SIGKILLs every other task of its cgroup, and qemu-arm's
+ * own threads are there). Natively every check passes too, so it checks either userland.
  *
  *   bridgetest
  *
@@ -31,7 +35,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
+#include <grp.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>
+#ifndef SO_PEERGROUPS
+#define SO_PEERGROUPS 59
+#endif
 #include <sys/time.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
@@ -283,6 +293,82 @@ static void test_cmdline(const char *self, char **argv)
     waitpid(c, NULL, 0);
 }
 
+/* the kB value of a /proc/self/status line, or -1 */
+static long status_kb(const char *key)
+{
+    char line[256];
+    long v = -1;
+    size_t n = strlen(key);
+    FILE *f = fopen("/proc/self/status", "r");
+    if (!f)
+        return -1;
+    while (fgets(line, sizeof(line), f))
+        if (!strncmp(line, key, n) && line[n] == ':')
+            v = strtol(line + n + 1, NULL, 10);
+    fclose(f);
+    return v;
+}
+
+static void test_status(void)
+{
+    long size = status_kb("VmSize"), rss = status_kb("VmRSS");
+    long pages = -1, resident = -1, page_kb = sysconf(_SC_PAGESIZE) / 1024;
+    FILE *f = fopen("/proc/self/statm", "r");
+    if (f) {
+        if (fscanf(f, "%ld %ld", &pages, &resident) != 2)
+            pages = resident = -1;
+        fclose(f);
+    }
+    CHECK("self-status", size > 0 && size < 4L * 1024 * 1024 && rss > 0 && rss <= size,
+          "VmSize %ld kB VmRSS %ld kB", size, rss);
+    /* statm is read after status, so the resident count may have grown a little */
+    CHECK("self-statm", pages * page_kb == size && resident > 0 && resident * page_kb <= size,
+          "%ld pages, %ld resident (status %ld kB)", pages, resident, size);
+}
+
+/* SO_PEERGROUPS of a socketpair made with three supplementary groups (root only: else skipped) */
+static void test_peergroups(void)
+{
+    int p[2] = {-1, -1}, r = 0, e = 0, ok;
+    gid_t set[3] = {1, 2, 3}, got[8] = {0};
+    socklen_t short_len = sizeof(gid_t), len = sizeof(got);
+    if (setgroups(3, set) || socketpair(AF_UNIX, SOCK_STREAM, 0, p)) {
+        CHECK("peergroups", 1, "skipped (errno %d, not root?)", errno);
+        return;
+    }
+    r = getsockopt(p[0], SOL_SOCKET, SO_PEERGROUPS, got, &short_len);
+    e = errno;
+    ok = r < 0 && e == ERANGE && short_len == 3 * sizeof(gid_t);
+    r = getsockopt(p[0], SOL_SOCKET, SO_PEERGROUPS, got, &len);
+    ok = ok && r == 0 && len == 3 * sizeof(gid_t) && got[0] == 1 && got[1] == 2 && got[2] == 3;
+    CHECK("peergroups", ok, "short: errno %d len %u; full: ret %d len %u gids %u %u %u", e,
+          (unsigned)short_len, r, (unsigned)len, got[0], got[1], got[2]);
+    close(p[0]);
+    close(p[1]);
+}
+
+/* kill(tid, 0) of every other task in /proc/self/task: natively there are none */
+static void test_own_tasks(void)
+{
+    DIR *d = opendir("/proc/self/task");
+    struct dirent *e;
+    int others = 0, killable = 0, last = 0;
+    while (d && (e = readdir(d))) {
+        int tid = atoi(e->d_name);
+        if (tid <= 0 || tid == getpid())
+            continue;
+        others++;
+        if (kill(tid, 0) == 0) {
+            killable++;
+            last = tid;
+        }
+    }
+    if (d)
+        closedir(d);
+    CHECK("own-tasks", killable == 0, "%d other tasks, %d take a signal (e.g. %d)", others,
+          killable, last);
+}
+
 /* true if a mapping of this program's processes names a file containing what. qemu-user fakes
  * /proc/self/maps (the guest's own mappings only), so a child's maps are read instead. */
 static int mapped(const char *what)
@@ -327,6 +413,18 @@ int main(int argc, char **argv)
     test_robust();
     test_signals();
     test_exec(argc > 0 && strchr(argv[0], '/') ? argv[0] : "/proc/self/exe");
+    test_status();
+    test_own_tasks();
+    {
+        pid_t c = fork(); /* setgroups stays in the child */
+        if (!c) {
+            test_peergroups();
+            _exit(fails);
+        }
+        int st = 0;
+        waitpid(c, &st, 0);
+        fails += WIFEXITED(st) ? WEXITSTATUS(st) : 1;
+    }
     test_cmdline(argc > 0 && strchr(argv[0], '/') ? argv[0] : "/proc/self/exe", argv);
     {
         pid_t c = fork();
