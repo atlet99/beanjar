@@ -303,6 +303,8 @@ def planned(accel, env, top, fw, state):
         mock.patch.object(qemu, "is_vgem", return_value=False),
         mock.patch.object(qemu, "render_driver", return_value="v3d" if arm else ""),
         mock.patch.object(qemu.platform, "machine", return_value="aarch64" if arm else "x86_64"),
+        # the Pi's Cortex-A76 has AArch32 at EL0; the x86 host is not asked
+        mock.patch.object(qemu, "host_aarch32_el0", return_value=True if arm else None),
     ):
         try:
             p = qemu.plan(env, WORDS, accel=accel, tree=paths.Tree(top), say=notes.append, dry=True)
@@ -857,7 +859,7 @@ class ArgvTest(unittest.TestCase):
         self.assertEqual((p.userland, p.qemu_arm), ("qemu-user", arm))
         # dry: a missing interpreter is not looked for; a real launch refuses it
         self.assertIsNone(plan(USERLAND="qemu-user", QEMU_ARM=arm + ".missing").qemu_arm)
-        with self.assertRaisesRegex(qemu.Error, "USERLAND=x86"):
+        with self.assertRaisesRegex(qemu.Error, "userland=x86"):
             plan(USERLAND="x86")
         with mock.patch.object(qemu.targets, "platform", return_value="NetCast"):
             with self.assertRaisesRegex(qemu.Error, "userland=qemu-user: NetCast"):
@@ -870,6 +872,134 @@ class ArgvTest(unittest.TestCase):
             f.write("")
         self.assertEqual(tree.qemu_arm({}), vendored)
         self.assertEqual(tree.qemu_arm({"QEMU_ARM": arm}), arm)
+
+    def test_userland_auto(self):
+        """USERLAND=auto, the default, resolves at each start by the host and the accelerator
+        (vmsettings.resolve_userland) and says so in one note: native under TCG and where KVM's
+        CPU has AArch32 at EL0 (host_aarch32_el0), qemu-user where it has not. NetCast and
+        SimpleSmart then run native or not at all."""
+        arm = os.path.join(self.tmp, "qemu-arm")
+        with open(arm, "w") as f:
+            f.write("")
+        env = dict(FW=self.fw, STATE="none", **net("direct"), SLOT="1", QEMU_ARM=arm)
+
+        def plan(accel, aarch32, platform="webOS", **more):
+            notes = []
+            with (
+                mock.patch.object(qemu, "first_rendernode", return_value=None),
+                mock.patch.object(qemu, "host_aarch32_el0", return_value=aarch32),
+                mock.patch.object(qemu.targets, "platform", return_value=platform),
+            ):
+                p = qemu.plan(
+                    dict(env, **more),
+                    [],
+                    accel=accel,
+                    tree=paths.Tree(self.top),
+                    say=notes.append,
+                    dry=True,
+                )
+            return p.userland, [n for n in notes if n.startswith("userland:")]
+
+        self.assertEqual(
+            plan("tcg", None), ("native", ["userland: native (TCG emulates AArch32 itself)"])
+        )
+        self.assertEqual(
+            plan("kvm", True), ("native", ["userland: native (KVM on a CPU with AArch32 at EL0)"])
+        )
+        self.assertEqual(
+            plan("kvm", False),
+            ("qemu-user", ["userland: qemu-user (KVM on a CPU without AArch32 at EL0)"]),
+        )
+        # an explicit value is taken as it is
+        self.assertEqual(plan("kvm", False, USERLAND="native")[0], "native")
+        self.assertEqual(plan("tcg", None, USERLAND="qemu-user")[0], "qemu-user")
+        for platform in ("NetCast", "SimpleSmart"):
+            self.assertEqual(plan("kvm", True, platform)[0], "native")
+            self.assertEqual(plan("tcg", None, platform)[0], "native")
+            with self.assertRaisesRegex(
+                qemu.Error, f"{platform} firmware needs native 32-bit execution, which this host"
+            ):
+                plan("kvm", False, platform)
+
+    def test_x86_64(self):
+        """GUEST_KERNEL=x86-64 (experimental): q35 on an x86-64 host, under KVM when /dev/kvm
+        opens, else TCG; -vga none, the 8250 console, build/x86_64's kernel and initramfs, the
+        vendored qemu-system-x86_64 (or QEMU_X86_64), never one from PATH; the userland qemu-user
+        with the x86-64 qemu-arm (build/qemu-user-amd64). Refused on another host, with
+        userland=native, on NetCast and SimpleSmart, and without its QEMU."""
+        tree = paths.Tree(self.top)
+        for f in ("build/x86_64/bzImage", "build/x86_64/initramfs.cpio.gz"):
+            os.makedirs(os.path.dirname(os.path.join(self.top, f)), exist_ok=True)
+            with open(os.path.join(self.top, f), "w") as out:
+                out.write("")
+        arm = os.path.join(self.top, "build/qemu-user-amd64/bin/qemu-arm")
+        os.makedirs(os.path.dirname(arm))
+        with open(arm, "w") as f:
+            f.write("")
+        env = dict(FW=self.fw, STATE="none", **net("direct"), SLOT="1", GUEST_KERNEL="x86-64")
+        kvm_device = os.path.join(self.tmp, "kvm")
+        with open(kvm_device, "w") as f:
+            f.write("")
+
+        def plan(accel=None, machine="x86_64", kvm=True, platform="webOS", **more):
+            notes = []
+            with (
+                mock.patch.object(qemu, "first_rendernode", return_value=None),
+                mock.patch.object(qemu.platform, "machine", return_value=machine),
+                # /dev/kvm: a file this user may open, or none
+                mock.patch.object(qemu, "KVM_DEVICE", kvm_device if kvm else kvm_device + ".none"),
+                mock.patch.object(qemu.targets, "platform", return_value=platform),
+            ):
+                p = qemu.plan(
+                    dict(env, **more), [], accel=accel, tree=tree, say=notes.append, dry=True
+                )
+            return p, notes
+
+        with self.assertRaisesRegex(qemu.Error, "needs qemu-system-x86_64: the vendored QEMU"):
+            plan()
+        fake = os.path.join(self.tmp, "qemu-system-x86_64")
+        with open(fake, "w") as f:
+            f.write("")
+        p, notes = plan(QEMU_X86_64=fake)
+        argv = p.argv
+        self.assertEqual(
+            argv[:12],
+            [fake, "-M", "q35", "-accel", "kvm", "-cpu", "host", "-vga", "none", "-smp", "4", "-m"],
+        )
+        self.assertNotIn("virt", argv)
+        self.assertEqual(argv[argv.index("-kernel") + 1], tree.build("x86_64", "bzImage"))
+        self.assertEqual(argv[argv.index("-initrd") + 1], tree.build("x86_64", "initramfs.cpio.gz"))
+        append = argv[argv.index("-append") + 1].split()
+        self.assertEqual(append[0], "console=ttyS0")
+        self.assertNotIn("webos.time_scale=4", append)
+        self.assertEqual((p.guest_kernel, p.userland, p.qemu_arm), ("x86-64", "qemu-user", arm))
+        self.assertIn(
+            "guest kernel: x86-64 (experimental): q35 under KVM, the ARM userland under qemu-arm",
+            notes,
+        )
+        self.assertIn("userland: qemu-user (the x86-64 guest kernel has no AArch32)", notes)
+        # the vendored one, without QEMU_X86_64
+        vendored = tree.vendored_qemu_x86_64()
+        os.makedirs(os.path.dirname(vendored), exist_ok=True)
+        shutil.copy(fake, vendored)
+        os.chmod(vendored, 0o755)
+        self.assertEqual(plan()[0].argv[0], vendored)
+        # no /dev/kvm: TCG, -cpu max
+        argv = plan(kvm=False)[0].argv
+        self.assertEqual(
+            argv[1:9], ["-M", "q35", "-cpu", "max", "-accel", "tcg,thread=multi", "-vga", "none"]
+        )
+        self.assertIn("webos.time_scale=4", argv[argv.index("-append") + 1].split())
+        with self.assertRaisesRegex(qemu.Error, "guest_kernel=x86-64 needs an x86-64 host"):
+            plan(machine="aarch64")
+        with self.assertRaisesRegex(qemu.Error, "userland=native is refused"):
+            plan(USERLAND="native")
+        for platform in ("NetCast", "SimpleSmart"):
+            with self.assertRaisesRegex(
+                qemu.Error, f"{platform} firmware needs native 32-bit execution"
+            ):
+                plan(platform=platform)
+        self.assertEqual(qemu.vm_accel({"GUEST_KERNEL": "x86-64"}), qemu.default_accel("x86-64"))
 
     def test_virgl_use_integer(self):
         """A panfrost render node gets VIRGL_USE_INTEGER=1 (integer vertex inputs), another

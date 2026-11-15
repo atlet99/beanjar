@@ -6,6 +6,9 @@ Two machines, by ACCEL (default kvm on an aarch64 host, tcg elsewhere):
   tcg  the WT1H emulator on an x86_64 host with TCG
   kvm  a Raspberry Pi 5 (Cortex-A76) with KVM and virgl. The A76 has AArch32 at EL0 only, so the
        arm64 kernel runs the 32-bit userland in COMPAT mode under -cpu host.
+With GUEST_KERNEL=x86-64 (experimental) the machine is q35 instead of virt, on an x86-64 host, under
+KVM when /dev/kvm opens (else TCG), with the x86-64 guest kernel and the ARM userland under qemu-arm
+(docs/dev/architecture/qemu-user-bridge.md, "The x86-64 guest kernel").
 
 Environment (both):
   FW        firmware directory with the .pak files (paths.Tree.firmware)
@@ -31,13 +34,21 @@ Environment (both):
             free page reporting on the VM's virtio-balloon (every VM has one, for the guest's memory
             statistics, never inflated, so the guest still has all of MEM), and the host takes back
             the free 4 MiB blocks the guest reports. Opt-in: it has a cost.
-  USERLAND  native (default) or qemu-user (vm.toml's hardware.userland): qemu-user runs the
+  USERLAND  auto (default), native or qemu-user (vm.toml's hardware.userland): qemu-user runs the
             firmware's 32-bit ARM programs under qemu-arm in the guest, their system calls through
             the guest kernel's compat table (docs/dev/architecture/qemu-user-bridge.md): the
             launcher puts qemu-arm into the host share and boot.conf's USERLAND has init register
-            it with binfmt_misc. Refused on NetCast and SimpleSmart (vmsettings.USERLAND_REFUSED)
+            it with binfmt_misc. auto picks native or qemu-user by the host and the accelerator
+            (vmsettings.resolve_userland, host_aarch32_el0) and says which and why. NetCast and
+            SimpleSmart always run native (vmsettings.NATIVE_ONLY): where the host cannot, they
+            do not start
+  GUEST_KERNEL  arm64 (default) or x86-64 (vm.toml's hardware.guest_kernel; experimental): the
+            x86-64 guest kernel (build/x86_64) on q35, x86-64 hosts only, userland qemu-user
   QEMU_ARM  that qemu-arm (paths.Tree.qemu_arm): a local build for development; default
-            beanjar-vendor's qemu-user, build/qemu-user/bin/qemu-arm, once it is pinned
+            beanjar-vendor's qemu-user, once it is pinned: build/qemu-user/bin/qemu-arm (aarch64)
+            for the arm64 kernel, build/qemu-user-amd64/bin/qemu-arm (x86-64) for the x86-64 one
+  QEMU_X86_64  the x86-64 kernel's qemu-system-x86_64 (paths.Tree.qemu_x86_64): a local build for
+            development; default the vendored one, build/qemu/bin/qemu-system-x86_64 (amd64)
   DEBUG_MODE  debug, event or release (vm.toml's firmware.debug_mode; default: the board's own
             debugMode=, 3 = debug): the TV's debug status. The guest's /proc/cmdline has that one
             debugMode= (webos.debugmode= for /init, or the board words on the kernel's line,
@@ -202,16 +213,39 @@ class Error(Exception):
 KVM_DEVICE = "/dev/kvm"
 
 
-def default_accel():
-    """kvm on an aarch64 host whose /dev/kvm this user may open, else tcg."""
-    if platform.machine() == "aarch64" and os.access(KVM_DEVICE, os.R_OK | os.W_OK):
+def default_accel(guest_kernel=vmsettings.DEFAULT_GUEST_KERNEL):
+    """kvm on a host of the guest kernel's architecture (aarch64 for arm64, x86_64 for x86-64)
+    whose /dev/kvm this user may open, else tcg."""
+    machine = "x86_64" if guest_kernel == "x86-64" else "aarch64"
+    if platform.machine() == machine and os.access(KVM_DEVICE, os.R_OK | os.W_OK):
         return "kvm"
     return "tcg"
 
 
 def vm_accel(env):
     """The accelerator a launch with env gets, as plan picks it (ACCEL, else default_accel)."""
-    return env.get("ACCEL") or default_accel()
+    return env.get("ACCEL") or default_accel(
+        env.get("GUEST_KERNEL") or vmsettings.DEFAULT_GUEST_KERNEL
+    )
+
+
+# personality(2)'s PER_LINUX32
+PER_LINUX32 = 0x0008
+
+
+def host_aarch32_el0():
+    """Whether this host's CPU runs AArch32 at EL0, as its kernel sees it, or None on a host that
+    is not arm64. The source is the arm64 kernel's own answer: personality(PER_LINUX32) fails with
+    EINVAL unless system_supports_32bit_el0(), the sanitised ID_AA64PFR0_EL1.EL0 of every CPU
+    (arch/arm64/kernel/sys.c), which is what KVM offers its guests too. Asked in a child process,
+    so the launcher's own personality never changes."""
+    if platform.machine() != "aarch64":
+        return None
+    probe = (
+        "import ctypes, sys; libc = ctypes.CDLL(None, use_errno=True); "
+        f"sys.exit(0 if libc.personality({PER_LINUX32}) != -1 else 1)"
+    )
+    return subprocess.run([sys.executable, "-c", probe], check=False).returncode == 0
 
 
 # QEMU's default translation-block cache under TCG (tb-size), 1 GiB on a 64-bit host.
@@ -266,8 +300,10 @@ class Plan:
             self.fw_name
         ) = None
         self.broadcast = None  # the board's broadcast standard (targets.board_broadcast)
-        # USERLAND: "native" or "qemu-user", with qemu_arm the interpreter the guest gets
+        # USERLAND: "native" or "qemu-user" as resolved (vmsettings.resolve_userland), with
+        # qemu_arm the interpreter the guest gets; GUEST_KERNEL: "arm64" or "x86-64"
         self.userland, self.qemu_arm = "native", None
+        self.guest_kernel = vmsettings.DEFAULT_GUEST_KERNEL
         self.layers, self.ssh_port, self.partmap = [], keys.ROOTSSH_PORT, None
         self.guest_layers = []  # share.resolve_layers': each a read-only disk, layerimage.py
         self.service_host = None
@@ -315,7 +351,10 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
     say(line) gets the notes the launch prints (default: stderr). dry: build nothing (ROOTFS=
     uncompressed images are looked up, not built; the model key is not checked)."""
     say = say or (lambda line: print(line, file=sys.stderr, flush=True))
-    accel = accel or env.get("ACCEL") or default_accel()
+    guest_kernel = env.get("GUEST_KERNEL") or vmsettings.DEFAULT_GUEST_KERNEL
+    if guest_kernel not in vmsettings.GUEST_KERNELS:
+        raise Error(f"GUEST_KERNEL={guest_kernel}: one of {', '.join(vmsettings.GUEST_KERNELS)}")
+    accel = accel or env.get("ACCEL") or default_accel(guest_kernel)
     if accel not in ("tcg", "kvm"):
         raise Error(f"unknown ACCEL={accel} (tcg or kvm)")
     from . import development
@@ -338,18 +377,38 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
         p.broadcast = targets.board_broadcast(p.target, fw, env.get("BROADCAST"))
     except targets.Error as e:
         raise Error(f"BROADCAST: {e}") from None
-    p.userland = env.get("USERLAND") or "native"
-    if p.userland not in vmsettings.USERLANDS:
-        raise Error(f"USERLAND={p.userland}: one of {', '.join(vmsettings.USERLANDS)}")
-    refusal = vmsettings.userland_refusal(targets.platform(p.target), p.userland)
+    p.guest_kernel = guest_kernel
+    platform_name = targets.platform(p.target)
+    if guest_kernel == "x86-64":
+        refusal = vmsettings.guest_kernel_host_refusal(guest_kernel, platform.machine())
+        if refusal:
+            raise Error(refusal)
+        say(
+            "guest kernel: x86-64 (experimental): q35 under "
+            f"{accel.upper()}, the ARM userland under qemu-arm"
+        )
+    setting = env.get("USERLAND") or vmsettings.DEFAULT_USERLAND
+    refusal = vmsettings.userland_refusal(platform_name, setting, guest_kernel)
     if refusal:
         raise Error(refusal)
+    try:
+        p.userland, why = vmsettings.resolve_userland(
+            setting,
+            guest_kernel,
+            accel,
+            host_aarch32_el0() if accel == "kvm" and guest_kernel == "arm64" else None,
+            platform_name,
+        )
+    except vmsettings.Error as e:
+        raise Error(str(e)) from None
+    say(why)
     if p.userland == "qemu-user":
-        p.qemu_arm = tree.qemu_arm(env)
+        p.qemu_arm = tree.qemu_arm(env, guest_kernel)
         if not p.qemu_arm and not dry:
+            vendored = "qemu-user-amd64" if guest_kernel == "x86-64" else "qemu-user"
             raise Error(
-                "USERLAND=qemu-user needs qemu-arm with the compat bridge: QEMU_ARM=PATH, or "
-                "beanjar-vendor's qemu-user pinned in packaging/vendor.toml"
+                f"userland qemu-user needs qemu-arm with the compat bridge: QEMU_ARM=PATH, or "
+                f"beanjar-vendor's qemu-user pinned in packaging/vendor.toml (build/{vendored})"
             )
     # default: the headless layer on webOS; none on SimpleSmart, which has no webOS layers
     layers = env.get(
@@ -361,11 +420,8 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
     except (targets.Error, OSError) as e:
         raise Error(str(e)) from None
     smp = _get(env, "SMP", "4")
-    for f in (
-        tree.build("Image"),
-        tree.build("initramfs.cpio.gz"),
-        os.path.join(fw, targets.root_pak(p.target) + ".pak"),
-    ):
+    kernel, initrd = tree.guest_kernel(guest_kernel)
+    for f in (kernel, initrd, os.path.join(fw, targets.root_pak(p.target) + ".pak")):
         if not os.path.isfile(f):
             raise Error(f"missing {f} (run scripts/build.sh guest)")
 
@@ -929,8 +985,9 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
     # hw:0,6, the device the stock /etc/pulse/system.pa opens for pcm_output; pcm_alias_device=0
     # adds hw:0,0 on the same stream, the device alsa-lib's hints test for an output (Chromium's
     # ALSA manager plays nothing without one).
+    # the serial console: virt's PL011, q35's 8250
     append = (
-        "console=ttyAMA0 rdinit=/init loglevel=3 mem_sleep_default=s2idle virtio_snd.pcm_device_base=6 "
+        f"console={'ttyS0' if guest_kernel == 'x86-64' else 'ttyAMA0'} rdinit=/init loglevel=3 mem_sleep_default=s2idle virtio_snd.pcm_device_base=6 "
         f"virtio_snd.pcm_alias_device=0{append_net}"
     )
     if time_scale(accel) != 1:
@@ -984,7 +1041,15 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
         gpu[1] += f",id={GPU_ID}"
     display_backend = env.get("DISPLAY_BACKEND") or ("egl-headless" if accel == "kvm" else "none")
     dbus_addr = _get(env, "DBUS_ADDR", f"unix:path={os.path.join(p.run_dir, 'dbus.sock')}")
-    qemu, qemu_args = tree.qemu(env)
+    if guest_kernel == "x86-64":
+        qemu, qemu_args = tree.qemu_x86_64(env)
+        if not qemu:
+            raise Error(
+                "guest_kernel x86-64 needs qemu-system-x86_64: the vendored QEMU "
+                f"({tree.vendored_qemu_x86_64()}) has none; QEMU_X86_64=PATH for a local build"
+            )
+    else:
+        qemu, qemu_args = tree.qemu(env)
     if accel == "tcg":
         threads = _get(env, "TCG_THREADS", "multi")
         if threads not in ("single", "multi"):
@@ -994,13 +1059,20 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
             if not env["TCG_TB_SIZE"].isdigit() or env["TCG_TB_SIZE"] == "0":
                 raise Error("TCG_TB_SIZE must be a positive size in MiB")
             tcg += f",tb-size={env['TCG_TB_SIZE']}"
+    # the display: under TCG, or on the x86-64 kernel's PC host, a render node or the surfaceless
+    # display of a host without one (WSL2); under the arm64 kernel's KVM, the board's render node
+    if accel == "tcg" or guest_kernel == "x86-64":
         if display_backend == "none":
             display, gpu = ["-display", "none"], []
         elif display_backend in ("egl-headless", "dbus"):
             # A render node is all a distro QEMU needs (as on the Pi); the surfaceless display of a
             # host without one (WSL2) needs the vendored QEMU's patches.
             node = tcg_rendernode(env)
-            if node == "surfaceless" and qemu != tree.vendored_qemu():
+            if node == "surfaceless" and qemu not in (
+                tree.vendored_qemu(),
+                tree.vendored_qemu_x86_64(),
+                env.get("QEMU_X86_64"),
+            ):
                 say("note: RENDERNODE=surfaceless needs the patched QEMU (scripts/build.sh host)")
             if node == "surfaceless" and is_char("/dev/dxg") and "GALLIUM_DRIVER" not in env:
                 p.env["GALLIUM_DRIVER"] = "d3d12"
@@ -1027,7 +1099,7 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
             raise Error(f"unknown DISPLAY_BACKEND={display_backend} (none, egl-headless or dbus)")
     if gpu and render_driver(node) in INTEGER_INPUT_DRIVERS:
         p.env.setdefault("VIRGL_USE_INTEGER", "1")
-    machine = "virt"
+    machine = "q35" if guest_kernel == "x86-64" else "virt"
     memory = []
     # queue's Weston (the gl layer's weston-setup: TV-1 and TV-2 on two virtual heads, K8HP and O22
     # alike) and Spacebuns' native one need a second output
@@ -1081,15 +1153,46 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
     boot = [
         *qemu_args,
         "-kernel",
-        tree.build("Image"),
+        kernel,
         "-initrd",
-        tree.build("initramfs.cpio.gz"),
+        initrd,
         "-append",
         append,
     ]
     extra = env.get("QEMU_EXTRA", "").split()
-    devices = pci_budget(devices, gpu + audio)
-    if accel == "tcg":
+    if guest_kernel == "x86-64":
+        devices = pci_budget(devices, gpu + audio, Q35_ROOT_SLOTS)
+        # q35 with the virt machine's devices, which are all PCI and so the same there (virtio,
+        # qemu-xhci, the media pool's ivshmem-doorbell), the serial console on its 8250 (ttyS0),
+        # and no default VGA, which would take the guest's first display
+        p.argv = [
+            qemu,
+            "-M",
+            machine,
+            *memory,
+            *(
+                ["-accel", "kvm", "-cpu", "host"]
+                if accel == "kvm"
+                else ["-cpu", _get(env, "TCG_CPU", "max"), "-accel", tcg]
+            ),
+            "-vga",
+            "none",
+            "-smp",
+            smp,
+            "-m",
+            mem,
+            *display,
+            *gpu,
+            *console,
+            *boot,
+            "-netdev",
+            netdev,
+            *devices,
+            *audio,
+            *extra,
+        ]
+    elif accel == "tcg":
+        devices = pci_budget(devices, gpu + audio)
         p.argv = [
             qemu,
             "-M",
@@ -1114,6 +1217,7 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
             *extra,
         ]
     else:
+        devices = pci_budget(devices, gpu + audio)
         p.argv = [
             qemu,
             "-M",
@@ -1144,6 +1248,8 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
 
 # The PCI devices the virt machine's root bus has room for (its 32 slots but the host bridge's).
 ROOT_SLOTS = 31
+# q35's: its 32 slots but the host bridge's (0) and the ICH9 functions' (0x1f: LPC, SATA, SMBus)
+Q35_ROOT_SLOTS = 30
 # The -device names that are PCI devices: virtio-*-pci, qemu-xhci, and the media pool's
 # ivshmem-doorbell (no -pci in its name, but a slot all the same).
 PCI_DEVICE_SUFFIXES = ("-pci", "-xhci", "ivshmem-doorbell", "ivshmem-plain")
@@ -1175,7 +1281,7 @@ def input_devices(touch):
     ]
 
 
-def pci_budget(devices, others=()):
+def pci_budget(devices, others=(), root_slots=ROOT_SLOTS):
     """devices (QEMU arguments) as they fit the root bus beside others (more arguments, the GPU's
     and the sound card's): as they are if their PCI devices do, else
     with every virtio-blk-pci disk behind PCI bridges of their own (SimpleSmart attaches 15 paks and 9
@@ -1187,7 +1293,7 @@ def pci_budget(devices, others=()):
         for k, a in zip(args, args[1:])
         if k == "-device" and a.split(",")[0].endswith(PCI_DEVICE_SUFFIXES)
     ]
-    if len(pci) <= ROOT_SLOTS:
+    if len(pci) <= root_slots:
         return devices
     if len(devices) % 2:
         raise ValueError("devices: not option-value pairs")

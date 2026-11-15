@@ -8,8 +8,11 @@ from here.
 
 - Debian 13 (trixie) on the host.
 - An x86_64 machine, which runs the guest under QEMU's TCG, or an arm64 machine with AArch32 at
-  EL0, which runs it under KVM (a Raspberry Pi 5 does). The firmware's userland is 32-bit ARM, so
-  an arm64 CPU without AArch32 at EL0 cannot run it under KVM.
+  EL0, which runs it under KVM (a Raspberry Pi 5 does). The firmware's userland is 32-bit ARM: on
+  an arm64 CPU without AArch32 at EL0, KVM runs the kernel and qemu-arm the userland inside the
+  guest (`hardware.userland`, `auto` by default), which NetCast and SimpleSmart firmware cannot
+  use. On an x86_64 machine with KVM, the experimental `hardware.guest_kernel = "x86-64"` does the
+  same with an x86-64 guest kernel.
 - Memory for each VM: its firmware model's RAM (1.25 GB for WT1H, 1.5 GB for W19P, for example)
   plus 1 GiB of headroom by default, and under TCG another 1 GiB for QEMU's translation cache. A
   start that the host's free memory does not cover is refused.

@@ -445,6 +445,9 @@ class Tree:
                 return "/usr/share/beanjar/guest/bin/" + p[1]
             if p == ("qemu-user", "bin", "qemu-arm"):
                 return "/usr/share/beanjar/guest/bin/qemu-arm"
+            if p[:1] == ("x86_64",) or p == ("qemu-user-amd64", "bin", "qemu-arm"):
+                # the experimental x86-64 guest kernel's pieces, which no package ships yet
+                return self.cache(*p)
             if p[:2] in [("qemu", "bin"), ("qemu", "libexec")]:
                 return os.path.join("/usr/libexec/beanjar", *p[2:])
             if p[:2] == ("qemu", "share"):
@@ -490,14 +493,45 @@ class Tree:
         )
         return qemu, args
 
-    def qemu_arm(self, env=None):
-        """The static aarch64 qemu-arm with the compat bridge that a USERLAND=qemu-user guest runs
-        its 32-bit programs with (docs/dev/architecture/qemu-user-bridge.md), or None: QEMU_ARM in
-        env (os.environ by default), a local build for development, else beanjar-vendor's
-        qemu-user (build/qemu-user, published once packaging/vendor.toml pins it)."""
+    def vendored_qemu_x86_64(self):
+        """The tree's own patched qemu-system-x86_64 (build/qemu, amd64 only), for the x86-64
+        guest kernel."""
+        return self.build("qemu", "bin", "qemu-system-x86_64")
+
+    def qemu_x86_64(self, env=None):
+        """(binary, args) of the experimental x86-64 guest kernel's launch, or (None, []) when there
+        is none: QEMU_X86_64 in env (os.environ by default), a local build for development, else
+        the vendored one. Never a system QEMU, which lacks the display patches."""
         env = os.environ if env is None else env
-        path = env.get("QEMU_ARM") or self.build("qemu-user", "bin", "qemu-arm")
+        vendored = self.vendored_qemu_x86_64()
+        qemu = env.get("QEMU_X86_64") or (
+            vendored if os.path.isfile(vendored) and os.access(vendored, os.X_OK) else None
+        )
+        args = (
+            ["-L", self.build("qemu", "share", "qemu")]
+            if qemu and self.installed and qemu == vendored
+            else []
+        )
+        return qemu, args
+
+    def qemu_arm(self, env=None, guest_kernel="arm64"):
+        """The static qemu-arm with the compat bridge that a USERLAND=qemu-user guest runs its
+        32-bit programs with (docs/dev/architecture/qemu-user-bridge.md), or None: QEMU_ARM in env
+        (os.environ by default), a local build for development, else beanjar-vendor's qemu-user
+        (published once packaging/vendor.toml pins it): build/qemu-user, the aarch64 one, for the
+        arm64 guest kernel, build/qemu-user-amd64, the x86-64 one, for the x86-64 guest kernel."""
+        env = os.environ if env is None else env
+        vendored = "qemu-user-amd64" if guest_kernel == "x86-64" else "qemu-user"
+        path = env.get("QEMU_ARM") or self.build(vendored, "bin", "qemu-arm")
         return path if os.path.isfile(path) else None
+
+    def guest_kernel(self, guest_kernel="arm64"):
+        """(kernel, initramfs) of the guest kernel's architecture: build/Image and
+        build/initramfs.cpio.gz, or the x86-64 kernel's build/x86_64/bzImage and
+        build/x86_64/initramfs.cpio.gz (guest/kernel/meson.build)."""
+        if guest_kernel == "x86-64":
+            return self.build("x86_64", "bzImage"), self.build("x86_64", "initramfs.cpio.gz")
+        return self.build("Image"), self.build("initramfs.cpio.gz")
 
     @property
     def installed(self):

@@ -10,6 +10,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -29,6 +30,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -47,6 +49,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -69,6 +72,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -90,6 +94,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -110,6 +115,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -133,6 +139,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -154,6 +161,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -174,6 +182,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -196,6 +205,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -215,6 +225,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -233,6 +244,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -254,6 +266,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -273,6 +286,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -291,6 +305,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -312,6 +327,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -331,6 +347,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -349,6 +366,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -370,6 +388,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -391,6 +410,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: rootssh from build/layers/h13-afro/rootssh, devmode from build/layers/h13-afro/devmode, webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: normal (not in the checkout), gl (not in the checkout)",
    "state: @STATE@",
@@ -411,6 +431,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: rootssh from build/layers/h13-afro/rootssh, devmode from build/layers/h13-afro/devmode, webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: normal (not in the checkout), gl (not in the checkout)",
    "state: @STATE@",
@@ -430,6 +451,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: rootssh from build/layers/h13-afro/rootssh, devmode from build/layers/h13-afro/devmode, webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: normal (not in the checkout), gl (not in the checkout)",
    "state: @STATE@",
@@ -456,6 +478,7 @@
    "VM_ADDRESS": "127.0.1.2"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: rootssh from build/layers/h13-afro/rootssh, devmode from build/layers/h13-afro/devmode, webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: normal (not in the checkout), gl (not in the checkout)",
    "state: @STATE@",
@@ -476,6 +499,7 @@
    "VM_ADDRESS": "127.0.1.2"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: rootssh from build/layers/h13-afro/rootssh, devmode from build/layers/h13-afro/devmode, webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: normal (not in the checkout), gl (not in the checkout)",
    "state: @STATE@",
@@ -498,6 +522,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -519,6 +544,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: rootssh from build/layers/h13-afro/rootssh, devmode from build/layers/h13-afro/devmode, webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: normal (not in the checkout), gl (not in the checkout)",
    "state: @STATE@",
@@ -539,6 +565,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: rootssh from build/layers/h13-afro/rootssh, devmode from build/layers/h13-afro/devmode, webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: normal (not in the checkout), gl (not in the checkout)",
    "state: @STATE@",
@@ -558,6 +585,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: rootssh from build/layers/h13-afro/rootssh, devmode from build/layers/h13-afro/devmode, webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: normal (not in the checkout), gl (not in the checkout)",
    "state: @STATE@",
@@ -584,6 +612,7 @@
    "VM_ADDRESS": "127.0.1.2"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: rootssh from build/layers/h13-afro/rootssh, devmode from build/layers/h13-afro/devmode, webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: normal (not in the checkout), gl (not in the checkout)",
    "state: @STATE@",
@@ -604,6 +633,7 @@
    "VM_ADDRESS": "127.0.1.2"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: rootssh from build/layers/h13-afro/rootssh, devmode from build/layers/h13-afro/devmode, webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: normal (not in the checkout), gl (not in the checkout)",
    "state: @STATE@",
@@ -623,6 +653,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: none (fresh disks, discarded at power-off)",
@@ -640,6 +671,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -660,6 +692,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -678,6 +711,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -695,6 +729,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -715,6 +750,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -739,6 +775,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "pak rootfs: uncompressed copy @FW@/cache/rootfs-7b868dc72a1ef040.img",
    "pak fonts: uncompressed copy @FW@/cache/fonts-7e958eb327d54672.img",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
@@ -758,6 +795,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "state: @STATE@",
    "SSAP (second screen): wss://127.0.1.1:3001 (ws://127.0.1.1:3000 where the firmware lets it in)",
@@ -775,6 +813,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -794,6 +833,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -813,6 +853,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -829,6 +870,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -870,6 +912,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -888,6 +931,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -905,6 +949,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -931,6 +976,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -954,6 +1000,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -973,6 +1020,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -991,6 +1039,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -1010,6 +1059,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -1028,6 +1078,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -1048,6 +1099,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -1074,6 +1126,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (KVM on a CPU with AArch32 at EL0)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",
@@ -1095,6 +1148,7 @@
    "VM_ADDRESS": "127.0.1.1"
   },
   "notes": [
+   "userland: native (TCG emulates AArch32 itself)",
    "guest layers: webos from build/layers/h13-afro/webos, soc from build/layers/h13-afro/soc, common from build/layers/h13-afro/common",
    "guest layers not on the host, left out: headless (not in the checkout)",
    "state: @STATE@",

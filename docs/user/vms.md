@@ -106,6 +106,21 @@ The layers add to the stock firmware; the first listed wins where two have the s
 A global firmware boots as a US model where one exists; to boot it as another region's model, see
 [Boot a global firmware as another region's model](board-profiles.md).
 
+`userland` is how the firmware's 32-bit ARM programs run. `auto`, the default, decides at each
+start and the start says which and why: natively under TCG and where KVM's CPU has AArch32 at EL0
+(a Raspberry Pi 5), under qemu-arm inside the guest where it has not. `native` and `qemu-user`
+force one. NetCast and SimpleSmart firmware only run natively, and do not start on a host that
+cannot.
+
+`guest_kernel=x86-64` is **experimental**: on an x86_64 machine it boots an x86-64 guest kernel
+under KVM (TCG without `/dev/kvm`) and runs the whole ARM userland under qemu-arm, which is much
+faster than full TCG. It implies `userland=qemu-user`, is refused with `userland=native` and for
+NetCast and SimpleSmart, and only webOS 1 (WT1H) has been booted with it so far.
+
+```sh
+beanjar settings tv1 set guest_kernel=x86-64
+```
+
 ## Network
 
 Two settings decide a VM's network ([guest networking](../dev/architecture/network.md)):

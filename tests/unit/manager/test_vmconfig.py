@@ -88,11 +88,13 @@ def test_validation():
 
 
 def test_userland():
-    """hardware.userland: native, the default, is not written out; qemu-user is USERLAND=qemu-user
-    and is refused on the platforms that cannot run it (vmsettings.USERLAND_REFUSED)."""
+    """hardware.userland: auto, the default, is not written out; native and qemu-user are
+    USERLAND; qemu-user is refused on the firmware lines that need native 32-bit execution
+    (vmsettings.NATIVE_ONLY)."""
     base = {"firmware": {"directory": "firmware"}}
     assert "userland" not in vmconfig.decode(base)
     assert "USERLAND" not in vmsettings.launcher_env(vmconfig.decode(base))
+    assert vmsettings.SETTING_HELP["userland"][1] == "auto"
     cfg = vmconfig.decode(dict(base, hardware={"userland": "qemu-user"}))
     assert vmsettings.launcher_env(cfg)["USERLAND"] == "qemu-user"
     vmsettings.validate(cfg)
@@ -101,10 +103,81 @@ def test_userland():
     for platform in ("NetCast", "SimpleSmart"):
         with pytest.raises(core.Error, match="userland=qemu-user"):
             vmsettings.validate(dict(cfg, platform=platform))
+        vmsettings.validate(dict(cfg, userland="auto", platform=platform))
     vmsettings.validate(dict(cfg, userland="native", platform="NetCast"))
     with pytest.raises(core.Error, match="userland=x86"):
         vmsettings.validate(dict(cfg, userland="x86"))
     assert vmsettings.SETTINGS["userland"] == "USERLAND"
+
+
+def test_guest_kernel():
+    """hardware.guest_kernel: arm64, the default, is not written out; x86-64 is GUEST_KERNEL,
+    refused with userland=native and on NetCast and SimpleSmart, and on a host that is not x86-64
+    (guest_kernel_host_refusal, at set and at start)."""
+    base = {"firmware": {"directory": "firmware"}}
+    assert "guest_kernel" not in vmconfig.decode(base)
+    assert "GUEST_KERNEL" not in vmsettings.launcher_env(vmconfig.decode(base))
+    cfg = vmconfig.decode(dict(base, hardware={"guest_kernel": "x86-64"}))
+    assert vmsettings.launcher_env(cfg)["GUEST_KERNEL"] == "x86-64"
+    vmsettings.validate(dict(cfg, platform="webOS"))
+    vmsettings.validate(dict(cfg, platform="webOS", userland="qemu-user"))
+    with pytest.raises(core.Error, match="userland=native is refused") as e:
+        vmsettings.validate(dict(cfg, platform="webOS", userland="native"))
+    assert e.value.key == "guest_kernel"
+    for platform in ("NetCast", "SimpleSmart"):
+        with pytest.raises(core.Error, match=f"{platform} firmware needs native 32-bit execution"):
+            vmsettings.validate(dict(cfg, platform=platform))
+    with pytest.raises(core.Error, match="guest_kernel=arm"):
+        vmsettings.validate(dict(cfg, guest_kernel="arm"))
+    assert vmsettings.guest_kernel_host_refusal("x86-64", "x86_64") is None
+    assert vmsettings.guest_kernel_host_refusal("arm64", "aarch64") is None
+    assert "needs an x86-64 host" in vmsettings.guest_kernel_host_refusal("x86-64", "aarch64")
+
+
+@pytest.mark.parametrize(
+    "guest_kernel, accel, aarch32, userland, why",
+    [
+        ("arm64", "tcg", None, "native", "TCG emulates AArch32 itself"),
+        ("arm64", "kvm", True, "native", "KVM on a CPU with AArch32 at EL0"),
+        ("arm64", "kvm", False, "qemu-user", "KVM on a CPU without AArch32 at EL0"),
+        ("arm64", "kvm", None, "native", "KVM on a CPU with AArch32 at EL0"),
+        ("arm64", "hvf", False, "qemu-user", "HVF on Apple silicon has no AArch32 at EL0"),
+        ("x86-64", "kvm", None, "qemu-user", "the x86-64 guest kernel has no AArch32"),
+        ("x86-64", "tcg", None, "qemu-user", "the x86-64 guest kernel has no AArch32"),
+    ],
+)
+def test_resolve_userland(guest_kernel, accel, aarch32, userland, why):
+    """userland=auto by host: the guest kernel, the accelerator and whether its CPU has AArch32 at
+    EL0; an explicit value is kept."""
+    got = vmsettings.resolve_userland("auto", guest_kernel, accel, aarch32, "webOS")
+    assert got == (userland, f"userland: {userland} ({why})")
+    for setting in ("native", "qemu-user"):
+        assert vmsettings.resolve_userland(setting, "arm64", accel, aarch32, "webOS") == (
+            setting,
+            f"userland: {setting} (as set)",
+        )
+
+
+@pytest.mark.parametrize("platform", ["NetCast", "SimpleSmart"])
+def test_resolve_userland_native_only(platform):
+    """NetCast and SimpleSmart are a firmware constraint after the host rule: native where the
+    host gives it, an error (never qemu-user) where it cannot."""
+    for accel, aarch32 in (("tcg", None), ("kvm", True)):
+        got = vmsettings.resolve_userland("auto", "arm64", accel, aarch32, platform)
+        assert got[0] == "native"
+    for guest_kernel, accel, aarch32 in (
+        ("arm64", "kvm", False),
+        ("arm64", "hvf", None),
+        ("x86-64", "kvm", None),
+    ):
+        with pytest.raises(
+            core.Error,
+            match=f"{platform} firmware needs native 32-bit execution, which this host cannot "
+            "provide",
+        ):
+            vmsettings.resolve_userland("auto", guest_kernel, accel, aarch32, platform)
+    with pytest.raises(core.Error, match="userland=qemu-user"):
+        vmsettings.resolve_userland("qemu-user", "arm64", "tcg", None, platform)
 
 
 def test_free_page_reporting():

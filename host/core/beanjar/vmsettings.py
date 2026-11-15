@@ -30,26 +30,92 @@ ONOFF = ("on", "off")
 # userland (qemu.py USERLAND): how the guest runs the firmware's 32-bit ARM programs. native: the
 # CPU runs them in AArch32 EL0 (KVM on a CPU that has it, or TCG); qemu-user: qemu-arm translates
 # them inside the guest and hands their system calls to the kernel's compat table (the compat
-# bridge, docs/dev/architecture/qemu-user-bridge.md), for hosts without AArch32 at EL0. Off by
-# default; refused on the platforms in USERLAND_REFUSED.
-USERLANDS = ("native", "qemu-user")
+# bridge, docs/dev/architecture/qemu-user-bridge.md), for hosts without AArch32 at EL0; auto, the
+# default, picks one of them at each start (resolve_userland). native and qemu-user override it.
+USERLANDS = ("auto", "native", "qemu-user")
+DEFAULT_USERLAND = "auto"
 
 
-# The platforms qemu-user is refused on, with the reason. NetCast 4.5 (LM14) emulates stores into
-# MMIO windows by decoding the faulting AArch32 instruction (lgemu's store_mmio_fault), which a
-# translated program does not have: its HWI2C, OTP and PQ pages would SIGBUS. SimpleSmart has not
-# been tried.
-USERLAND_REFUSED = {
+# guest_kernel (qemu.py GUEST_KERNEL): the guest kernel's architecture. arm64 is the default and
+# the only one that runs the 32-bit programs natively. x86-64 is experimental: an x86-64 kernel on
+# the q35 machine (KVM when /dev/kvm opens, else TCG), with the whole ARM userland under qemu-arm
+# (docs/research/qemu-user-bridge.md, "An x86-64 guest kernel"). It needs an x86-64 host and
+# implies userland qemu-user.
+GUEST_KERNELS = ("arm64", "x86-64")
+DEFAULT_GUEST_KERNEL = "arm64"
+
+
+# The firmware lines that need native 32-bit execution, whatever the host can do, with the reason.
+# NetCast 4.5 (LM14) emulates stores into MMIO windows by decoding the faulting AArch32 instruction
+# (lgemu's store_mmio_fault), which a translated program does not have: its HWI2C, OTP and PQ pages
+# would SIGBUS; the decoder is arm64-only. SimpleSmart has not been tried under qemu-user.
+NATIVE_ONLY = {
     "NetCast": "NetCast's MMIO windows decode the faulting AArch32 instruction (lgemu)",
     "SimpleSmart": "not tried on SimpleSmart",
 }
 
 
-def userland_refusal(platform, userland):
-    """Why userland cannot run on the platform (targets.PLATFORMS), or None."""
-    if userland == "qemu-user" and platform in USERLAND_REFUSED:
-        return f"userland=qemu-user: {USERLAND_REFUSED[platform]}"
+def userland_refusal(platform, userland, guest_kernel=DEFAULT_GUEST_KERNEL):
+    """Why the settings userland and guest_kernel cannot run the platform (targets.PLATFORMS), or
+    None. The host is not looked at (guest_kernel_host_refusal, resolve_userland)."""
+    if guest_kernel == "x86-64":
+        if userland == "native":
+            return (
+                "guest_kernel=x86-64 runs the 32-bit programs under qemu-user: userland=native "
+                "is refused with it"
+            )
+        if platform in NATIVE_ONLY:
+            return (
+                f"guest_kernel=x86-64: {platform} firmware needs native 32-bit execution "
+                f"({NATIVE_ONLY[platform]})"
+            )
+    if userland == "qemu-user" and platform in NATIVE_ONLY:
+        return f"userland=qemu-user: {NATIVE_ONLY[platform]}"
     return None
+
+
+def guest_kernel_host_refusal(guest_kernel, machine):
+    """Why this host (platform.machine()) cannot run guest_kernel, or None."""
+    if guest_kernel == "x86-64" and machine not in ("x86_64", "AMD64"):
+        return f"guest_kernel=x86-64 needs an x86-64 host, not {machine}"
+    return None
+
+
+def resolve_userland(setting, guest_kernel, accel, aarch32_el0, platform=None):
+    """(userland, why) a start runs with: native or qemu-user, and the one line the launcher logs.
+    setting: vm.toml's userland (auto, native, qemu-user); accel: tcg, kvm or hvf; aarch32_el0:
+    whether the host's CPU can run AArch32 at EL0 under the accelerator (True, False, or None where
+    the host is not arm64 and the question does not arise). The host rule:
+      guest_kernel x86-64            qemu-user: the x86-64 kernel has no AArch32
+      arm64 kernel under TCG         native: TCG emulates AArch32 itself
+      arm64 kernel under KVM         native where the CPU has AArch32 at EL0, else qemu-user
+      arm64 kernel under HVF         qemu-user: Apple silicon has no AArch32 at EL0
+    then the firmware's own constraint: a NATIVE_ONLY platform runs native or not at all (Error),
+    never falling back to qemu-user. An explicit native or qemu-user is taken as it is (its
+    platform refusals are userland_refusal's)."""
+    if setting not in USERLANDS:
+        raise Error(f"userland={setting}: one of {', '.join(USERLANDS)}", "userland")
+    if setting != "auto":
+        userland, why = setting, "as set"
+    elif guest_kernel == "x86-64":
+        userland, why = "qemu-user", "the x86-64 guest kernel has no AArch32"
+    elif accel == "tcg":
+        userland, why = "native", "TCG emulates AArch32 itself"
+    elif accel == "hvf":
+        userland, why = "qemu-user", "HVF on Apple silicon has no AArch32 at EL0"
+    elif aarch32_el0 is False:
+        userland, why = "qemu-user", f"{accel.upper()} on a CPU without AArch32 at EL0"
+    else:
+        userland, why = "native", f"{accel.upper()} on a CPU with AArch32 at EL0"
+    if userland == "qemu-user" and platform in NATIVE_ONLY:
+        if setting == "auto":
+            raise Error(
+                f"{platform} firmware needs native 32-bit execution, which this host cannot "
+                f"provide ({why}; {NATIVE_ONLY[platform]})",
+                "userland",
+            )
+        raise Error(f"userland=qemu-user: {NATIVE_ONLY[platform]}", "userland")
+    return userland, f"userland: {userland} ({why})"
 
 
 # mitm_flows (qemu.py MITM_FLOWS): how many flows the mode=mitm inspector keeps, 0 for all of them;
@@ -142,6 +208,7 @@ SETTINGS = {
     "smp": "SMP",
     "free_page_reporting": "FREE_PAGE_REPORTING",
     "userland": "USERLAND",
+    "guest_kernel": "GUEST_KERNEL",
     "debug_mode": "DEBUG_MODE",
     "layers": "LAYERS",
     "link": "NET_LINK",
@@ -185,11 +252,21 @@ SETTING_HELP = {
     ),
     "userland": (
         "|".join(USERLANDS),
-        "native",
+        DEFAULT_USERLAND,
         "how the firmware's 32-bit ARM programs run: native in AArch32 EL0, or qemu-user, "
         "translated by qemu-arm in the guest with their system calls through the kernel's compat "
-        "table, for hosts without AArch32 at EL0; webOS and the test guest only",
-        "native",
+        "table; auto picks at each start: native under TCG and where KVM's CPU has AArch32 at "
+        "EL0, qemu-user where it has not and with guest_kernel=x86-64. NetCast and SimpleSmart "
+        "always run native",
+        DEFAULT_USERLAND,
+    ),
+    "guest_kernel": (
+        "|".join(GUEST_KERNELS),
+        DEFAULT_GUEST_KERNEL,
+        "the guest kernel's architecture; x86-64 is experimental: x86-64 hosts only, q35 with "
+        "KVM, the whole ARM userland under qemu-user (userland=native is refused), not NetCast "
+        "or SimpleSmart",
+        DEFAULT_GUEST_KERNEL,
     ),
     "debug_mode": (
         "|".join(DEBUG_MODES),
@@ -410,6 +487,7 @@ def validate(cfg, saved=False):
         ("audio", AUDIOS),
         ("free_page_reporting", ONOFF),
         ("userland", USERLANDS),
+        ("guest_kernel", GUEST_KERNELS),
         ("debug_mode", tuple(DEBUG_MODES)),
     )
     for key, allowed in checks:
@@ -431,9 +509,13 @@ def validate(cfg, saved=False):
             byte_size(cfg["mitm_flow_bytes"])
         except ValueError as e:
             raise Error(f"mitm_flow_bytes={e}", "mitm_flow_bytes") from None
-    refusal = userland_refusal(cfg.get("platform"), cfg.get("userland", "native"))
+    refusal = userland_refusal(
+        cfg.get("platform"),
+        cfg.get("userland", DEFAULT_USERLAND),
+        cfg.get("guest_kernel", DEFAULT_GUEST_KERNEL),
+    )
     if refusal:
-        raise Error(refusal, "userland")
+        raise Error(refusal, refusal.split("=", 1)[0])
     if cfg.get("audio") == "dbus" and cfg.get("display") != "dbus":
         raise Error("audio=dbus needs display=dbus", "audio")
     if "slot" in cfg:

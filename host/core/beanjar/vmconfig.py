@@ -19,6 +19,7 @@ FIELDS = {
     "smp": ("hardware", "cpus"),
     "free_page_reporting": ("hardware", "free_page_reporting"),
     "userland": ("hardware", "userland"),
+    "guest_kernel": ("hardware", "guest_kernel"),
     "display": ("display", "backend"),
     "gpu": ("display", "gpu"),
     "audio": ("audio", "backend"),
@@ -109,6 +110,7 @@ def decode(doc):
     for key in (
         "free_page_reporting",
         "userland",
+        "guest_kernel",
         "debug_mode",
         "display",
         "gpu",

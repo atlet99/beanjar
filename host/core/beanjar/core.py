@@ -40,6 +40,7 @@ guest's power-off), framing (screenshots) and capacity (memory admission, listen
 import copy
 import json
 import os
+import platform as platform_module
 import shutil
 import signal
 import subprocess
@@ -1014,8 +1015,11 @@ class Library:
                 v = vmidentity.parse_mac(v)
             elif k == "serial":
                 v = vmidentity.parse_serial(v)
-            elif k == "userland" and v == "native":
-                cfg.pop(k, None)  # native is the default, not written out
+            elif k == "userland" and v == vmsettings.DEFAULT_USERLAND:
+                cfg.pop(k, None)  # auto is the default, not written out
+                continue
+            elif k == "guest_kernel" and v == vmsettings.DEFAULT_GUEST_KERNEL:
+                cfg.pop(k, None)  # arm64 is the default, not written out
                 continue
             elif k == "free_page_reporting" and v == "off":
                 cfg.pop(k, None)  # off is the default, not written out
@@ -1063,15 +1067,21 @@ class Library:
                 paths.firmware_target(d)
             except ValueError as e:
                 raise Error(str(e), "fw") from None
-        if cfg.get("userland", "native") != "native":
-            # qemu-user is refused on some platforms (vmsettings.USERLAND_REFUSED)
+        userland = cfg.get("userland", vmsettings.DEFAULT_USERLAND)
+        guest_kernel = cfg.get("guest_kernel", vmsettings.DEFAULT_GUEST_KERNEL)
+        if guest_kernel != vmsettings.DEFAULT_GUEST_KERNEL:
+            refusal = vmsettings.guest_kernel_host_refusal(guest_kernel, platform_module.machine())
+            if refusal:
+                raise Error(refusal, "guest_kernel")
+        if userland == "qemu-user" or guest_kernel != vmsettings.DEFAULT_GUEST_KERNEL:
+            # refused on some platforms (vmsettings.NATIVE_ONLY)
             try:
                 platform = targets.platform(paths.firmware_target(d))
             except ValueError as e:
                 raise Error(str(e), "fw") from None
-            refusal = vmsettings.userland_refusal(platform, cfg["userland"])
+            refusal = vmsettings.userland_refusal(platform, userland, guest_kernel)
             if refusal:
-                raise Error(refusal, "userland")
+                raise Error(refusal, refusal.split("=", 1)[0])
         vm.save_config(cfg)
         if prepare and any(values.get(k) is not None for k in BOARD_SETTINGS):
             prepare_board_data(self, vm.dir, out)
