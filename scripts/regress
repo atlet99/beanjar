@@ -90,17 +90,17 @@ boot checks, in either mode, with NET_LINK=nat NET_MODE=direct (another network 
              tvsuite.judge_network: dhcp-lease, connman-wired, dns (against the VM host's own
              answer), http (the token, and the server's log of the request), online (connman's
              online state against what the VM host gets of the firmware's Ipv4StatusUrl)
-  apps       each stock app of tests/regress/tv-expect.json's apps (Settings first), through guest.sh
+  apps       each stock app of tests/regress/tv-expect's apps (Settings first), through guest.sh
              app-launch, app-state and app-close (tv.sh): sam's launch, in front, the remote's keys
              (ir-key.py), still in front in the same process, a screenshot (dbus-grab.py) not black,
-             closed (an app needing terms the set has not agreed to, tv-expect.json's eula from its
+             closed (an app needing terms the set has not agreed to, the expected table's eula from its
              requiredEULA: LG's terms screen that sam opens in its place, the same way); the
              test web app (tests/regress/tvapp, ares-package'd here into the run
              directory) installed with dev/install (graphics LAYERS add devmode) and the same.
              No crash report of the app's process from launch to close. Headless: every app
              launched, no keys or screenshot; none can stay up there (no WebAppMgr, no compositor,
              the input apps' stand-in ends), and each must be gone after a pause, sam answering
-  tee        where the firmware has a TEE client (tv-expect.json's tee; else SKIP, citing that no ELF
+  tee        where the firmware has a TEE client (the expected table's tee; else SKIP, citing that no ELF
              of its paks names /dev/tee): guest.sh tee runs tests/regress/tee/tee-probe in webOS through the
              firmware's own libteec: /dev/tee0, the secure-store TA's session and each shipped
              TA's (ITEM_NOT_FOUND by design), the secure-store commands with their round trips,
@@ -111,7 +111,7 @@ boot checks, in either mode, with NET_LINK=nat NET_MODE=direct (another network 
   audio      QEMU records the card on the VM host (tests/regress/audio/capture.py: HMP wavcapture on its
              audiodev) while guest.sh audio plays a tone per phase with paplay: the set's volume,
              five volumeDown, setMuted, unmuted and five volumeUp, each read back with the Audio
-             API's getVolume (tv-expect.json's audio); at the set's volume also one with aplay to
+             API's getVolume (the expected table's audio); at the set's volume also one with aplay to
              ALSA's default (the pulse plugin) and one with aplay to pcm_output's hw PCM (heard
              only: it bypasses PulseAudio); graphics: the test app's WebAudio tone too;
              tvsuite.tone_facts measures each tone's level on the VM host, tvsuite.judge_audio
@@ -119,7 +119,7 @@ boot checks, in either mode, with NET_LINK=nat NET_MODE=direct (another network 
   decode     graphics: the test app (its copy in the run directory, with the clips
              tests/regress/video/make-clips.sh --decode makes here) plays each case of tvsuite.DECODE_CASES
              (H.264+AAC, HEVC+AAC, VP9, MPEG-2+AAC in TS, VP9+Opus and AV1+Opus in WebM with <video>;
-             H.264+AAC, HEVC+AAC, VP9, VP9+Opus and AV1+Opus with its Media Source player) that tv-expect.json's decode row expects (else SKIP, citing it),
+             H.264+AAC, HEVC+AAC, VP9, VP9+Opus and AV1+Opus with its Media Source player) that the expected table's decode row expects (else SKIP, citing it),
              while a viewer of the case's own decodes what the guest's sinks send (headless, or the
              --viewer window: the one judged), recording its log, a capture a second and the media
              audio (never played); tvsuite.media_facts on the VM host, tvsuite.judge_decode here:
@@ -133,9 +133,9 @@ boot checks, in either mode, with NET_LINK=nat NET_MODE=direct (another network 
              callback; the viewer decodes what the sink sends; tvsuite.judge_smp: FRAMEREADY
              while it plays, advancing to the clip's end, the clip decoded on the host. Then
              dev/remove. Headless, or a firmware whose library lacks a symbol the app looks up
-             (tv-expect.json's smp row, tvsuite.smp_plan): SKIP
+             (the expected table's smp row, tvsuite.smp_plan): SKIP
   stop       as above
-  Each check is PASS or FAIL, or SKIP where tests/regress/tv-expect.json (tests/regress/tv-expect-gen.py,
+  Each check is PASS or FAIL, or SKIP where tests/regress/tv-expect/<target>.toml (tests/regress/tv-expect-gen.py,
   from the firmware) has the API, method or key absent from the target's firmware, citing the
   evidence; no WARN. A step fails if any of its checks fails. The table has each step's verdict
   and its PASS/FAIL/SKIP counts, then every FAIL; summary.json has every check under "tv".
@@ -1368,7 +1368,7 @@ def install(h, a, r, out, target, state):
 
 
 def tv_apps(h, a, r, out, target, ctx, state):
-    """--tv apps: each stock app of the target (tv-expect.json's apps) launched, in front, the
+    """--tv apps: each stock app of the target (the expected table's apps) launched, in front, the
     remote's keys, still in front in the same process, its screenshot (graphics), closed;
     graphics: our test app installed and the same. Headless: launched and running only."""
     say(f"{target}: apps")

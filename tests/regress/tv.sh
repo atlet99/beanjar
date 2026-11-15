@@ -4,7 +4,7 @@
 # The TV feature suite's guest side (scripts/regress --tv; docs/dev/guides/build.md, "TV feature suite"). Runs
 # in webOS (tests/regress/guest.sh types `webos-enter sh /mnt/host/tests/regress/tv.sh STEP ...`)
 # and gathers facts only, one "name=value" a line; tests/regress/lib/tvsuite.py judges them on the
-# host against tests/regress/tv-expect.json. Read-only but for the audio step's volume, which it
+# host against tests/regress/tv-expect/<target>.toml. Read-only but for the audio step's volume, which it
 # puts back.
 #   tv.sh luna-info                 the public Luna APIs LG documents for apps, tvservice's own
 #                                   info calls, nyx-cmd's OSInfo and DeviceInfo, the board's words
@@ -382,7 +382,7 @@ ap() {
 }
 audio_step() {
 	d=$1 svc=$2 k=$3 rb=${4:-$2/getVolume} hw=$5
-	# the read-back (tv-expect.json's audio readback): webOS 5 on, audiod's master/getVolume for
+	# the read-back (the expected table's audio readback): webOS 5 on, audiod's master/getVolume for
 	# the active sound output, as the Settings app asks it (soundOutput given)
 	rbp='{}'
 	case $rb in */master/*)

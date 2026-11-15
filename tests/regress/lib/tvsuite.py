@@ -4,8 +4,8 @@
 their judging on the host from the facts tests/regress/tv.sh gathers in the guest.
 
 Five steps (draw in graphics only), each a list of checks; every check is PASS or FAIL, or SKIP where the target's row of the
-expected table, tests/regress/tv-expect.json (made by tests/regress/tv-expect-gen.py from the
-firmware), says the API, method or key is absent from that firmware and cites the file that shows
+expected table, tests/regress/tv-expect/<target>.toml (made by tests/regress/tv-expect-gen.py from
+the firmware; load_expect), says the API, method or key is absent from that firmware and cites the file that shows
 it. There is no WARN: a check that fails needs treatment.
 
   luna-info  the public Luna APIs LG documents for apps (CATALOGUE: TV Device Information, Settings
@@ -22,7 +22,7 @@ it. There is no WARN: a check that fails needs treatment.
   apps       each stock app of the target's table (APP_ROLES) launched, in front, the remote's keys,
              still in front in the same process, its screenshot not black, closed (judge_app); our
              test web app (tvapp) installed with dev/install, the same, removed at the end
-  tee        where the firmware has a TEE client (tv-expect.json's tee: an ELF naming /dev/tee; SKIP
+  tee        where the firmware has a TEE client (the expected table's tee: an ELF naming /dev/tee; SKIP
              with that evidence elsewhere): /dev/tee0, and through the firmware's own libteec
              (tests/regress/tee/tee-probe in webOS) a session of rtk.ko's secure-store TA and of each TA the
              firmware ships (ITEM_NOT_FOUND by design), each secure-store command its clients use
@@ -35,7 +35,7 @@ it. There is no WARN: a check that fails needs treatment.
   decode     graphics: the test app plays each of DECODE_CASES (clips made at test time,
              tests/regress/video/make-clips.sh --decode) with <video> and with its Media Source player,
              while a viewer on the VM host decodes what the guest's sinks send (media_facts there,
-             judge_decode here); SKIP where tv-expect.json's decode row has no evidence that the
+             judge_decode here); SKIP where the expected table's decode row has no evidence that the
              firmware's stack takes the codec on that path; headless SKIP (no web engine)
   smp        graphics: the SMP check app (tests/regress/smp: a StarfishMediaAPIs client as ss4s's player,
              a developer-mode native app) feeds an 8 s H.264 clip at 30 fps; its FRAMEREADY
@@ -54,7 +54,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 REGRESS = os.path.dirname(HERE)  # tests/regress: the suite's data, the app, the guest scripts
 TOP = os.path.dirname(os.path.dirname(REGRESS))
-EXPECT = os.path.join(REGRESS, "tv-expect.json")
+EXPECT_DIR = os.path.join(REGRESS, "tv-expect")  # the expected table: a <target>.toml each
 STEPS = ("luna-info", "network", "apps", "tee", "draw", "audio", "decode", "smp")
 SLIRP_HOST = "10.0.2.2"  # mode=direct: QEMU's slirp, the VM host's 127.0.0.1
 SLIRP_GUEST, SLIRP_DNS = "10.0.2.15", "10.0.2.3"
@@ -301,10 +301,35 @@ def error_of(a, raw):
 # --- the context: what the target is ---
 
 
+def expect_targets():
+    """The targets of the expected table (tests/regress/tv-expect), by name."""
+    return sorted(f[:-5] for f in os.listdir(EXPECT_DIR) if f.endswith(".toml"))
+
+
+def load_expect(target):
+    """A target's row of the expected table (tests/regress/tv-expect/<target>.toml), the evidence of
+    its checks resolved from the file's [sources]; {} where the target has no file."""
+    import tomllib
+
+    path = os.path.join(EXPECT_DIR, f"{target}.toml")
+    try:
+        with open(path, "rb") as f:
+            row = tomllib.load(f)
+    except FileNotFoundError:
+        return {}
+    sources = row.pop("sources", {})
+    for cid, spec in row.get("checks", {}).items():
+        if "source" in spec:
+            if spec["source"] not in sources:
+                raise ValueError(f"{path}: {cid}: no [sources] entry {spec['source']}")
+            spec["source"] = sources[spec["source"]]
+    return row
+
+
 def context(target, fw, env, expect=None, tree=None):
     """What the checks compare with: the target's board (its board.cmdline: model name, serial, MAC,
     chip, RAM), its firmware (the name: version; the OTA id is the guest's, tv.sh's ota_id), its broadcast standard, and its row of
-    the expected table."""
+    the expected table (expect, else load_expect)."""
     import sys
 
     sys.path.insert(0, os.path.join(TOP, "host", "core"))
@@ -312,10 +337,7 @@ def context(target, fw, env, expect=None, tree=None):
     import checklist  # noqa: E402
 
     p = targets.by_name(target)
-    if expect is None:
-        with open(EXPECT) as f:
-            expect = json.load(f)
-    row = expect["targets"].get(target) or {}
+    row = load_expect(target) if expect is None else expect
     fw_dir = paths.find_firmware(fw)  # in the host's collections (firmware_dirs)
     board_broadcast = targets.board_broadcast(p, fw_dir)
     board = nvm.board_params(p, broadcast=board_broadcast)
@@ -616,7 +638,7 @@ def judge_luna(text, ctx):
                 (
                     cid,
                     "FAIL",
-                    "not in tests/regress/tv-expect.json for this target (run tv-expect-gen.py)",
+                    "not in the target's tests/regress/tv-expect file (run tv-expect-gen.py)",
                 )
             )
         elif not exp["present"]:
@@ -833,7 +855,7 @@ TERMS_SCREEN = "com.webos.app.firstuse-overlay"
 # headless has no compositor and no WebAppMgr (guest/layers/headless), and its stand-in for the input
 # apps' binary ends at once: no app can stay up there. Each is launched all the same, Settings
 # first, and must not stay running with sam still answering ("absent by design", as Wi-Fi in
-# luna-info), its reason in tv-expect.json (headless_of)
+# luna-info), its reason in the expected table (headless_of)
 HEADLESS_MAINS = ("file:///usr/bin/com.webos.app.inputcommon",)
 HEADLESS_REASON = {
     "web": "a web app: no WebAppMgr headless (guest/layers/headless: WebAppMgr.override manual, "
@@ -898,7 +920,7 @@ def app_plan(expect, lane):
 
 def terms_first(row, launch):
     """The terms screen's id where the launch's facts (tv.sh app-launch) show it in front in the
-    app's place: the app needs terms (tv-expect.json's eula) the set has not agreed to; else None."""
+    app's place: the app needs terms (the expected table's eula) the set has not agreed to; else None."""
     screen = (row.get("eula") or {}).get("screen")
     if screen and parse(launch).get("front_id") == screen:
         return screen
@@ -1007,7 +1029,7 @@ def expected_crash(target, role, lane, sig):
 
 def app_processes(row):
     """The process names a crash report of the app would carry: its executable's (sam's main, or
-    the binary its launcher script execs: tv-expect.json's process), the runtime's for web
+    the binary its launcher script execs: the expected table's process), the runtime's for web
     (WebAppMgr) and QML (qml-runner) apps, and the compositor's."""
     names = {"surface-manager"}
     t, main = row.get("type"), row.get("main") or ""
@@ -1091,7 +1113,7 @@ def judge_app(role, row, launch, after, close, img=None, lane="graphics", before
         return (
             check,
             "FAIL",
-            "not in tests/regress/tv-expect.json: regenerate it (tv-expect-gen.py)",
+            "not in the target's tests/regress/tv-expect file: regenerate it (tv-expect-gen.py)",
         )
     name = app_id or "StarfishLauncher"
     L, A, C = parse(launch), parse(after), parse(close)
@@ -1106,7 +1128,7 @@ def judge_app(role, row, launch, after, close, img=None, lane="graphics", before
             "FAIL",
             (
                 f"{name}: app not present: sam's getAppInfo {L.get('appinfo', '')[:120] or 'no answer'}, "
-                f"where tv-expect.json has it in the firmware ({row.get('source', '')})"
+                f"where the expected table has it in the firmware ({row.get('source', '')})"
             ),
         )
     if lane == "headless" and not (row.get("headless") or {}).get("runs", True):
@@ -1140,7 +1162,7 @@ def judge_app(role, row, launch, after, close, img=None, lane="graphics", before
             check,
             "FAIL",
             (
-                f"{name}: still running headless (pid {e.get('processid')}), which tv-expect.json "
+                f"{name}: still running headless (pid {e.get('processid')}), which the expected table "
                 f"says it cannot ({why}): correct the table"
             ),
         )
@@ -1192,7 +1214,7 @@ def judge_app(role, row, launch, after, close, img=None, lane="graphics", before
         if "TV FACTS END" not in close or in_front(C, None, kind):
             bad.append("still shown after HOME again")
     elif row.get("stays"):
-        # the Home of webOS 4.5 on answers closeByAppId and stays up (tv-expect.json's "stays")
+        # the Home of webOS 4.5 on answers closeByAppId and stays up (the expected table's "stays")
         e0, e1 = answer(C.get("close_before", "")), running_entry(C.get("running"), app_id)
         if "TV FACTS END" not in close or answer(C.get("close", "")).get("returnValue") is not True:
             bad.append(f"closeByAppId failed: {C.get('close', '')[:120]}")
@@ -1496,7 +1518,7 @@ def _heard(tf, hz):
 def judge_audio(facts, web, row, lane="graphics"):
     """The audio step's checks. facts: (tv.sh audio's output, tone_facts of its recording), None
     where the firmware has no Audio API (row's api); web: (the test app's launch facts, tone_facts
-    of the WebAudio recording), None headless. row: tv-expect.json's audio."""
+    of the WebAudio recording), None headless. row: the expected table's audio."""
     items, phases = [], dict(AUDIO_PHASES)
     api = row.get("api") or {}
     checks = (
@@ -1656,7 +1678,7 @@ def judge_alsa(f, tf, row, native):
     for check, name, key in (("audio.aplay", "aplay", "aplay"), ("audio.alsa-hw", "hw", "alsa_hw")):
         exp = row.get(key)
         if not exp:
-            items.append((check, "FAIL", f"tv-expect.json's audio has no {key} row"))
+            items.append((check, "FAIL", f"the expected table's audio has no {key} row"))
             continue
         if exp.get("present") is not True:
             items.append((check, "SKIP", exp.get("source", f"no {key}")))
@@ -1816,7 +1838,7 @@ def judge_tee(text, row, huk=None):
             (
                 "tee",
                 "SKIP",
-                tee.get("source") or "no tee row in tv-expect.json (run tv-expect-gen.py)",
+                tee.get("source") or "no tee row in the expected table (run tv-expect-gen.py)",
             )
         ]
     f = parse(text, r"[A-Za-z0-9_.-]+")  # open.UUID
@@ -2392,7 +2414,7 @@ def decode_plan(row, lane):
                     path,
                     vc,
                     ac,
-                    dict(present=True, source="not in tv-expect.json's decode row"),
+                    dict(present=True, source="not in the expected table's decode row"),
                 )
             )
         elif not exp.get("present"):
@@ -2475,7 +2497,7 @@ def judge_decode(case, path, vcodec, acodec, exp, page, media, crashes_before=No
         bad.append("no playing event")
     if page.get("top", 0) < DECODE_CLIP - DECODE_SPAN:
         bad.append(f"currentTime reached {page.get('top', 0):.1f} s of {DECODE_CLIP:.0f}")
-    # a stream the firmware's engine never ends (tv-expect.json's "ended": W16R's TvRenderer without
+    # a stream the firmware's engine never ends (the expected table's "ended": W16R's TvRenderer without
     # an audio stream): it plays to its end, and neither "ended" nor the end of stream comes
     no_end = (exp or {}).get("ended", {}).get("expected") is False
     if "ended" not in ev and not no_end:

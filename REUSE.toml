@@ -69,6 +69,7 @@ SPDX-License-Identifier = "MIT"
 # Data and generated files whose exact bytes matter, or that a header would only clutter.
 [[annotations]]
 path = [
+  "tests/regress/tv-expect/**.toml",
   "guest/targets/**.toml",
   "guest/layers/hbchannel/versions/**",
   "guest/layers/soc/*/base",

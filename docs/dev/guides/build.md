@@ -490,7 +490,7 @@ volume and puts it back.
   not.
 
 Every check is PASS or FAIL; there is no WARN. A check is SKIP only where the expected table,
-`tests/regress/tv-expect.json`, says that firmware does not have the API, method, key or nyx query,
+`tests/regress/tv-expect/<target>.toml`, says that firmware does not have the API, method, key or nyx query,
 and the SKIP cites the table's evidence. A check the table does not list fails. The table is
 generated, not written: `tests/regress/tv-expect-gen.py` reads each target's firmware (the one the
 run picks) with `unsquashfs` and records the release, the paks' broadcast line, connman's online
@@ -506,10 +506,15 @@ check and, for each check, `present` and its `source`. It claims absence only on
 
 A string being there proves only that the check runs: an API the firmware lacks some other way
 shows as a FAIL, to be looked at. Regenerate after adding a target or changing a check
-(`tests/regress/tv-expect-gen.py`, `--target` for one); `tests/unit/regress/test_tvsuite.py` tests the
-judging and the generator's parsing.
+(`tests/regress/tv-expect-gen.py`, `--target` for one; it rewrites only the files of the targets it
+runs for). A target's file has one line for each check, decode case and part of an app (an inline
+table, its keys sorted), so a fix across many targets is a `sed` or a short script and its diff is
+small; a check's `source` names an entry of the file's `[sources]`, which holds each evidence
+string once, and the suite prints the evidence. Such hand edits are fine, but the generator is the
+source of truth: make the same change there. `tests/unit/regress/test_tvsuite.py` tests the
+judging, the generator's parsing and the files.
 
-- `apps`: each stock app the table names for the target (`tv-expect.json`'s `apps`, from the
+- `apps`: each stock app the table names for the target (the table's `apps`, from the
   firmware's `usr/palm/applications/<id>/appinfo.json`), Settings first: Settings
   (`com.palm.app.settings`), the web browser (`com.webos.app.browser`), Live TV
   (`com.webos.app.livetv`), the input picker (`com.webos.app.inputpicker` on webOS 1,
@@ -546,7 +551,7 @@ judging and the generator's parsing.
   ends by crashing stays in sam's list while crashd writes its report, tens of seconds under TCG
   with other VMs), as the Wi-Fi rows do, and fails if it stays up or leaves a crash report that
   is not an expected one.
-- `tee`: where the firmware has a TEE client (`tv-expect.json`'s `tee`: `tv-expect-gen.py` lists
+- `tee`: where the firmware has a TEE client (the table's `tee`: `tv-expect-gen.py` lists
   every ELF file of the target's paks that names `/dev/tee`, the Realtek targets' libkadaptor and
   tee-supplicant, and the TAs in `usr/lib/optee_armtz`; elsewhere one SKIP citing that none of the
   N files does), `tests/regress/tv.sh tee` runs `tests/regress/tee/tee-probe` (`build/tests/tee`) in webOS
@@ -573,7 +578,7 @@ judging and the generator's parsing.
 - `audio`: the guest plays tones through LG's own sound path while QEMU records the card on the VM
   host: `tests/regress/audio/capture.py` starts HMP `wavcapture` (over QMP) on the card's audiodev, whatever
   backs it (`dbus` in graphics, `none` headless and under TCG), into the target's `audio/*.wav`, so
-  nothing reaches a speaker. `tv.sh audio` (`tv-expect.json`'s `audio`: the Audio API's service,
+  nothing reaches a speaker. `tv.sh audio` (the table's `audio`: the Audio API's service,
   `com.webos.audio`, its `getVolume`, `setMuted`, `volumeUp` and `volumeDown` as audiod registers or
   names them, and `usr/bin/paplay`) first makes one master volume change and its undo
   (`volumeDown`, `volumeUp`: until one, W18R's and W19P's audiod gives the first app stream 90 % of
@@ -636,7 +641,7 @@ judging and the generator's parsing.
   false}`: W16R's engine (Chromium 38's `TvRenderer`, `libcbe.so`) pushes the pipeline's end of
   stream and reports the end only after the audio stream's, so an MSE stream without audio plays
   to its last frame and the page gets `waiting` (`tv-expect-gen.py`'s `mse_audio_eos_of` finds
-  that gate in the engine's code). A case is SKIP where `tv-expect.json`'s `decode` row says the firmware's stack does not take it,
+  that gate in the engine's code). A case is SKIP where the table's `decode` row says the firmware's stack does not take it,
   citing why: `tv-expect-gen.py` reads the stock decoder elements' claim (gst-omx's
   `/etc/xdg/gstomx.conf` codec sections on MStar and Realtek, else the sink pad caps of LG's
   `vdecsink`/`omx_lxvideodec` and `adecsink`/`audio_dec`), umediaserver's
@@ -661,7 +666,7 @@ judging and the generator's parsing.
   (`SMPCHECK`). `tvsuite.judge_smp`: LOADCOMPLETED, FRAMEREADY (type 0, the shown frame's PTS)
   at least twice a second of feeding, never going back and reaching the clip's last frame within
   0.5 s, the viewer showing 75 % of the clip's frames in a window, no crash report. SKIP, without
-  installing, where `tv-expect.json`'s `smp` row says the firmware's `libplayerAPIs.so.1` does not
+  installing, where the table's `smp` row says the firmware's `libplayerAPIs.so.1` does not
   export a name of each of the app's `SYM()` lookups (`tv-expect-gen.py` reads its `.dynsym`:
   webOS 1's has no `StarfishMediaAPIs(const char *)`, webOS 2's `Load` takes no user data), or
   the app finds no library. Then `dev/remove`. The run's lines are in the target's

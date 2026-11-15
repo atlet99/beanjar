@@ -28,6 +28,11 @@ FW = "03.70.25.01-HE_DTV_W21P_AFADATAA"
 NOW = 1791031888
 
 
+def expect_table():
+    """{target: its row} of the tracked expected table (tests/regress/tv-expect)."""
+    return {t: tvsuite.load_expect(t) for t in tvsuite.expect_targets()}
+
+
 def ctx(checks=None, broadcast="dvb"):
     """A W21P-like target: every check expected unless checks says otherwise."""
     present = {cid: dict(present=True, source="test") for cid in tvsuite.catalogue()}
@@ -515,9 +520,8 @@ class HelpersTest(unittest.TestCase):
 
     def test_expect_table(self):
         """The tracked table has every target and every check."""
-        with open(tvsuite.EXPECT) as f:
-            doc = json.load(f)
-        for target, row in doc["targets"].items():
+        table = expect_table()
+        for target, row in table.items():
             for cid in tvsuite.catalogue():
                 self.assertIn(cid, row["checks"], target)
             for cid, exp in row["checks"].items():
@@ -528,6 +532,59 @@ class HelpersTest(unittest.TestCase):
                 self.assertTrue(
                     not app["present"] or app.get("id") or app.get("kind") == "key", (target, role)
                 )
+
+    def test_expect_files(self):
+        """Every file of tests/regress/tv-expect parses, is a target's (guest/targets/<target>.toml),
+        and each of its checks' sources is in its [sources]."""
+        import tomllib
+
+        top = os.path.dirname(os.path.dirname(REGRESS))
+        names = os.listdir(tvsuite.EXPECT_DIR)
+        self.assertTrue(names)
+        for name in names:
+            self.assertTrue(name.endswith(".toml"), name)
+            self.assertTrue(os.path.isfile(os.path.join(top, "guest", "targets", name)), name)
+            with open(os.path.join(tvsuite.EXPECT_DIR, name), "rb") as f:
+                doc = tomllib.load(f)
+            self.assertTrue(doc["checks"], name)
+            for cid, exp in doc["checks"].items():
+                self.assertIn(exp["source"], doc["sources"], (name, cid))
+
+    def test_expect_text(self):
+        """The generator's file reads back as the row (None left out), checks' evidence once in
+        [sources], and the same row gives the same text."""
+        import tomllib
+
+        ev = (
+            "com.webos.service.tv.systemproperty by tvservice-dvb.pak:/mnt/lg/tvservice/x; 'a' in y"
+        )
+        row = dict(
+            firmware=FW,
+            webos=6,
+            broadcast=None,
+            release=dict(name="Rockhopper", version="6.6.0-6", codename="kisscurl-kolovesi"),
+            checks={
+                "sysinfo.boardType": dict(present=True, source=ev),
+                "sysinfo.modelName": dict(present=True, source=ev),
+                "nyx.DeviceInfo.output": dict(present=True, accept=["a", "b"], source="nyx-cmd"),
+            },
+            apps=dict(home=dict(present=True, id=None, headless=dict(runs=False, source="s"))),
+            tee=dict(clients=[], tas=[f"{i:08x}-0000-0000-0000-000000000000" for i in range(4)]),
+            audio=dict(webaudio=dict(present=True, level_db=-8.08)),
+        )
+        text = gen.expect_text("k7lp-kisscurl", row)
+        self.assertEqual(text, gen.expect_text("k7lp-kisscurl", row))
+        self.assertEqual(text.count(ev), 1)
+        self.assertIn(
+            '"sysinfo.boardType" = { present = true, source = "com-webos-service-tv-', text
+        )
+        self.assertIn('    "00000003-0000-0000-0000-000000000000",\n', text)  # one a line
+        doc = tomllib.loads(text)
+        sources = doc.pop("sources")
+        for exp in doc["checks"].values():
+            exp["source"] = sources[exp["source"]]
+        del row["broadcast"], row["apps"]["home"]["id"]
+        self.assertEqual(doc, row)
 
 
 def state(fg="", lsm_fg="", lsm_state="", running=(), wam="100", lsm="200", extra=""):
@@ -760,7 +817,7 @@ class AppsTest(unittest.TestCase):
         )
 
     def test_expected_browser_crashes(self):
-        # the browser's process is the one its launcher script execs (tv-expect.json's process)
+        # the browser's process is the one its launcher script execs (the expected table's process)
         row = dict(
             present=True,
             id="com.webos.app.browser",
@@ -1102,9 +1159,8 @@ class TeeTest(unittest.TestCase):
 
     def test_expect_table_tee(self):
         """Every target's row says whether its firmware has a TEE client, with the evidence."""
-        with open(tvsuite.EXPECT) as f:
-            doc = json.load(f)
-        for target, row in doc["targets"].items():
+        table = expect_table()
+        for target, row in table.items():
             self.assertTrue(row["tee"]["source"], target)
             plan = tvsuite.tee_plan(row, target)
             # every Realtek firmware has a client library (others may: LM21A's)
@@ -1113,7 +1169,7 @@ class TeeTest(unittest.TestCase):
             if plan:
                 self.assertRegex(plan[0], r"^/usr/lib/lib[^/]+\.so[.0-9]*$", target)
         self.assertEqual(
-            tvsuite.tee_plan(doc["targets"]["k7lp-kisscurl"], "k7lp-kisscurl")[0],
+            tvsuite.tee_plan(table["k7lp-kisscurl"], "k7lp-kisscurl")[0],
             "/usr/lib/libkadaptor.so.1.0.0",
         )
 
@@ -1298,9 +1354,8 @@ class AudioTest(unittest.TestCase):
 
     def test_expect_table_audio(self):
         """Every target's row has the Audio API and WebAudio with their evidence."""
-        with open(tvsuite.EXPECT) as f:
-            doc = json.load(f)
-        for target, row in doc["targets"].items():
+        table = expect_table()
+        for target, row in table.items():
             self.assertEqual(row["audio"]["service"], tvsuite.AUDIO_SERVICE, target)
             for k in ("api", "webaudio", "aplay", "alsa_hw"):
                 self.assertTrue(row["audio"][k]["source"], target)
@@ -1317,7 +1372,7 @@ class AudioTest(unittest.TestCase):
                 )
             if row["audio"]["alsa_hw"]["present"]:
                 self.assertRegex(row["audio"]["alsa_hw"]["device"], r"^hw:\d+,\d+$", target)
-        self.assertEqual(doc["targets"]["k7lp-kisscurl"]["audio"]["webaudio"]["level_db"], -8.08)
+        self.assertEqual(table["k7lp-kisscurl"]["audio"]["webaudio"]["level_db"], -8.08)
 
 
 CLIP = tvsuite.DECODE_CLIP
@@ -1750,14 +1805,13 @@ class SmpTest(unittest.TestCase):
 
     def test_expect_table_smp(self):
         """webOS 1 (no StarfishMediaAPIs(const char *)) and 2 (Load without user data) lack the API."""
-        with open(tvsuite.EXPECT) as f:
-            doc = json.load(f)
-        for target, row in doc["targets"].items():
+        table = expect_table()
+        for target, row in table.items():
             self.assertEqual(
                 row["smp"]["present"], target not in ("h13-afro", "m14-beehive"), target
             )
         self.assertEqual(
-            doc["targets"]["m14-beehive"]["smp"]["missing"],
+            table["m14-beehive"]["smp"]["missing"],
             ["_ZN17StarfishMediaAPIs4LoadEPKcPFvixS1_PvES2_"],
         )
 
