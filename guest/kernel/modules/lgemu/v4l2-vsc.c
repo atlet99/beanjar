@@ -33,6 +33,8 @@
 #define DQEVENT        0x80805659
 #define REGION         0x00982900
 #define CONNECT        0x0098290c
+#define ORBIT_WINDOW   0x00982911
+#define ORBIT_MOVE     0x00982912
 #define BG_COLOR       0x00980923
 #define VDO_CONNECT    0x00988e02
 #define VDO_DISCONNECT 0x00988e03
@@ -50,6 +52,7 @@ static DEFINE_MUTEX(lock);
 static struct {
     struct lgemu_video_window window;
     u8 region[36], connect[12];
+    u8 orbit[2][32]; /* OLED pixel-orbit window and move: four rects, kept as set */
     unsigned int region_size;
     bool has_region, has_connect;
     bool vsc_connected, vdo_connected;
@@ -198,11 +201,11 @@ static long extended(struct vsc_file *f, unsigned int cmd, void __user *arg)
         return -EFAULT;
     id = control[0];
     size = control[1];
-    if (id != REGION && id != CONNECT)
+    if (id != REGION && id != CONNECT && id != ORBIT_WINDOW && id != ORBIT_MOVE)
         return -EOPNOTSUPP;
     /* The region is 28 bytes, {input, original, output rects (u16 x, y, w, h), u32 rotation}; W22O
      * queue's nyxVscaler appends the output rect in the app's coordinates (36): read the same. */
-    if (id == REGION ? size != 28 && size != 36 : size != 12)
+    if (id == REGION ? size != 28 && size != 36 : id == CONNECT ? size != 12 : size != 32)
         return -EINVAL;
     ptr = compat_ptr(control[3]);
     if (cmd == S_EXT && copy_from_user(payload, ptr, size))
@@ -217,7 +220,16 @@ static long extended(struct vsc_file *f, unsigned int cmd, void __user *arg)
          get_unaligned_le32(payload + 8) > 1 || payload[5]))
         return -EOPNOTSUPP;
     mutex_lock(&lock);
-    if (cmd == S_EXT && id == REGION) {
+    if (id == ORBIT_WINDOW || id == ORBIT_MOVE) {
+        /* Nothing to shift on an emulated panel: keep the payload and report it back. */
+        u8 *orbit = state[f->index].orbit[id == ORBIT_MOVE];
+        if (cmd == S_EXT) {
+            memcpy(orbit, payload, size);
+            pr_debug("window %u orbit %s set\n", f->index, id == ORBIT_MOVE ? "move" : "window");
+        } else {
+            memcpy(payload, orbit, size);
+        }
+    } else if (cmd == S_EXT && id == REGION) {
         memcpy(state[f->index].region, payload, size);
         state[f->index].region_size = size;
         state[f->index].has_region = true;
