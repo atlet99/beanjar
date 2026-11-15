@@ -1,0 +1,12 @@
+{
+  "id": "org.webosbrew.beanjar.sitevideo",
+  "version": "1.0.0",
+  "vendor": "Beanjar",
+  "type": "web",
+  "main": "index.html",
+  "title": "Big Buck Bunny",
+  "icon": "icon-80.png",
+  "largeIcon": "icon-130.png",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": true
+}
