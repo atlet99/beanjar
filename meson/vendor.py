@@ -4,7 +4,8 @@
 """The prebuilt third-party programs of beanjar-vendor that packaging/vendor.toml pins.
 
     vendor.py tree ARCH PROGRAM...     print the unpacked tree of each, one per line
-    vendor.py pinned PROGRAM...        print those of the programs that are pinned, one per line
+    vendor.py pinned PROGRAM...        print those of the programs that are pinned (or overridden,
+                                       BEANJAR_VENDOR_<PROGRAM>), one per line
 
 Each program is a GitHub release of the pinned repository, tag <program>-<version>, holding
 <program>-<version>-<arch>.tar.xz (arch: Debian's amd64 or arm64), whose root is the program's
@@ -17,7 +18,10 @@ no other source of these programs: no system package and no local build stands i
 
 A pin with guest = "<arch>" is a program that runs inside the guest, not on the host: it has one
 tarball, for that architecture, which every host architecture takes (qemu-user's qemu-arm: arm64;
-the test guest's userland, docs/dev/architecture/test-guest.md: armhf).
+the test guest's userland, docs/dev/architecture/test-guest.md: armhf). guest = ["<arch>", ...]
+pins a tarball for each of the guest architectures named (qemu-user: arm64 for the arm64 guest
+kernel, amd64 for the experimental x86-64 one): PROGRAM is the first, PROGRAM:ARCH another one,
+which BEANJAR_VENDOR_<PROGRAM>_<ARCH> overrides.
 
 BEANJAR_VENDOR_<PROGRAM> (upper case, '-' as '_'), the path of a tarball of the program, takes it
 in place of the pinned release, pinned or not: a build of beanjar-vendor's own (its CI run's
@@ -57,14 +61,29 @@ def pins(path=PIN):
         tag = pin.get("tag", "")
         if not tag.startswith(program + "-"):
             raise Error(f"{path}: {program}: the tag must be {program}-<version>, not {tag!r}")
-        guest = pin.get("guest")
-        if guest is not None and not isinstance(guest, str):
-            raise Error(f"{path}: {program}: guest is the guest's architecture, not {guest!r}")
-        for arch in (guest,) if guest else ARCHS:
+        guest = guests(pin)
+        if guest is None:
+            raise Error(
+                f"{path}: {program}: guest is the guest's architectures, not {pin['guest']!r}"
+            )
+        for arch in guest or ARCHS:
             if len(pin.get(arch, "")) != 64:
                 raise Error(f"{path}: {program}: no SHA-256 for {arch}")
         found[program] = dict(pin, repository=repository, version=tag[len(program) + 1 :])
     return found
+
+
+def guests(pin):
+    """The guest architectures of a pin (guest = "<arch>" or a list of them), [] for a host
+    program, None for a guest value that is neither."""
+    guest = pin.get("guest")
+    if guest is None:
+        return []
+    if isinstance(guest, str):
+        return [guest]
+    if isinstance(guest, list) and guest and all(isinstance(a, str) for a in guest):
+        return guest
+    return None
 
 
 def asset(pin, program, arch):
@@ -139,16 +158,22 @@ def override(program):
 
 
 def tree(program, arch, pin_path=PIN, cache=CACHE):
-    """The unpacked tree of program for arch, downloaded and unpacked first where needed."""
-    local = override(program)
+    """The unpacked tree of program for arch, downloaded and unpacked first where needed. program
+    may be PROGRAM:GUEST, a guest pin's tarball for that guest architecture."""
+    program, _, guest_arch = program.partition(":")
+    local = override(program + (f"-{guest_arch}" if guest_arch else ""))
     if local:
         if not local.is_file() or not local.name.endswith(".tar.xz"):
             raise Error(f"BEANJAR_VENDOR_{program.upper()}: no tarball {local}")
         directory = cache / local.name.removesuffix(".tar.xz")
         unpack(local, directory, sha256(local))
-        got = buildinfo(directory / "BUILDINFO").get("Program")
-        if got != program:
-            raise Error(f"{local}: BUILDINFO names {got!r}, not {program!r}")
+        info = buildinfo(directory / "BUILDINFO")
+        if info.get("Program") != program:
+            raise Error(f"{local}: BUILDINFO names {info.get('Program')!r}, not {program!r}")
+        if guest_arch and info.get("Architecture") != guest_arch:
+            raise Error(
+                f"{local}: BUILDINFO's architecture {info.get('Architecture')!r}, not {guest_arch!r}"
+            )
         return directory
     all_pins = pins(pin_path)
     if program not in all_pins:
@@ -156,8 +181,10 @@ def tree(program, arch, pin_path=PIN, cache=CACHE):
     if arch not in ARCHS:
         raise Error(f"no prebuilt {program} for {arch} (only {', '.join(ARCHS)})")
     pin = all_pins[program]
-    if pin.get("guest"):
-        arch = pin["guest"]  # it runs in the guest, on every host
+    if guest_arch and guest_arch not in guests(pin):
+        raise Error(f"{pin_path}: {program} has no guest tarball for {guest_arch}")
+    if guests(pin):
+        arch = guest_arch or guests(pin)[0]  # it runs in the guest, on every host
     name, url = asset(pin, program, arch)
     expected = pin[arch]
     tarball = cache / "download" / name
@@ -180,7 +207,10 @@ def main(argv):
         except Error as e:
             sys.exit(f"vendor.py: {e}")
         for program in argv[1:]:
-            if program in found:
+            name, _, guest_arch = program.partition(":")
+            if override(name + (f"-{guest_arch}" if guest_arch else "")) or (
+                name in found and (not guest_arch or guest_arch in guests(found[name]))
+            ):
                 print(program)
         return
     if len(argv) < 3 or argv[0] != "tree":

@@ -91,14 +91,17 @@ if not guest_lane
   fs.read(top / 'packaging/vendor.toml')
   vendor_programs = ['qemu', 'ffmpeg', 'neatvnc']
   # qemu-user's qemu-arm (the compat bridge, docs/dev/architecture/qemu-user-bridge.md) runs in the
-  # guest: its one arm64 tarball, once vendor.toml pins it, is published as build/qemu-user
+  # guest: its arm64 tarball, once vendor.toml pins it (or BEANJAR_VENDOR_QEMU_USER names one), is
+  # published as build/qemu-user; on an amd64 host also its amd64 one, qemu-user:amd64, for the
+  # experimental x86-64 guest kernel, as build/qemu-user-amd64
   vendor_programs += run_command(python, files('vendor.py'), 'pinned', 'qemu-user',
+                                 vendor_arch == 'amd64' ? ['qemu-user:amd64'] : [],
                                  check: true).stdout().strip().split()
   vendor_trees = run_command(python, files('vendor.py'), 'tree', vendor_arch, vendor_programs,
                              check: true).stdout().strip().split('\n')
   vendor = {}
   foreach i : range(vendor_programs.length())
-    vendor += {vendor_programs[i]: vendor_trees[i]}
+    vendor += {vendor_programs[i].replace(':', '-'): vendor_trees[i]}
   endforeach
   # The libraries through their own pkg-config files, which find their tree from where they are
   # (prefix=${pcfiledir}/../..), with this machine's pkg-config (the cross file's in the arm64
