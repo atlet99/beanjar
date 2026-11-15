@@ -47,17 +47,23 @@ endif
 # it: SA_getDeviceID failed and sdx sent LG's login without X-Device-ID. On this chip the shim
 # then answers the regional model items too.
 sestore_model_items_nyx = true
-# libkadaptor: after LG's login, sdx sets the server time on the secure clock (libsecuretime, nyxDrm,
+# libkadaptor (bsppart's KADP, libkadaptor.so.2.0.1 from mullet to spacebuns; its .so.0 names,
+# links to the stock file there, are made links to the shim). Everywhere: KADP's Widevine OEMCrypto
+# reaches a TEE the VM lacks, and mullet's and number1's have no failure path there: Cobalt's EME
+# setup crashed in wvca_open_session (W22O number1; ponytail's and queue's KADP fail on their own).
+# The shim answers OEMCrypto_Initialize INIT_FAILED when KADP's TEE client finds no TEE, which
+# the CE CDM takes as Widevine unavailable (kadaptor-oemcrypto.c).
+# And after LG's login, sdx sets the server time on the secure clock (libsecuretime, nyxDrm,
 # libdrmddi, LGSOC_DRM_SetSecureClock), which ends in PlayReady's TA. With no TEE that call failed,
 # sdx stayed unauthenticated and eula-service never started: the User Agreements had no terms.
-# The shim answers the TA call TEEC_ERROR_NOT_SUPPORTED, which KADP takes as success. KADP is
-# bsppart's; its .so.0 names, links to the stock file there, are made links to the shim. Wherever
-# the firmware's secure clock goes through nyx's DRM module (nyxDrm.module: queue and spacebuns).
+# The shim answers the TA call TEEC_ERROR_NOT_SUPPORTED, which KADP takes as success, wherever the
+# firmware's secure clock goes through nyx's DRM module (nyxDrm.module: queue and spacebuns).
+hal_stock += {'libkadaptor': ['libkadaptor.so.2', 'libkadaptor.so.2.0.1',
+  ['libkadaptor.so.0', 'libkadaptor.so.0.1.0'], 'bsppart']}
+kadaptor_source = ['kadaptor-oemcrypto.c']
 fw_questions += 'path usr/lib/nyx/modules/nyxDrm.module'
 if fw_path.get('usr/lib/nyx/modules/nyxDrm.module', false)
-  hal_stock += {'libkadaptor': ['libkadaptor.so.2', 'libkadaptor.so.2.0.1',
-    ['libkadaptor.so.0', 'libkadaptor.so.0.1.0'], 'bsppart']}
-  kadaptor_source = 'kadaptor-securetime.c'
+  kadaptor_source += 'kadaptor-securetime.c'
 endif
 # The Qt EGLFS Starfish setup (starfish/): wherever the firmware's compositor is Qt with LG's
 # eglfs_starfish integration (QT_QPA_EGLFS_INTEGRATION=eglfs_starfish in product.env, which ships

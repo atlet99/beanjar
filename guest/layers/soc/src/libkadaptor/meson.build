@@ -5,8 +5,10 @@
 #   kadaptor-xc.c          M2 (bsppart's MStar KADP, libkadaptor.so, no SONAME): W16R's KADP runs the
 #                          XC scaler's window calls on a user-mode Utopia XC instance, so they are passed
 #                          on to a kernel-mode one as well, where mstar-utopia.ko reports the windows.
-#   kadaptor-securetime.c  O22 with nyxDrm (queue, spacebuns; libkadaptor.so.2): the secure clock's PlayReady TA call, which
-#                          has no TEE here, answered "not supported" as KADP accepts.
+#   kadaptor-oemcrypto.c   O22 and its successors (libkadaptor.so.2): Widevine's OEMCrypto_Initialize, answered
+#                          INIT_FAILED where KADP's TEE client finds no TEE, as the CE CDM accepts.
+#   kadaptor-securetime.c  O22 with nyxDrm (queue, spacebuns), beside it: the secure clock's PlayReady TA call,
+#                          which has no TEE here, answered "not supported" as KADP accepts.
 kadaptor_base = 'libkadaptor'
 kadaptor_soname = hal_stock['libkadaptor'][0]
 kadaptor_stock = shared_library(kadaptor_base, hal_link_stub,

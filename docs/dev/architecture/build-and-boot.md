@@ -112,7 +112,9 @@ so a partial extraction cannot change a selection. `guest/layers/soc/meson.build
   `ssl-cert-getter.js` (its TLS key) or `nyxSecureStore.module` (nyx crypto's model secret).
   On a chip whose table sets `sestore_model_items_nyx` (O22 and its successors), a nyx
   reader also turns on the regional model items (`sestore_model_items`).
-- O22's secure-clock `libkadaptor`: wherever the rootfs has `nyxDrm.module`.
+- O22's `libkadaptor`: on every O22-family firmware, Widevine's `OEMCrypto_Initialize` answered
+  `INIT_FAILED` when KADP's TEE client finds no TEE; and its secure clock wherever the rootfs has
+  `nyxDrm.module`.
 
 Where only the release can decide, a rule applies from a release on, in LG's order
 (`targets.WEBOS_ORDER`, `vm-launcher config RELEASES`): `webos_reached` holds the releases up to and

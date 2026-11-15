@@ -24,7 +24,8 @@
 #                    gateway reads it), and the model secret where nyx crypto reads it (queue on)
 #   libhal_avd/      the analog decoder's no signal over MStar's board HAL (hal-avd.c)
 #   libkadaptor/     M2's XC window calls, passed to the kernel too (kadaptor-xc.c); O22's
-#                    secure clock through nyxDrm without a PlayReady TA (kadaptor-securetime.c)
+#                    Widevine OEMCrypto without a TEE (kadaptor-oemcrypto.c) and secure clock
+#                    through nyxDrm without a PlayReady TA (kadaptor-securetime.c)
 #   libaibsp/        O22's AI picture BSP for nn-proxy, with no NPU (every entry a no-op)
 #   libaibspLib/     O22's AI tone and scene services for pqcontroller, likewise
 #   video/           the media elements under their stock names, in gst_plugin_dir (none if '')
