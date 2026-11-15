@@ -49,7 +49,7 @@ To build from source instead, see [Building](docs/dev/guides/build.md).
 
 ## Using it
 
-Run `beanjar` to open the manager. Choose **New VM** and give it your firmware `.epk` (this needs [epk2extract](https://github.com/openlgtv/epk2extract) on your `PATH`) or a directory of its extracted paks, then **Start** and **Connect**.
+Run `beanjar` to open the manager. Choose **New VM** and give it your firmware `.epk` (this needs [epk2extract](https://github.com/openlgtv/epk2extract) on your `PATH`; [Getting started](docs/user/getting-started.md#epk2extract) shows how to build it) or a directory of its extracted paks, then **Start** and **Connect**.
 
 Or from a terminal:
 

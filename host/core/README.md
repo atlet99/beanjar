@@ -28,7 +28,7 @@ of paks (`epk2extract` output, or another VM's `firmware/`), which become the VM
 (a path ending in `.epk`, with or without a `/`), extracted into the VM's own `firmware/` (see
 Firmware).
 
-The supported targets are listed in the [project README](../../README.md#supported-firmware).
+The supported targets are the files of [`guest/targets/`](../../guest/targets/) (see the [project README](../../README.md#supported-firmware)).
 Build the guest artifacts for the imported firmware's target before starting it. webOS and
 SimpleSmart use the webOS SDK; NetCast 4.5 requires the lgtv SDK and its initial cross-file
 setup described in [Building](../../docs/dev/guides/build.md#commands). Legacy UI checks are separate

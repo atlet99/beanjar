@@ -27,19 +27,64 @@ from here.
 ## Firmware
 
 No firmware, keys or model secrets come with Beanjar. You supply an LG firmware file (`.epk`) or a
-directory of its extracted paks, for one of the firmware builds in the
-[support table](../../README.md#supported-firmware). Other models are refused when the VM is made.
+directory of its extracted paks. Each supported firmware maps to a target, a file in
+[`guest/targets/`](../../guest/targets/) named `<chip>-<release>.toml`; its `models` line lists the
+model codes it takes. Your model is supported if its code, the part after `_DTV_` in the
+firmware's file name (`WT1H` in `..._DTV_WT1H_...`), is in one of those `models` lines, and the
+firmware's webOS release is that file's release. Other firmware is refused when the VM is made, and
+a target with `tested = false` is accepted with a warning that it may not boot.
 
 - The manager window's **New VM** and `beanjar create NAME --firmware FILE.epk` take a `.epk` and
-  extract it with [epk2extract](https://github.com/openlgtv/epk2extract), which must be on `PATH`
-  (or in `~/.local/bin`). The VM keeps only the paks it uses; the rest of the extraction is
-  deleted.
+  extract it with `epk2extract` (see below). The VM keeps only the paks it uses; the rest of the
+  extraction is deleted.
 - Extracted paks: `beanjar create NAME --firmware DIR --import` makes them the VM's own (hard links
-  where the directory is on the same filesystem, else a copy).
+  where the directory is on the same filesystem, else a copy). Without a manifest (below) Beanjar
+  tells the target from the directory's name, which must keep the model code (epk2extract names it
+  `<version>-<OTA ID>`, for example `05.06.10.01-HE_DTV_WT1H_AFAAABAA`), and from the release the
+  rootfs names.
 - A firmware shared by several VMs or hosts can stay in a firmware collection and be used in
-  place: each firmware is a directory of paks with a `manifest.toml` naming it, under
-  `/srv/beanjar/firmware` by default (`beanjar host config set firmware_dirs=DIR[:DIR...]`).
-  See [Firmware](../../host/core/README.md#firmware) in the manager guide.
+  place: `beanjar create NAME --firmware DIR` without `--import` never writes to the directory, and
+  so needs a `manifest.toml` in it naming the firmware and its target. A collection is a directory
+  of such firmware directories, `/srv/beanjar/firmware` by default (`beanjar host config set
+  firmware_dirs=DIR[:DIR...]`), whose firmware `--firmware` takes by name. See
+  [Firmware](../../host/core/README.md#firmware) in the manager guide.
+
+### manifest.toml
+
+Beanjar writes `manifest.toml` itself into every VM's own firmware (the `firmware/` directory in the
+VM's folder, from a `.epk` or `--import`). The easy way to get one is to make a VM that way and copy
+its `firmware/` directory, manifest included, into the collection. To write one by hand, three keys
+are required:
+
+```toml
+name = "05.06.10.01-HE_DTV_WT1H_AFAAABAA"  # the firmware's name, as epk2extract names its directory
+chip = "h13"                               # chip and release: a file guest/targets/<chip>-<release>.toml
+release = "afro"
+```
+
+The other keys Beanjar writes (`epk`, `epk_size`, `sha256`, `source`, `paks`, `imported`) record
+where the paks came from and are optional.
+
+### epk2extract
+
+[epk2extract](https://github.com/openlgtv/epk2extract) has no released binaries, so you build it.
+Beanjar looks for `epk2extract` on `PATH`, then in `~/.local/bin`; `BEANJAR_EPK2EXTRACT` or
+`beanjar library config set epk2extract=PATH` names another path. It reads its decryption keys
+(`AES.key` and the `*.pem` files) from the directory its executable is really in, so keep them
+together and link the executable into `~/.local/bin`. On Debian 13, amd64 or arm64:
+
+```sh
+sudo apt install git build-essential cmake liblzo2-dev libssl-dev zlib1g-dev
+git clone https://github.com/openlgtv/epk2extract.git
+cd epk2extract
+CMAKE_FLAGS=-DCMAKE_BUILD_TYPE=Test ./build.sh   # optimised for this CPU; the default Debug build is far slower
+mkdir -p ~/.local/opt/epk2extract ~/.local/bin
+cp build_linux/epk2extract build_linux/*.pem build_linux/*.key ~/.local/opt/epk2extract/
+ln -sf ~/.local/opt/epk2extract/epk2extract ~/.local/bin/epk2extract
+```
+
+The build directory and the clone can be deleted afterwards. A firmware whose keys the clone does
+not have yet needs a newer clone.
 
 ## From a checkout
 
