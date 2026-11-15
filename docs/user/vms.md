@@ -113,11 +113,14 @@ force one. NetCast and SimpleSmart firmware only run natively, and do not start 
 cannot.
 
 Each program under qemu-arm carries qemu-arm's own memory as well, so a start that runs the
-userland under qemu-user, for whatever reason, gives the guest half as much RAM again as `mem`:
-`mem` stays the TV's own memory, the start logs `memory: 2048 MB for the TV + 1024 MB for
-qemu-user's overhead`, `beanjar list` shows MEM as `2048+1024`, `beanjar info` shows `tv_ram` and
-`guest_ram`, and the host must have the larger amount free to start it. webOS is still told the
-TV's own memory (the model's board parameters); only the guest kernel sees the extra RAM.
+userland under qemu-user, for whatever reason, gives the guest half as much RAM again as `mem`,
+and a swap disk in the host's RAM as large again: `mem` stays the TV's own memory, the start logs
+`memory: 2048 MB for the TV + 1024 MB RAM and 1024 MB host-RAM swap for qemu-user's overhead`,
+`beanjar list` shows MEM as `2048+1024`, `beanjar info` shows `tv_ram`, `guest_ram` and
+`host_swap`, and the host must have the larger RAM free to start it. The swap is not taken up
+front: it costs the host memory only once the guest swaps to it, and it goes away with the VM.
+webOS is still told the TV's own memory (the model's board parameters); only the guest kernel sees
+the extra RAM and the swap.
 
 `guest_kernel=x86-64` is **experimental**: on an x86_64 machine it boots an x86-64 guest kernel
 under KVM (TCG without `/dev/kvm`) and runs the whole ARM userland under qemu-arm, which is much

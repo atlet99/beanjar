@@ -95,7 +95,7 @@ build/qemu-user-amd64, its x86-64 one, for the x86-64 guest kernel (`guest = ["a
 Debian packages do not ship it; an installed launcher looks for
 `/usr/share/beanjar/guest/bin/qemu-arm`. A launch without an interpreter fails. `share.assemble`
 copies the interpreter to `/host/qemu-arm`, and boot.conf gets `USERLAND="qemu-user"`. The QEMU
-command line changes in one place, its RAM.
+command line changes in two places, its RAM and a swap disk.
 
 Each 32-bit process under qemu-arm carries qemu-arm's own heap, its tracking of the guest
 program's pages and its translated code on top of the program's own memory, so a qemu-user start
@@ -113,6 +113,42 @@ available; under qemu-user (x86-64 guest kernel, `-m 3072`) 1514 MiB and 1106 Mi
 is about 1.3 GiB, of which about 930 MiB is qemu-arm's translated code (one 128 MiB code buffer
 per process), so it follows the number of processes and how much code they ran rather than `mem`,
 and 50 % leaves the guest about 440 MiB less available than a native run of the same TV.
+
+Most of that overhead is cold (only about 105 of the 1515 MiB anonymous memory was touched in 60 s
+idle), so a qemu-user start also gives the guest a swap disk in host RAM
+(`vmsettings.QEMU_USER_SWAP_PERCENT`, 50 % of `mem`; `host/core/beanjar/hostswap.py`): a sparse
+memfd the process that runs QEMU creates just before it does (`hostswap.open_fds` in `launch.py`
+and `netns.py`), passed with `-add-fd` at descriptors 200 (read-write) and 201 (read-only; QEMU
+takes from the fdset a descriptor with the access mode it opens with, and opens both ways), and
+attached as `-drive file=/dev/fdset/9,cache=unsafe,discard=unmap` on a virtio-blk disk with the
+serial `beanjar-swap`. Host RAM goes only to pages the guest has swapped out, the host may swap
+those in turn, and the memfd is gone with QEMU, crashed or not. `guest/initramfs/rootfs/init`
+runs `mkswap` and `swapon -d` on the disk with that serial before webOS starts; native command
+lines have no such disk. memchute counts free swap as usable (its job sets `zramswap 1`, so two
+thirds of it), and its levels follow. A host without memfd (macOS) needs another backing in
+`hostswap._backing`; none is built.
+
+The memfd's pages are shmem charged to the cgroup of QEMU, which writes them, and reclaimable only
+to the host's swap. The unit's MemoryHigh (KVM) therefore allows for the swap on top of RAM and
+headroom; the admission does not count it, nor does a running VM's claim on the host
+(`capacity.claim_mib`), since it is taken only as the guest swaps.
+
+Measured on the same WT1H (x86-64 PC, KVM, `-m 3072`, 1024 MiB swap), with a tour of Home, the
+browser on a page, the user guide, Settings, Homebrew Channel, Live TV, switches back and closing
+the apps:
+
+- At "No Signal" 120 s after boot-done nothing is swapped: the guest has 840 MiB free, the kernel
+  does not swap without pressure, and MemAvailable is 1145 MiB, as without swap (1151). memchute's
+  usable memory rises from 1062 to 1727 MiB (free swap counted).
+- The tour leaves the guest at about 370 to 390 MiB available at its lowest; it swaps out only 4
+  to 8 MiB. webOS killed nothing, with or without swap, and launch times did not change
+  measurably.
+- Under real pressure (the balloon squeezing the guest to 1700 MiB) 550 to 660 MiB of anonymous
+  memory goes to swap, with 5 MiB read back while squeezed; once released, the guest has 1453 to
+  1536 MiB available (native: 1546) and stays responsive (the tour again: the same launch times).
+- Discard gives little back: page discards come only once a whole swap cluster is free, so the
+  memfd stays near the high-water mark of swap use (617 MiB for a 590 MiB peak, with 470 MiB still
+  in use after the tour). It is bounded by the swap's size, which MemoryHigh allows for.
 
 `guest/initramfs/rootfs/init` reads boot.conf, and before it runs any firmware program it copies
 the interpreter into the initramfs and registers it for 32-bit little-endian ARM ELF executables
