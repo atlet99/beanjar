@@ -209,6 +209,82 @@ def helper_environment(env):
     return helper_env
 
 
+# The media helper's environment (media_helper_environment): what it and the libraries it loads read,
+# never the launcher's whole one (an agent socket, a session bus, a token exported in the starting
+# shell), since it parses what the guest sends. It reads no variable itself (MEDIA_HWDEC comes as
+# --hwdec) and runs nothing. Its FFmpeg's hardware decoders (codec.c, av_hwdevice_ctx_create with
+# no device named) find their devices without the environment: CUDA through libcuda (on WSL in
+# /usr/lib/wsl/lib, which WSL's own /etc/ld.so.conf.d entry puts on the loader's path, not
+# LD_LIBRARY_PATH), VA-API and DRM at /dev/dri's nodes, V4L2 request (aarch64 boards) through
+# udev's /dev/media and /dev/video nodes. What the environment may still choose or point to:
+MEDIA_HELPER_ENV = frozenset(
+    {
+        "PATH",
+        "LANG",
+        "LANGUAGE",
+        # a driver or libva outside the loader's path
+        "LD_LIBRARY_PATH",
+        # the drivers' caches (Mesa's shader cache, CUDA's ComputeCache) and the Vulkan loader's
+        # driver and layer manifests
+        "HOME",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_CONFIG_DIRS",
+        "XDG_DATA_HOME",
+        "XDG_DATA_DIRS",
+    }
+)
+# locale; VA-API's driver (LIBVA_DRIVER_NAME, LIBVA_DRIVERS_PATH); Mesa's VA-API driver and its
+# GPU (GALLIUM_DRIVER=d3d12 and MESA_D3D12_DEFAULT_ADAPTER_NAME on WSL); the Vulkan loader
+# (VK_DRIVER_FILES, VK_ICD_FILENAMES); CUDA's devices (CUDA_VISIBLE_DEVICES)
+MEDIA_HELPER_ENV_PREFIXES = ("LC_", "LIBVA_", "MESA_", "GALLIUM_", "VK_", "CUDA_")
+
+
+def media_helper_environment(env):
+    """The part of env the media helper gets: MEDIA_HELPER_ENV and MEDIA_HELPER_ENV_PREFIXES."""
+    helper_env = {
+        k: v
+        for k, v in env.items()
+        if k in MEDIA_HELPER_ENV or k.startswith(MEDIA_HELPER_ENV_PREFIXES)
+    }
+    helper_env.setdefault("PATH", os.defpath)
+    return helper_env
+
+
+def start_media_helper(p):
+    """The media hub (p.hub_argv), a child that outlives the exec of QEMU and ends with this pid
+    (QEMU's then), on media_helper_environment(p.env). It owns its logs (--log, --decode-log:
+    bounded, rotated); RUN_DIR/media-helper.out has only its stdout and stderr: fatal errors and
+    what comes before its logs open."""
+    argv = [str(os.getpid()) if a == "PID" else a for a in p.hub_argv]
+    pool = None
+    if p.pool_socket:
+        # the pool's ivshmem server socket, listening before the helper and QEMU start: QEMU's
+        # ivshmem-doorbell connects at realize and waits there for the helper's setup
+        pool = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            os.unlink(p.pool_socket)
+        except FileNotFoundError:
+            pass
+        pool.bind(p.pool_socket)
+        pool.listen(4)
+        argv += ["--pool-fd", str(pool.fileno())]
+    try:
+        with open(os.path.join(p.run_dir, "media-helper.out"), "ab") as out:
+            subprocess.Popen(
+                argv,
+                env=media_helper_environment(p.env),
+                stdin=subprocess.DEVNULL,
+                stdout=out,
+                stderr=out,
+                close_fds=True,
+                pass_fds=(pool.fileno(),) if pool else (),
+            )
+    finally:
+        if pool:
+            pool.close()
+
+
 def run(words, env=None):
     """Boot in the foreground: exec QEMU (mode=direct), or run it in netns.py's wrapper."""
     env = dict(os.environ if env is None else env)
@@ -308,31 +384,7 @@ def run(words, env=None):
             )
         gpu.close()
     if p.hub_argv:
-        # the media hub, a child that outlives the exec below and ends with this pid (QEMU's then)
-        argv = [str(os.getpid()) if a == "PID" else a for a in p.hub_argv]
-        pool = None
-        if p.pool_socket:
-            # the pool's ivshmem server socket, listening before the helper and QEMU start: QEMU's
-            # ivshmem-doorbell connects at realize and waits there for the helper's setup
-            pool = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            try:
-                os.unlink(p.pool_socket)
-            except FileNotFoundError:
-                pass
-            pool.bind(p.pool_socket)
-            pool.listen(4)
-            argv += ["--pool-fd", str(pool.fileno())]
-        with open(os.path.join(p.run_dir, "media-helper.out"), "ab") as out:
-            subprocess.Popen(
-                argv,
-                stdin=subprocess.DEVNULL,
-                stdout=out,
-                stderr=out,
-                close_fds=True,
-                pass_fds=(pool.fileno(),) if pool else (),
-            )
-        if pool:
-            pool.close()
+        start_media_helper(p)
     if p.ir_relay:
         # the micom's IR receiver (ir_relay.py): ir.sock listens before QEMU starts, and the child,
         # which outlives the exec below and ends with this pid, relays it to QEMU's webos.ir port
