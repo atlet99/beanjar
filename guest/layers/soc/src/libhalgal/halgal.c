@@ -24,9 +24,13 @@ EXPORT int HAL_GAL_Finalize(void)
 }
 
 extern int DILE_GAL_CreateSurface(unsigned, unsigned, unsigned, surface_t *);
+/* HAL_GAL_PIXEL_FORMAT_FBC: the stock HAL makes an ARGB surface instead ("can't support AFBC
+ * format surface. use ARGB instead", its pixelFormat 0, bpp 32). captureservice asks for one
+ * as the CaptureFrameBuffer target of its OSD-over-video composite (SCREEN, DISPLAY). */
+#define HAL_FORMAT_FBC 6u
 EXPORT int HAL_GAL_CreateSurface(uint16_t w, uint16_t h, uint32_t f, surface_t *s)
 {
-    return DILE_GAL_CreateSurface(w, h, f, s);
+    return DILE_GAL_CreateSurface(w, h, f == HAL_FORMAT_FBC ? FMT_ARGB : f, s);
 }
 FORWARD(DestroySurface, (surface_t * s), (s))
 extern int DILE_GAL_FillRectangle(surface_t *, rect_t *, uint32_t, uint32_t *, draw_settings_t *);
