@@ -41,7 +41,10 @@ See [Homebrew Channel](../../host/core/README.md#homebrew-channel) in the manage
 ## Root
 
 With `rootssh` or `hbchannel`, root SSH listens on the VM's port 6622 with the VM's own keys;
-`beanjar info tv1` prints the `ssh` command. The ares tools run as root with `--root`:
+`beanjar info tv1` prints the `ssh` command, which uses the VM's own client key. Your own SSH keys
+are not given to the guest unless you add them (`beanjar identity authorized-keys tv1 add-mine`):
+the guest can read every key it gets, and your keys identify you. `beanjar identity
+authorized-keys tv1` lists the keys it gets, and `... reset` takes yours out again. The ares tools run as root with `--root`:
 
 ```sh
 beanjar ares-shell --root -d tv1 -r 'id'

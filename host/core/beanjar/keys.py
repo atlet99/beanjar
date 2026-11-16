@@ -8,8 +8,14 @@ VM is created and again, with a warning, at a start that finds one missing:
   id_ed25519, id_ed25519.pub        the VM's client key: its public half may always log in as root
                                     (guest/layers/rootssh or hbchannel), so the manager and the tests can ssh in. It
                                     stays on the host: it never goes into the guest's layer.
-  authorized_keys                   more public keys that may log in as root; made from the user's
-                                    ~/.ssh/*.pub (all of them) and the user's to edit
+  authorized_keys                   more public keys that may log in as root, the user's to edit; made
+                                    with none (AUTHORIZED_HEADER): the guest, which may run untrusted
+                                    code as root, can read every key it is given, and the user's own
+                                    keys identify them (a code host publishes its users' public keys;
+                                    a key's comment is often user@host). Only an explicit
+                                    `beanjar identity authorized-keys NAME add-mine` (add_mine) or the
+                                    user's own lines put theirs in; guest_authorized strips every
+                                    comment
   rootssh_host_key(.pub)            root SSH's host key (ed25519), in Dropbear's format, which
                                     Homebrew Channel's Dropbear (guest/layers/hbchannel) takes too
                                     (host/helpers/ssh/dropbear-hostkey.py); .pub is OpenSSH's
@@ -41,11 +47,13 @@ The CA (ensure_ca) is not a VM's: the VMs of a library share <library>/ca, inclu
 mitmproxy's names for them), mitmweb's confdir. Only ca.pem goes into a guest's layer.
 """
 
+import base64
 import glob
 import hashlib
 import importlib.util
 import ipaddress
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -91,9 +99,17 @@ CA = "ca"
 KEYSERVER_PORT = "9991"
 INSPECTOR_PORT = "18083"
 AUTHORIZED_HEADER = (
-    "# Public keys that may log in as root over SSH (guest/layers/rootssh), one per line. The VM's own\n"
-    "# id_ed25519.pub is always added to them. Read at each start.\n"
+    "# Public keys that may log in as root over SSH (guest/layers/rootssh, hbchannel), one per line,\n"
+    "# besides the VM's own id_ed25519.pub, which always may and is what Beanjar's ssh commands use\n"
+    "# (beanjar info NAME, beanjar ares-TOOL --root). Read at each start.\n"
+    "# Every key here goes into the guest, which can read it (without its comment). Your own keys\n"
+    "# identify you (a code host publishes its users' public keys), so none is here unless you add\n"
+    "# it: `beanjar identity authorized-keys NAME add-mine` adds your ~/.ssh/*.pub, `reset` empties it.\n"
 )
+# an authorized_keys line: [options] TYPE BASE64 [comment]; options have no unquoted blank
+_KEY_TYPE = re.compile(r"(?:ssh|ecdsa|sk)-[A-Za-z0-9@._-]+")
+_KEY_BLOB = re.compile(r"[A-Za-z0-9+/]+={0,3}")
+_OPTIONS = re.compile(r'(?:[^\s"]|"(?:[^"\\]|\\.)*")+')
 
 
 def listen_address(value):
@@ -309,7 +325,113 @@ def renewed():
     ]
 
 
-def ensure(d, label=None, home=None, warn=None, address=None, tree=paths.TREE):
+def key_fields(line):
+    """(options, type, base64, comment) of an authorized_keys line (options and comment "" when it
+    has none), or None if it is not one."""
+    line = line.strip()
+    options = ""
+    first = line.split(None, 1)[0] if line else ""
+    if not _KEY_TYPE.fullmatch(first):
+        m = _OPTIONS.match(line)
+        if not m:
+            return None
+        options, line = m.group(0), line[m.end() :].lstrip()
+    fields = line.split(None, 2)
+    if len(fields) < 2 or not _KEY_TYPE.fullmatch(fields[0]) or not _KEY_BLOB.fullmatch(fields[1]):
+        return None
+    return options, fields[0], fields[1], fields[2] if len(fields) > 2 else ""
+
+
+def without_comment(line):
+    """An authorized_keys line (key_fields) as [options] TYPE BASE64, its comment (often
+    user@host) left out."""
+    return " ".join(x for x in key_fields(line)[:3] if x)
+
+
+def fingerprint(line):
+    """OpenSSH's SHA256 fingerprint of an authorized_keys line's key, or None."""
+    f = key_fields(line)
+    if f is None:
+        return None
+    try:
+        blob = base64.b64decode(f[2], validate=True)
+    except ValueError:
+        return None
+    return "SHA256:" + base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=")
+
+
+def _key_lines_of(text):
+    """The lines of an authorized_keys text that are not blank or a comment, stripped."""
+    return [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def _key_lines(path):
+    with open(path) as f:
+        return _key_lines_of(f.read())
+
+
+def reset_authorized(d):
+    """d/authorized_keys as a new VM has it: no key (AUTHORIZED_HEADER), so the guest gets only the
+    VM's own client key. Returns the key lines it had."""
+    path = os.path.join(d, AUTHORIZED)
+    try:
+        old = _key_lines(path)
+    except FileNotFoundError:
+        old = []
+    _write(path, AUTHORIZED_HEADER, 0o644)
+    return old
+
+
+def add_mine(d, home=None):
+    """The user's own public keys (user_keys: ~/.ssh/*.pub, or home's), their comments left out,
+    added to d/authorized_keys if it lacks them: the user's explicit choice to let them log in as
+    root, and to hand them to the guest. Returns the lines added."""
+    path = os.path.join(d, AUTHORIZED)
+    try:
+        with open(path) as f:
+            text = f.read()
+    except FileNotFoundError:
+        text = AUTHORIZED_HEADER
+    have = {key_fields(k)[2] for k in _key_lines_of(text) if key_fields(k)}
+    added = []
+    for k in user_keys(home):
+        f = key_fields(k)
+        if f is None or f[2] in have:
+            continue
+        have.add(f[2])
+        added.append(without_comment(k))
+    if added or not os.path.isfile(path):
+        if text and not text.endswith("\n"):
+            text += "\n"
+        _write(path, text + "".join(k + "\n" for k in added), 0o644)
+    return added
+
+
+def authorized(d, home=None):
+    """What d/authorized_keys lets log in as root and the guest gets, for `beanjar identity
+    authorized-keys NAME show`: a dict per key of guest_authorized's, its fingerprint, its type and
+    whose it is: "vm" (the client key), "mine" (one of the user's ~/.ssh/*.pub) or "other"."""
+    mine = {key_fields(k)[2] for k in user_keys(home) if key_fields(k)}
+    client = _pub(d, CLIENT).split()[1]
+    out = []
+    for line in guest_authorized(d).splitlines():
+        f = key_fields(line)
+        blob = f[2] if f else None
+        out.append(
+            {
+                "type": f[1] if f else None,
+                "fingerprint": fingerprint(line),
+                "whose": "vm" if blob == client else "mine" if blob in mine else "other",
+            }
+        )
+    return out
+
+
+def ensure(d, label=None, warn=None, address=None, tree=paths.TREE):
     """Make whatever of the keys is missing in d (which exists); returns the names made. warn(line),
     if given, is told about each (at a start; at create nothing is said). With the VM's address,
     known_hosts is written if a key was made or it is missing."""
@@ -324,13 +446,11 @@ def ensure(d, label=None, home=None, warn=None, address=None, tree=paths.TREE):
             warn(f"warning: {d} had no {name}; made a new one: {why}")
     auth = os.path.join(d, AUTHORIZED)
     if not os.path.isfile(auth):
-        keys = user_keys(home)
-        _write(auth, AUTHORIZED_HEADER + "".join(k + "\n" for k in keys), 0o644)
+        # with no key: the user's own go in only if they add them (AUTHORIZED_HEADER)
+        _write(auth, AUTHORIZED_HEADER, 0o644)
         made.append(AUTHORIZED)
         if warn:
-            warn(
-                f"warning: {d} had no {AUTHORIZED}; made it from ~/.ssh/*.pub ({len(keys)} key(s))"
-            )
+            warn(f"warning: {d} had no {AUTHORIZED}; made it with no key but the VM's own")
     if address and (made or not os.path.isfile(os.path.join(d, KNOWN_HOSTS))):
         known_hosts(d, address)
     return made
@@ -520,16 +640,20 @@ def known_hosts(d, address, ssh_port=None):
 
 def guest_authorized(d):
     """The root authorized_keys the guest gets: d/authorized_keys and the client key's public half,
-    each key once. A private key in authorized_keys is refused."""
+    each key once, every key's comment left out (without_comment: it is often user@host, and the
+    guest can read the file). A private key in authorized_keys, or a line that is no key, is
+    refused."""
     path = os.path.join(d, AUTHORIZED)
-    with open(path) as f:
-        lines = [line.strip() for line in f]
-    keys = [line for line in lines if line and not line.startswith("#")]
+    keys = _key_lines(path)
     if any("PRIVATE KEY" in k for k in keys):
         raise Error(f"{path} contains a private key; it must hold public keys only")
+    bad = [i + 1 for i, k in enumerate(keys) if key_fields(k) is None]
+    if bad:
+        raise Error(
+            f"{path}: key {bad[0]} is not a public key line ([options] TYPE BASE64 [comment])"
+        )
+    keys = [without_comment(k) for k in keys]
     client = _pub(d, CLIENT)
-    with open(os.path.join(d, CLIENT + ".pub")) as f:
-        client_line = f.read().strip()
     if not any(client in k for k in keys):  # also a line with options in front
-        keys.append(client_line)
+        keys.append(client)
     return "".join(k + "\n" for k in dict.fromkeys(keys))

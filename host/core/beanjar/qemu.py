@@ -1506,7 +1506,8 @@ def guest_layer(p):
         etc/emulator/NAME/dropbear_ed25519_host_key     identity/rootssh_host_key (Homebrew Channel's
                                                       Dropbear takes the same host key, so known_hosts
                                                       pins either at the same port)
-        etc/emulator/NAME/authorized_keys               identity/authorized_keys and id_ed25519.pub
+        etc/emulator/NAME/authorized_keys               identity/authorized_keys and id_ed25519.pub,
+                                                      comments left out (keys.guest_authorized)
         home/root/.ssh/authorized_keys (.ssh 0700)      the same, for the boot before /home is bound
       devmode (in LAYERS), etc/emulator/devmode (0700):
         ssh_host_rsa_key                              identity/devmode_host_key

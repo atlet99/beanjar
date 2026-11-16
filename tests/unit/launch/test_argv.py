@@ -1522,7 +1522,16 @@ class ArgvTest(unittest.TestCase):
         os.makedirs(os.path.join(home, ".ssh"))
         with open(os.path.join(home, ".ssh", "id_user.pub"), "w") as f:
             f.write("ssh-ed25519 AAAAuser user@host\n")
-        self.assertEqual(len(keys.ensure(ident, home=home)), 5)
+        self.assertEqual(len(keys.ensure(ident)), 5)
+        # by default the guest gets the VM's own client key alone, without its comment
+        launch(LAYERS="normal,rootssh,devmode", SSH_PORT="7722")
+        client = " ".join(read(ident, "id_ed25519.pub").decode().split()[:2])
+        self.assertEqual(
+            read(layer, "etc/emulator/rootssh/authorized_keys").decode().splitlines(), [client]
+        )
+        # the user's own keys only when added explicitly, and without their comments
+        self.assertEqual(keys.add_mine(ident, home=home), ["ssh-ed25519 AAAAuser"])
+        self.assertEqual(keys.add_mine(ident, home=home), [])
         launch(LAYERS="normal,rootssh,devmode", SSH_PORT="7722")
         self.assertEqual(
             listing(),
@@ -1571,9 +1580,7 @@ class ArgvTest(unittest.TestCase):
         self.assertTrue(read(ident, "devmode_rsa").startswith(rsa_header))
         self.assertNotIn(b"ENCRYPTED", read(ident, "devmode_rsa"))
         auth = read(layer, "etc/emulator/rootssh/authorized_keys").decode().splitlines()
-        self.assertEqual(
-            auth, ["ssh-ed25519 AAAAuser user@host", read(ident, "id_ed25519.pub").decode().strip()]
-        )
+        self.assertEqual(auth, ["ssh-ed25519 AAAAuser", client])
         self.assertEqual(
             read(layer, "home/root/.ssh/authorized_keys"),
             read(layer, "etc/emulator/rootssh/authorized_keys"),

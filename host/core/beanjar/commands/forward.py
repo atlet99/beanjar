@@ -149,6 +149,11 @@ def remote_command(a, argv, host, name):
             f"beanjar vnc start {host}/{name} serves its picture over VNC (its lan address is in "
             f"beanjar info {host}/{name}; the password: beanjar vnc password {host}/{name} show)"
         )
+    if kind == "authkeys" and a.verb == "add-mine":
+        raise Error(
+            f"add-mine adds this machine's ~/.ssh/*.pub: run it on {host} for {name}, or add "
+            f"the keys to {name}'s identity/authorized_keys there"
+        )
     if kind == "keymodel" and a.verb == "install":
         raise Error(f"key model install reads a file on this machine: run it on {host} for {name}")
     if kind == "info":

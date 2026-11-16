@@ -665,8 +665,8 @@ class ManagerTest(unittest.TestCase):
 
     def test_keys(self):
         """Each VM has SSH keys of its own in identity/, made at create (CLI and New VM alike):
-        private keys 0600, the rest 0644; root's authorized_keys from ~/.ssh/*.pub (certificates and
-        private keys left out); the developer key unencrypted PEM; host keys in Dropbear's format;
+        private keys 0600, the rest 0644; root's authorized_keys with no key (none of the user's
+        ~/.ssh/*.pub: identity authorized-keys, test_authorized_keys); the developer key unencrypted PEM; host keys in Dropbear's format;
         known_hosts for 6622 and 9922 on the VM's own address. One missing is made again, with a
         warning (keys.ensure, as the launcher's start runs it). status says how to ssh in, at the
         VM's address, and the ares profile that reaches it."""
@@ -693,7 +693,7 @@ class ManagerTest(unittest.TestCase):
                 for line in read(n, "authorized_keys").decode().splitlines()
                 if not line.startswith("#")
             ]
-            self.assertEqual(auth, ["ssh-ed25519 AAAAed me@pc", "ssh-rsa AAAArsa me@pc"])
+            self.assertEqual(auth, [])
             self.assertTrue(read(n, "devmode_rsa").startswith(b"-----BEGIN RSA PRIVATE KEY-----\n"))
             self.assertNotIn(b"ENCRYPTED", read(n, "devmode_rsa"))
             self.assertTrue(
@@ -755,7 +755,7 @@ class ManagerTest(unittest.TestCase):
         for f in ("id_ed25519.pub", "devmode_rsa", "authorized_keys", "known_hosts"):
             os.unlink(os.path.join(ident["tv1"], f))
         said = []
-        made = keys.ensure(ident["tv1"], home=self.home, warn=said.append, address=addrs["tv1"])
+        made = keys.ensure(ident["tv1"], warn=said.append, address=addrs["tv1"])
         self.assertEqual(made, ["id_ed25519", "devmode_rsa", "authorized_keys"])
         self.assertEqual(len(said), 3)
         self.assertTrue(all(w.startswith("warning:") for w in said), said)
@@ -772,8 +772,56 @@ class ManagerTest(unittest.TestCase):
         ):
             self.assertEqual(read("tv1", f), old[f], f"{f}: kept")
         self.assertEqual(os.stat(os.path.join(ident["tv1"], "id_ed25519")).st_mode & 0o777, 0o600)
+        self.assertEqual(keys.ensure(ident["tv1"], warn=said.append), [], "nothing more to make")
+
+    def test_authorized_keys(self):
+        """beanjar identity authorized-keys NAME: what the guest gets, each key with whose it is. A
+        new VM has only its own client key; add-mine adds the user's ~/.ssh/*.pub (certificates and
+        private keys left out) without their comments; reset takes them out again, as for a VM
+        made when their keys went in by default."""
+        self.cli("create", "tv1", "--import", "--firmware", self.fw_src)
+        ident = os.path.join(self.lib_dir, "vms", "tv1", "identity")
+        path = os.path.join(ident, "authorized_keys")
+
+        def show(*verb):
+            return json.loads(self.cli("identity", "authorized-keys", "tv1", *verb, "--json"))
+
+        def whose(r):
+            return [(k["type"], k["whose"]) for k in r["keys"]]
+
+        self.assertEqual(whose(show()), [("ssh-ed25519", "vm")])
+        self.assertEqual(show()["path"], path)
+        self.assertEqual(whose(show("add-mine")), [
+            ("ssh-ed25519", "mine"), ("ssh-rsa", "mine"), ("ssh-ed25519", "vm")
+        ])  # fmt: skip
+        self.assertEqual(whose(show("add-mine")), whose(show()), "each key once")
+        with open(path) as f:
+            text = f.read()
+        self.assertNotIn("me@pc", text)
+        self.assertIn("ssh-rsa AAAArsa\n", text)
+        self.assertNotIn("AAAAcert", text)
+        self.assertNotIn("PRIVATE", text)
+        self.assertEqual(whose(show("reset")), [("ssh-ed25519", "vm")])
+        with open(path) as f:
+            self.assertEqual(f.read(), keys.AUTHORIZED_HEADER)
+        # a VM made when the user's keys went in by default, comments and all
+        with open(path, "a") as f:
+            f.write("ssh-rsa AAAArsa me@pc\nssh-ed25519 AAAAother someone@else\n")
         self.assertEqual(
-            keys.ensure(ident["tv1"], home=self.home, warn=said.append), [], "nothing more to make"
+            whose(show()), [("ssh-rsa", "mine"), ("ssh-ed25519", "other"), ("ssh-ed25519", "vm")]
+        )
+        guest = keys.guest_authorized(ident)
+        self.assertNotIn("@", guest, "no key's comment goes into the guest")
+        self.assertIn("beanjar tv1", slurp(os.path.join(ident, "id_ed25519.pub")))
+        self.assertIn(
+            "reset: 2 key(s) removed", self.cli("identity", "authorized-keys", "tv1", "reset")
+        )
+        self.assertEqual(whose(show()), [("ssh-ed25519", "vm")])
+        # a line that is not a key is refused rather than handed over as it is
+        with open(path, "a") as f:
+            f.write("me@pc\n")
+        self.assertIn(
+            "not a public key line", self.cli("identity", "authorized-keys", "tv1", ok=False)
         )
 
     def test_ca(self):

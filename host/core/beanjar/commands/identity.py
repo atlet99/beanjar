@@ -33,6 +33,41 @@ def cmd_clone(lib, a):
     )
 
 
+def cmd_authorized_keys(lib, a):
+    """Root SSH's authorized_keys of a VM (keys.py): show what the guest gets, reset it to a new
+    VM's (no key but the VM's own), or add the user's own keys, explicitly."""
+    from .. import keys
+
+    vm = lib.vm(a.name)
+    d = vm.identity_dir
+    verb = a.verb or "show"
+    path = os.path.join(d, keys.AUTHORIZED)
+    try:
+        if verb == "reset":
+            old = keys.reset_authorized(d)
+            note = f"{vm.name}: {path} reset: {len(old)} key(s) removed"
+        elif verb == "add-mine":
+            added = keys.add_mine(d)
+            note = f"{vm.name}: {len(added)} of your keys (~/.ssh/*.pub) added to {path}"
+        else:
+            note = None
+        listed = keys.authorized(d)
+    except FileNotFoundError as e:
+        raise Error(
+            f"{e.filename} is missing (made at create, or at the VM's next start)"
+        ) from None
+    except keys.Error as e:
+        raise Error(str(e)) from None
+    lines = [f"{k['whose']:5}  {k['type']}  {k['fingerprint']}" for k in listed]
+    if verb != "show" and vm.alive():
+        lines.append("the guest has the old keys until the VM's next start")
+    return emit(
+        a,
+        {"name": vm.name, "path": path, "keys": listed},
+        "\n".join(([note] if note else []) + lines),
+    )
+
+
 def cmd_key_model(lib, a):
     """A VM's model key: whether it has one (show), install it from FILE, or clear it."""
     verb = a.verb or "show"
@@ -113,6 +148,27 @@ def register(cli):
     )
     s.add_argument(
         "dest", metavar="DEST", help="the new VM: NAME (this machine), local/NAME or HOST/NAME"
+    )
+
+    s = command(
+        g,
+        "authorized-keys",
+        "the public keys that may log in to the VM as root over SSH (rootssh, hbchannel) and so "
+        "go into the guest, from identity/authorized_keys and the VM's own client key, each with "
+        "its fingerprint and whose it is (vm, mine: one of your ~/.ssh/*.pub, other); reset: "
+        "remove every key but the VM's own (what a new VM has); add-mine: add your own "
+        "~/.ssh/*.pub, without their comments (the guest can read every key it gets, and your "
+        "keys identify you). A change reaches the guest at its next start",
+        cmd_authorized_keys,
+        usage="beanjar identity authorized-keys NAME [show | reset | add-mine] [--json]",
+    )
+    vm_name(s, "authkeys")
+    s.add_argument(
+        "verb",
+        nargs="?",
+        choices=("show", "reset", "add-mine"),
+        metavar="VERB",
+        help="show (the default), reset or add-mine",
     )
 
     g = group("key", "a VM's secure-store keys (identity/sestore.toml)")
