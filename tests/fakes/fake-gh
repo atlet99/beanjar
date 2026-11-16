@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""A stand-in for the GitHub CLI's `gh release` commands that scripts/release-debs.sh runs, on one
+release kept in $FAKE_GH_STATE (JSON): {"exists", "latest", "title", "notes", "assets": {name:
+sha256 or null}}. Every call is appended to $FAKE_GH_STATE.log. Races with the other workflow are
+staged with:
+
+  FAKE_GH_CREATE_RACE=1   create fails as if the other workflow created the release just before
+  FAKE_GH_OTHER=FILE      JSON {name: sha256}: the other workflow's assets, which appear right after
+                          this run's first SHA256SUMS upload, together with a SHA256SUMS of its own
+  FAKE_GH_NO_DIGEST=N     the first N listings show this run's .deb assets without a digest yet
+
+--jq filters run through the real jq."""
+
+import hashlib
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+STATE = Path(os.environ["FAKE_GH_STATE"])
+
+
+def load():
+    if STATE.exists():
+        return json.loads(STATE.read_text())
+    return {"exists": False, "latest": None, "assets": {}, "counts": {}}
+
+
+def save(state):
+    STATE.write_text(json.dumps(state, indent=1, sort_keys=True))
+
+
+def bump(state, key):
+    state["counts"][key] = state["counts"].get(key, 0) + 1
+    return state["counts"][key]
+
+
+def option(args, name):
+    return args[args.index(name) + 1] if name in args else None
+
+
+def main(argv):
+    with open(f"{STATE}.log", "a") as log:
+        log.write(" ".join(argv) + "\n")
+    state = load()
+    if argv[:1] != ["release"]:
+        sys.exit(f"fake-gh: unsupported {argv}")
+    cmd, args = argv[1], argv[2:]
+    if cmd == "view":
+        if not state["exists"]:
+            print("release not found", file=sys.stderr)
+            return 1
+        listing = bump(state, "view")
+        hide = int(os.environ.get("FAKE_GH_NO_DIGEST", "0"))
+        assets = [
+            {
+                "name": name,
+                "digest": None
+                if (digest is None or (listing <= 2 * hide and name in state.get("own", [])))
+                else f"sha256:{digest}",
+            }
+            for name, digest in sorted(state["assets"].items())
+        ]
+        save(state)
+        doc = {"tagName": args[0], "assets": assets}
+        if option(args, "--jq"):
+            return subprocess.run(
+                ["jq", "-r", option(args, "--jq")], input=json.dumps(doc), text=True
+            ).returncode
+        print(json.dumps(doc))
+        return 0
+    if cmd == "create":
+        if os.environ.get("FAKE_GH_CREATE_RACE") and not state["exists"]:
+            state.update(exists=True, latest=False, title="the other's", notes="the other's")
+            save(state)
+            print("a release with the same tag name already exists", file=sys.stderr)
+            return 1
+        if state["exists"]:
+            print("a release with the same tag name already exists", file=sys.stderr)
+            return 1
+        latest = {"--latest=false": False}.get(
+            next((a for a in args if a.startswith("--latest")), ""), True
+        )
+        state.update(
+            exists=True,
+            latest=latest,
+            title=option(args, "--title"),
+            notes=Path(option(args, "--notes-file")).read_text(),
+        )
+        save(state)
+        return 0
+    if cmd == "upload":
+        if not state["exists"]:
+            return 1
+        files = args[args.index("--") + 1 :]
+        for f in files:
+            name = Path(f).name
+            state["assets"][name] = hashlib.sha256(Path(f).read_bytes()).hexdigest()
+            if name.endswith(".deb"):
+                state.setdefault("own", []).append(name)
+        if any(Path(f).name == "SHA256SUMS" for f in files) and bump(state, "sums") == 1:
+            other = os.environ.get("FAKE_GH_OTHER")
+            if other:
+                state["assets"].update(json.loads(Path(other).read_text()))
+                state["assets"]["SHA256SUMS"] = "f" * 64
+        save(state)
+        return 0
+    if cmd == "edit":
+        if "--latest" in args:
+            state["latest"] = True
+        save(state)
+        return 0
+    sys.exit(f"fake-gh: unsupported {argv}")
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
