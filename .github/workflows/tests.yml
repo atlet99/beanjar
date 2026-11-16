@@ -1,0 +1,81 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The checks a change must pass before it is merged, without a VM or firmware
+# (docs/dev/guides/testing.md, "In CI"). lint: the formatting check, reuse lint and the formatting
+# tests, which need those tools. unit: the unit tier and the compiled checks of a host build
+# (`meson test --suite unit`), natively on amd64 and arm64. scripts/tests-ci.sh does the work, in a
+# debian:trixie container as the other workflows, as root. What is kept between runs: the vendored
+# downloads and Meson's package cache.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    timeout-minutes: 15
+    steps:
+      # git first, so actions/checkout clones (reuse lint reads what git tracks)
+      - name: Install git
+        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check
+        run: scripts/tests-ci.sh lint
+
+  unit:
+    name: unit (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: debian:trixie
+    timeout-minutes: 45
+    steps:
+      # git first, so actions/checkout clones (build-deps.sh's version comes from the history)
+      - name: Install git
+        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # beanjar-vendor's tarballs, by the file that pins them
+      - name: Vendored downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: build/vendor/download
+          key: tests-vendor-${{ matrix.arch }}-${{ hashFiles('packaging/vendor.toml') }}
+          restore-keys: tests-vendor-${{ matrix.arch }}-
+      - name: Meson package cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: subprojects/packagecache
+          key: tests-wraps-${{ hashFiles('subprojects/*.wrap') }}
+          restore-keys: tests-wraps-
+      - name: Build and test
+        run: scripts/tests-ci.sh unit
+      - name: Upload the test log
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unit-testlog-${{ matrix.arch }}
+          path: build/host/meson-logs/testlog.txt
+          if-no-files-found: ignore

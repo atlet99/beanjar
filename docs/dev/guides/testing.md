@@ -38,6 +38,32 @@ with the Python of the mitmweb `mitmtool.py` finds (the interpreter its shebang 
 saying why; under the system Python it is skipped. `test_netns.py` and the web `check-mitm.py` run
 that mitmweb and skip without it.
 
+## In CI
+
+The Tests workflow (`.github/workflows/tests.yml`) runs on every pull request and push to main, in
+this repository and the public one, with no secrets. Its jobs run `scripts/tests-ci.sh` in a
+`debian:trixie` container, as root:
+
+- `lint`: `scripts/format check`, `reuse lint` and `tests/unit/formatting`, with Debian's
+  clang-format and reuse and the pinned ruff and pre-commit from pipx (Debian 13 has no ruff, and
+  its pre-commit is older than `.pre-commit-config.yaml` asks for).
+- `unit`, on amd64 and arm64 natively: role host's build dependencies and the vendored prebuilts,
+  as the Packages workflow installs them, a host build, then `meson test --suite unit` (every unit
+  area under pytest and the compiled checks), with the failures' logs.
+
+The integration tier is not run there: some of its tests need what a container lacks (a user
+systemd, TUN, a writable `/proc/sys`) or more than role host declares. A unit test must therefore
+give the same result on any machine, as root too: what it reads of the host (its architecture,
+accelerator, CPUs, an installed beanjar) is pinned or mocked, and a tool it lacks is a skip.
+
+To reproduce a job locally, in a throwaway container on a clean clone (it installs packages and
+leaves root-owned files in `build/`):
+
+```sh
+git clone . /path/to/clone
+docker run --rm -v /path/to/clone:/src debian:trixie /src/scripts/tests-ci.sh unit   # or lint
+```
+
 ## Layout
 
 ```

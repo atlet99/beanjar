@@ -14,7 +14,9 @@ scripts/build.sh host
 pytest tests/integration              # integration tests: need this checkout's builds
 ```
 
-The unit tests must pass for every change; run the ones for the area you touched. Integration
+The unit tests must pass for every change; run the ones for the area you touched. The Tests
+workflow runs all of them, the formatting check and `reuse lint` on every pull request
+([Testing](../docs/dev/guides/testing.md#in-ci)). Integration
 tests need the build they exercise and skip what is missing. The regress tier boots firmware in
 VMs and needs a VM host (KVM on a Raspberry Pi 5 or a PC), so you are not expected to run it;
 say in the pull request what you could not test and a maintainer will run it.
