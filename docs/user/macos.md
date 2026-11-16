@@ -1,7 +1,7 @@
 # Installing the macOS stack with Homebrew
 
-**Not usable yet.** Beanjar does not run VMs on macOS yet, and the tap below becomes reachable
-only once Beanjar's repository is public. The formulae are built and tested in beanjar-vendor's CI,
+**Not usable yet.** Beanjar does not run VMs on macOS yet; the tap below installs only the
+programs it will need. The formulae are built and tested in beanjar-vendor's CI,
 and their bottles (prebuilt binaries) for Apple silicon on macOS 15 are released on
 [beanjar-vendor](https://github.com/mariotaku/beanjar-vendor/releases). This page says how it will
 work.
