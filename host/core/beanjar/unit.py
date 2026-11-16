@@ -170,9 +170,9 @@ ENV_NAMES = frozenset(
         "BEANJAR_RELAY",
     }
 )
-# Families the host's libraries read: locale, Mesa and its GL/EGL (GALLIUM_DRIVER, MESA_D3D12_DEFAULT_ADAPTER_NAME, LIBGL_ALWAYS_SOFTWARE), VA-API (the media
+# Families the host's libraries read: locale, Mesa and its GL/EGL (GALLIUM_DRIVER, MESA_D3D12_DEFAULT_ADAPTER_NAME, LIBGL_ALWAYS_SOFTWARE), VA-API, Vulkan and CUDA (the media
 # helper's FFmpeg hardware decoders).
-ENV_PREFIXES = ("LC_", "MESA_", "GALLIUM_", "LIBGL_", "LIBVA_")
+ENV_PREFIXES = ("LC_", "MESA_", "GALLIUM_", "LIBGL_", "LIBVA_", "VK_", "CUDA_")
 
 
 def env_for(env, keep=()):
