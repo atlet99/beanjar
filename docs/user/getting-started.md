@@ -13,16 +13,20 @@ from here.
   runs the kernel and qemu-arm translates only the TV's 32-bit programs inside the guest
   (`hardware.userland`, `auto` by default), so it is still fast without 32-bit Arm KVM; NetCast
   and SimpleSmart firmware cannot use this. On an x86_64 machine with KVM, the experimental,
-  opt-in `hardware.guest_kernel = "x86-64"` does the same with an x86-64 guest kernel.
+  opt-in `hardware.guest_kernel = "x86-64"` does the same with an x86-64 guest kernel
+  ([below](#the-x86-64-guest-kernel)). Beanjar asks the kernel at each start whether the arm64
+  CPU has AArch32 at EL0; `setarch linux32 true` asks the same question, and succeeds exactly when
+  it has (without, it fails: "failed to set personality to linux32: Invalid argument").
 - Memory for each VM: its firmware model's RAM (1.25 GB for WT1H, 1.5 GB for W19P, for example)
   plus 1 GiB of headroom by default, and under TCG another 1 GiB for QEMU's translation cache; a
   VM whose userland runs under qemu-user gets half its model's RAM again for qemu-arm's own. A
   start that the host's free memory does not cover is refused.
 - For the windows (the VM manager and the viewer): GTK 4 and libadwaita 1.7 or newer for Python.
   Without them the CLI, VNC and the web viewer still work.
-- The guest layers are built with the webOS SDK (`/opt/arm-webos-linux-gnueabi_sdk-buildroot`),
-  which is x86_64 only, so they are built on an x86_64 machine; NetCast 4.5 needs the
-  [lgtv SDK](https://github.com/openlgtv/buildroot-nc4) as well.
+- Only to build from a checkout, not for the packages: the guest layers are built with the webOS
+  SDK (`/opt/arm-webos-linux-gnueabi_sdk-buildroot`), which is x86_64 only, so they are built on
+  an x86_64 machine; NetCast 4.5 needs the [lgtv SDK](https://github.com/openlgtv/buildroot-nc4)
+  as well.
 
 ## Firmware
 
@@ -86,6 +90,127 @@ ln -sf ~/.local/opt/epk2extract/epk2extract ~/.local/bin/epk2extract
 The build directory and the clone can be deleted afterwards. A firmware whose keys the clone does
 not have yet needs a newer clone.
 
+## From the Debian packages
+
+Released packages are on the [releases page](https://github.com/webosbrew/beanjar/releases): the
+host packages (`beanjar`, `beanjar-qemu`, `beanjar-ui`, `beanjar-vnc`, `beanjar-web`) in the
+newest `host-<version>` release, and `beanjar-guest` with `beanjar-guest-x86-64` in the
+`guest-<version>` release that the host release's notes name. Tags are either plain
+(`host-0.5.0`) or carry a `+git` suffix (`host-0.4.0+git112.g073b26083ad3`, `%2B` for the `+` in a
+URL); these commands handle both. Download into an empty directory, so that the `./beanjar_*.deb`
+patterns below match one version only. With curl and jq, no GitHub account needed:
+
+```sh
+sudo apt install curl jq
+mkdir beanjar-debs && cd beanjar-debs
+releases=$(curl -fsSL https://api.github.com/repos/webosbrew/beanjar/releases)
+host=$(echo "$releases" | jq -r '[.[].tag_name | select(startswith("host-"))][0]')
+guest=$(echo "$releases" | jq -r --arg t "$host" '.[] | select(.tag_name == $t) | .body' |
+  grep -o 'guest-[0-9][^]]*' | head -n1)
+echo "$releases" | jq -r --arg h "$host" --arg g "$guest" --arg a "$(dpkg --print-architecture)" \
+  '.[] | select(.tag_name == $h or .tag_name == $g) | .assets[].browser_download_url
+   | select(endswith("_\($a).deb") or endswith("_all.deb"))' | xargs -n1 curl -fsSLOJ
+```
+
+Or with the GitHub CLI, logged in (`gh auth login`):
+
+```sh
+mkdir beanjar-debs && cd beanjar-debs
+host=$(gh release list -R webosbrew/beanjar --json tagName \
+  -q '[.[].tagName | select(startswith("host-"))][0]')
+guest=$(gh release view -R webosbrew/beanjar "$host" --json body -q .body |
+  grep -o 'guest-[0-9][^]]*' | head -n1)
+for tag in "$host" "$guest"; do
+  gh release download -R webosbrew/beanjar "$tag" \
+    -p '*_all.deb' -p "*_$(dpkg --print-architecture).deb"
+done
+```
+
+Then install, in that directory:
+
+```sh
+sudo apt install ./beanjar_*.deb ./beanjar-qemu_*.deb ./beanjar-ui_*.deb ./beanjar-guest_*.deb
+```
+
+`beanjar-qemu` is Beanjar's patched QEMU, which the launcher runs whenever it is installed. A VM
+whose TV programs run under qemu-user (an arm64 CPU without AArch32 at EL0), the x86-64 guest
+kernel (below) and a host without a GPU render node (WSL) need it; Debian's QEMU, which `beanjar`
+also accepts, is enough only for a VM that runs the TV natively on a host with a render node.
+`beanjar-vnc` (the TV picture over VNC) and `beanjar-web` (VMs in a browser) are optional:
+`sudo apt install ./beanjar-vnc_*.deb ./beanjar-web_*.deb`. The
+[packages guide](../../packaging/debian/README.md) describes every package.
+
+The packages install the commands `beanjar` (the CLI; without arguments it opens the manager
+window), `beanjar-ui` (the manager window), `beanjar-viewer`, and with the optional packages
+`beanjar-vnc` and `beanjar-web`.
+
+### The x86-64 guest kernel
+
+On an x86_64 PC Beanjar by default emulates the whole TV, its kernel included, under TCG: it
+works, but slowly. The **experimental**, opt-in x86-64 guest kernel runs the kernel under KVM and
+translates only the TV's programs. It is the package `beanjar-guest-x86-64` (amd64), which the
+commands above download beside `beanjar-guest`, of the same version. Install it, then switch a VM
+to it ([Settings](vms.md#settings) says what it can boot so far):
+
+```sh
+sudo apt install ./beanjar-guest-x86-64_*.deb
+beanjar settings tv1 set guest_kernel=x86-64
+```
+
+### Groups
+
+`/dev/kvm` and the GPU's render nodes (`/dev/dri/renderD*`) belong to the groups `kvm` and
+`render`. KVM is what runs a VM on an arm64 host, and the x86-64 guest kernel; the default x86_64
+route (TCG) does not use it. Without access to `/dev/kvm` a VM falls back to TCG. The render node
+is the GPU for the guest's 3D and for hardware video decoding and encoding. Add yourself to both,
+then log out and in again (a new login is needed for the groups to apply):
+
+```sh
+sudo usermod -aG kvm,render "$USER"
+```
+
+Check:
+
+```sh
+ls -l /dev/kvm /dev/dri/renderD*   # crw-rw---- 1 root kvm ..., crw-rw---- 1 root render ...
+id -nG                             # ... kvm render ...
+```
+
+### mitmproxy
+
+A VM's default network records its traffic through your own mitmproxy, 12.0.1 or newer, which
+Debian does not package. Install it with pipx; Beanjar finds it in `~/.local/bin` by itself, and
+`pipx ensurepath` and a new shell put it on your `PATH` too:
+
+```sh
+sudo apt install pipx
+pipx install mitmproxy
+pipx ensurepath
+```
+
+Without it the VM still starts, uninspected, and says so. A VM with `mode=direct` (see
+[network](vms.md#network)) does not need it.
+
+### Check the install
+
+Before you have firmware, these show that the parts are in place (the comments are the first
+lines of a good result):
+
+```sh
+beanjar --help        # usage: beanjar [-h] [--library LIBRARY] [--repo REPO] COMMAND ...
+beanjar list          # no VMs in /home/<you>/.local/share/beanjar
+beanjar host config   # max_running: (not set: no limit)
+/usr/libexec/beanjar/qemu-system-aarch64 --version   # QEMU emulator version 10.0.2
+epk2extract           # LG Electronics digital TV firmware package (EPK) extractor version 4.8 ...
+mitmproxy --version   # Mitmproxy: 12.3.1 (12.0.1 or newer)
+ls -l /dev/kvm        # crw-rw---- 1 root kvm ... (arm64 hosts, the x86-64 guest kernel)
+```
+
+For the GPU, `eglinfo -B` (`sudo apt install mesa-utils`) should name your GPU as the renderer:
+`llvmpipe` there means Mesa draws with the CPU. Under WSL, check d3d12 as
+[WSL](wsl.md#the-gpu) shows. Without a desktop session the windows cannot open (`beanjar` without
+arguments says so); the CLI works anyway.
+
 ## From a checkout
 
 Install the host build's packages ([Host packages](../dev/guides/build.md#host-packages)), then
@@ -111,40 +236,8 @@ python3 -m beanjar_ui.manager
 
 The rest of these pages write `beanjar`; from a checkout that is `python3 -m beanjar`.
 
-## From the Debian packages
-
-Released packages are on the [releases page](https://github.com/webosbrew/beanjar/releases):
-the host packages in the newest `host-<version>` release, and `beanjar-guest` in the
-`guest-<version>` release its notes name. Install the downloaded files with
-`sudo apt install ./beanjar_*.deb ./beanjar-ui_*.deb ./beanjar-guest_*.deb`.
-
-To build them from a checkout instead, after the host and guest builds:
-
-```sh
-python3 packaging/debian/build.py
-sudo apt install ./build/packages/beanjar-guest_<version>_all.deb \
-  ./build/packages/beanjar_<version>_$(dpkg --print-architecture).deb \
-  ./build/packages/beanjar-ui_<version>_all.deb
-```
-
-`beanjar-vnc` (the TV picture over VNC) and `beanjar-web` (VMs in a browser) are optional, and so
-is `beanjar-qemu`, the patched QEMU (without it the VMs run on Debian's), except for a VM whose
-userland runs under qemu-user or, on amd64, the experimental `guest_kernel=x86-64`: their qemu-arm
-and qemu-system-x86_64 are only in `beanjar-qemu`. See the
-[packages guide](../../packaging/debian/README.md) for the packages.
-
-The packages install the commands `beanjar` (the CLI; without arguments it opens the manager
-window), `beanjar-ui` (the manager window), `beanjar-viewer`, and with the optional packages
-`beanjar-vnc` and `beanjar-web`. A VM's default network records its traffic through your own
-mitmproxy, 12.0.1 or newer, which Debian does not package; install it with pipx:
-
-```sh
-sudo apt install pipx
-pipx install mitmproxy
-```
-
-Without it the VM still starts, uninspected, and says so. A VM with `mode=direct` (see
-[network](vms.md#network)) does not need it.
+To make Debian packages of the checkout instead, see the
+[packages guide](../../packaging/debian/README.md).
 
 ## Where things are kept
 

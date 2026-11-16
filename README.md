@@ -30,22 +30,51 @@ You need Debian 13 (trixie) or Raspberry Pi OS based on it, on one of:
 
 - a Raspberry Pi 5, or another arm64 machine that runs 32-bit code at EL0 (AArch32), which run the TV under KVM;
 - another arm64 machine with KVM: KVM runs the guest kernel and only the TV's 32-bit programs are translated by qemu-user inside the guest, so it stays fast without 32-bit Arm KVM;
-- an x86_64 PC, which emulates the TV's ARM CPU with QEMU's TCG: it works, but more slowly. The experimental `guest_kernel = "x86-64"` setting (package `beanjar-guest-x86-64`, opt-in) gives an x86_64 PC with KVM the same qemu-user route, translating only the TV's programs instead of the whole machine.
+- an x86_64 PC, which by default emulates the whole TV, its ARM kernel included, with QEMU's TCG: it works, but more slowly. The experimental, opt-in x86-64 guest kernel (package `beanjar-guest-x86-64`) gives an x86_64 PC with KVM the qemu-user route instead, translating only the TV's programs.
+
+On an arm64 machine, `setarch linux32 true` succeeds when it runs 32-bit code at EL0 and fails ("failed to set personality to linux32") when it does not; Beanjar asks the kernel the same question at each start and picks the route by itself.
 
 On Windows 11, Beanjar runs in WSL2 with a Debian 13 distribution, as on an x86_64 PC; see [Running Beanjar on Windows with WSL](docs/user/wsl.md).
 
-Download the Debian packages from the [releases page](https://github.com/webosbrew/beanjar/releases): the host packages from the newest `host-<version>` release, and `beanjar-guest` from the `guest-<version>` release its notes name. Then:
+The Debian packages are on the [releases page](https://github.com/webosbrew/beanjar/releases): the host packages in the newest `host-<version>` release, and `beanjar-guest` in the `guest-<version>` release its notes name. Download both into an empty directory (this needs no GitHub account; [Getting started](docs/user/getting-started.md#from-the-debian-packages) has the same with the GitHub CLI), then install:
 
 ```sh
+sudo apt install curl jq
+mkdir beanjar-debs && cd beanjar-debs
+releases=$(curl -fsSL https://api.github.com/repos/webosbrew/beanjar/releases)
+host=$(echo "$releases" | jq -r '[.[].tag_name | select(startswith("host-"))][0]')
+guest=$(echo "$releases" | jq -r --arg t "$host" '.[] | select(.tag_name == $t) | .body' |
+  grep -o 'guest-[0-9][^]]*' | head -n1)
+echo "$releases" | jq -r --arg h "$host" --arg g "$guest" --arg a "$(dpkg --print-architecture)" \
+  '.[] | select(.tag_name == $h or .tag_name == $g) | .assets[].browser_download_url
+   | select(endswith("_\($a).deb") or endswith("_all.deb"))' | xargs -n1 curl -fsSLOJ
 sudo apt install ./beanjar_*.deb ./beanjar-qemu_*.deb ./beanjar-ui_*.deb ./beanjar-guest_*.deb
 ```
 
-`beanjar-vnc` (a VM's picture over VNC) and `beanjar-web` (VMs in a web browser) are optional. To use KVM and the GPU, add your user to the `kvm` and `render` groups. The traffic inspector needs your own mitmproxy, 12.0.1 or newer:
+`beanjar-qemu` is Beanjar's patched QEMU; the qemu-user route, the x86-64 guest kernel and WSL need it. `beanjar-vnc` (a VM's picture over VNC) and `beanjar-web` (VMs in a web browser) are optional.
+
+To try the experimental x86-64 guest kernel on an x86_64 PC with KVM, install its package from the same directory and switch a VM (here `tv1`, made as in [Using it](#using-it)) to it:
+
+```sh
+sudo apt install ./beanjar-guest-x86-64_*.deb
+beanjar settings tv1 set guest_kernel=x86-64
+```
+
+KVM (arm64 machines and the x86-64 guest kernel) needs access to `/dev/kvm`, and the GPU's render node `/dev/dri/renderD*` is used for the TV's 3D and video. Add your user to both groups, then log out and in again; `id -nG` should then list `kvm` and `render`:
+
+```sh
+sudo usermod -aG kvm,render "$USER"
+```
+
+The traffic inspector needs your own mitmproxy, 12.0.1 or newer. Beanjar finds it in `~/.local/bin`; `pipx ensurepath` and a new shell put it on your `PATH` as well:
 
 ```sh
 sudo apt install pipx
 pipx install mitmproxy
+pipx ensurepath
 ```
+
+[Check the install](docs/user/getting-started.md#check-the-install) lists commands that show everything is in place before you have firmware.
 
 To build from source instead, see [Building](docs/dev/guides/build.md).
 
