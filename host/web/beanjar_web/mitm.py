@@ -1,7 +1,19 @@
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""A VM's traffic inspector (mitmweb) at /vm/HOST/NAME/mitm/ (docs/dev/architecture/web-viewer.md,
-"The traffic inspector").
+"""A VM's traffic inspector (mitmweb) at /vm/HOST/NAME/mitm/ of the inspector's own origin
+(docs/dev/architecture/web-viewer.md, "The traffic inspector").
+
+mitmweb shows what the guest sends, which the guest controls: a script injected into its page must
+not run with beanjar-web's origin, where it could drive every VM. So the inspector is served by a
+listener of its own (--inspector-port, or the public --inspector-origin a proxy maps to it), a
+separate origin, which serves nothing else (Server.inspector_app). Its access is a grant per VM,
+an HMAC of HOST/NAME with a key made at each start: /vm/HOST/NAME/inspector.json of the main
+origin (behind its access) gives the URL with ?grant=, which is exchanged for an HttpOnly cookie
+under the VM's prefix (GRANT_COOKIE), as the main token is. beanjar-web's own session cookie is
+never accepted there and never passed to mitmweb; the main origin refuses what the inspector's
+page could send it (server.Server.auth: another site's or origin's fetches, POSTs and
+WebSockets). mitmweb's page needs a real origin: it reads its XSRF cookie from document.cookie and
+loads module scripts, which a CSP sandbox's opaque origin would refuse.
 
 `beanjar mitm connect HOST/NAME` makes the inspector reachable from here and says where, with its
 password, in one JSON line, then holds it (for another host's VM a forward on that host's shared
@@ -26,8 +38,11 @@ own, and sends mitmweb none.
 """
 
 import asyncio
+import hashlib
+import hmac
 import json
 import re
+import secrets
 
 import aiohttp
 from aiohttp import WSMsgType, web
@@ -50,6 +65,7 @@ REQUEST_DROP = HOP | {
 }  # fmt: skip
 RESPONSE_DROP = HOP | {"set-cookie"}
 SAFE = ("GET", "HEAD", "OPTIONS")
+GRANT_COOKIE = "beanjar_inspector"  # the inspector origin's per-VM grant, under the VM's prefix
 SCRIPT_RE = re.compile(r"/static/index-[A-Za-z0-9_-]+\.js")  # the page's script, the one rewritten
 DUMP_FROM = b'location.replace("/flows/dump'
 DUMP_TO = b'location.replace("./flows/dump'
@@ -104,6 +120,63 @@ class Inspectors:
         self.idle = idle
         self.upstreams = {}  # HOST/NAME: Upstream
         self.session = None
+        self.key = secrets.token_bytes(32)  # the grants', new at each start
+        self.port = None  # the inspector listener's, once it listens
+        self.origin = None  # --inspector-origin: its public origin, else this host at port
+
+    # -- access --
+    def grant(self, spec):
+        """The inspector origin's grant for one VM's inspector (HOST/NAME)."""
+        return hmac.new(self.key, spec.encode(), hashlib.sha256).hexdigest()
+
+    def url(self, request, spec):
+        """Where the main origin's page opens spec's inspector: the inspector origin (its public
+        one, else the page's host at its port), the VM's prefix and the grant."""
+        if self.origin:
+            base = self.origin
+        else:
+            from .server import expected_origin
+
+            own = URL(expected_origin(request))
+            base = str(own.with_port(self.port)).rstrip("/")
+        return f"{base}/vm/{spec}/mitm/?grant={self.grant(spec)}"
+
+    @web.middleware
+    async def auth(self, request, handler):
+        """The inspector origin's access: a VM's grant (?grant= once, then its cookie) for that
+        VM's routes only; this origin's Origin for what is not a GET; nothing from another site or
+        origin but a page opened (the main origin's link)."""
+        from .server import expected_origin, foreign
+
+        if foreign(request):
+            raise web.HTTPForbidden(text="beanjar-web: a request from another site or origin")
+        if "host" not in request.match_info or "name" not in request.match_info:
+            raise web.HTTPNotFound(text="beanjar-web: the traffic inspector only")
+        spec = self.server.spec(request)
+        if request.method not in SAFE or request.headers.get("Upgrade", "").lower() == "websocket":
+            origin = request.headers.get("Origin")
+            if origin and origin != expected_origin(request):
+                raise web.HTTPForbidden(text="cross-origin request")
+        grant = self.grant(spec)
+        if "grant" in request.query:
+            if not hmac.compare_digest(request.query["grant"], grant):
+                raise web.HTTPForbidden(text="beanjar-web: a wrong or old inspector grant")
+            query = {k: v for k, v in request.query.items() if k != "grant"}
+            response = web.HTTPFound(str(request.rel_url.with_query(query)))
+            response.set_cookie(
+                GRANT_COOKIE,
+                grant,
+                httponly=True,
+                samesite="Strict",
+                path=f"/vm/{spec}/mitm",  # and below it, not /vm/{spec}/mitmX
+                secure=expected_origin(request).startswith("https://"),
+            )
+            raise response
+        if not hmac.compare_digest(request.cookies.get(GRANT_COOKIE, ""), grant):
+            raise web.HTTPForbidden(
+                text="beanjar-web: open the Traffic Inspector from the VM's page in beanjar-web"
+            )
+        return await handler(request)
 
     # -- `mitm connect` --
     async def acquire(self, spec):
@@ -239,17 +312,7 @@ class Inspectors:
         prefix = self.prefix(request)
         if not request.raw_path.startswith(prefix):
             raise web.HTTPBadRequest(text="beanjar-web: an encoded HOST/NAME in an inspector path")
-        rest = "/" + request.raw_path[len(prefix) :]
-        if request.method not in SAFE:
-            # the auth middleware checks POSTs' and WebSockets' Origin; mitmweb takes PUT and
-            # DELETE too
-            from .server import expected_origin
-
-            origin = request.headers.get("Origin")
-            if origin and origin != expected_origin(request):
-                raise web.HTTPForbidden(text="cross-origin request")
-            if request.headers.get("Sec-Fetch-Site") == "cross-site":
-                raise web.HTTPForbidden(text="cross-site request")
+        rest = "/" + request.raw_path[len(prefix) :]  # auth has checked Origin and the grant
         if request.headers.get("Upgrade", "").lower() == "websocket":
             return await self.websocket(request, spec, rest)
         body = await request.read()
@@ -378,9 +441,11 @@ class Inspectors:
             self.release(spec, up)
 
     async def status(self, request):
-        """/vm/HOST/NAME/inspector.json: `beanjar mitm show --json` without the URL or password
-        file: {mode, status, ready, problem}, problem why a started mitm VM's inspector is off (no
-        usable mitmweb: what to install) or null."""
+        """/vm/HOST/NAME/inspector.json (the main origin): `beanjar mitm show --json` without the
+        URL or password file: {mode, status, ready, problem, url}, problem why a started mitm VM's
+        inspector is off (no usable mitmweb: what to install) or null, url where to open it (the
+        inspector origin, with the VM's grant) once it is ready and the inspector listens, else
+        null."""
         spec = self.server.spec(request)
         rc, out, err = await self.server.run(["mitm", "show", "--json", spec], 60)
         from .server import error_text
@@ -391,6 +456,9 @@ class Inspectors:
             data = json.loads(out)
             answer = {k: data[k] for k in ("mode", "status", "ready")}
             answer["problem"] = (data.get("mitmweb") or {}).get("problem")
+            answer["url"] = (
+                self.url(request, spec) if answer["ready"] and (self.port or self.origin) else None
+            )
         except (ValueError, KeyError, TypeError):
             return web.json_response({"error": "beanjar mitm show printed no state"}, status=502)
         return web.json_response(answer, headers={"Cache-Control": "no-store"})

@@ -103,7 +103,12 @@ def describe(state):
     every = access.url_host(state["listen"])[1]
     on = f"every address ({state['listen']})" if every else state["listen"]
     lines = [
-        f"listening on {on}, port {state['port']}, {state['scheme']}, --auth {acc.mode}",
+        f"listening on {on}, port {state['port']}, {state['scheme']}, --auth {acc.mode}"
+        + (
+            f"; the traffic inspector on port {state['inspector_port']}"
+            if state.get("inspector_port")
+            else ""
+        ),
         f"open {access.url(state['scheme'], state['listen'], state['port'], acc)}",
     ]
     if acc.mode == "password":
@@ -117,6 +122,10 @@ def serve_words(a, beanjar, state_file):
     """serve's options for the unit: a's, every path absolute."""
     absolute = os.path.abspath
     words = ["--listen", a.listen, "--port", str(a.port), "--auth", a.auth]
+    if a.inspector_port is not None:
+        words += ["--inspector-port", str(a.inspector_port)]
+    if a.inspector_origin:
+        words += ["--inspector-origin", a.inspector_origin]
     if a.auth != "none":
         words += ["--token-file", absolute(a.token_file or access.default_token_file())]
     if a.password_file:

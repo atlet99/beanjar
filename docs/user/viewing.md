@@ -53,7 +53,8 @@ beanjar-web status
 beanjar-web stop
 ```
 
-It listens on `127.0.0.1:8059`, and the URL carries a token kept in
+It listens on `127.0.0.1:8059` (a VM's Traffic Inspector on `8060`, an origin of its own, so
+that the traffic it shows cannot act as you in beanjar-web), and the URL carries a token kept in
 `~/.config/beanjar/web.token`. `--listen 0.0.0.0 --auth password` opens it to the LAN behind a
 login page; `--certificate` and `--key` serve HTTPS; `beanjar-web enable` keeps it across reboots.
 It starts VNC for a VM itself (so it needs `beanjar-vnc`), and reaches VMs on other hosts through

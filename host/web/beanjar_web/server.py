@@ -27,8 +27,9 @@ VM socket and no tunnel of its own:
   bitrate=N" (kbit/s);
 - /vm/HOST/NAME/layout.json: `beanjar remote layout --json` (the GTK remote's data);
 - /vm/HOST/NAME/screenshot.png: `beanjar screenshot NAME -`;
-- /vm/HOST/NAME/mitm/...: the VM's traffic inspector (mitmweb), HTTP and its WebSocket, through
-  `beanjar mitm connect` (mitm.py); /vm/HOST/NAME/inspector.json: `beanjar mitm show --json`.
+- /vm/HOST/NAME/inspector.json: `beanjar mitm show --json`, and where the VM's traffic inspector
+  (mitmweb) opens: /vm/HOST/NAME/mitm/... of a listener of its own (--inspector-port), another
+  origin, HTTP and its WebSocket through `beanjar mitm connect` (mitm.py).
 With --hosts, only the VMs of those hosts (`local`: this machine's): the list asks only them, and a
 route naming another host ({host} in its path) is 403 before any `beanjar` runs (hosts_only).
 The pages are static files beside this module; noVNC is Debian's, served as it is from /novnc/,
@@ -101,6 +102,20 @@ def expected_origin(request):
     return f"{scheme}://{host}"
 
 
+def foreign(request):
+    """Whether a browser sent the request for a page of another site or origin, other than by
+    opening a page (a top-level navigation, a link followed): Fetch Metadata. The inspector origin
+    (mitm.py) is another origin of the same site, whose page must not use this origin's cookie;
+    a request without these headers (not a browser's, or an old one) is not refused here."""
+    site = request.headers.get("Sec-Fetch-Site")
+    if site not in ("same-site", "cross-site"):
+        return False
+    return not (
+        request.headers.get("Sec-Fetch-Mode") == "navigate"
+        and request.headers.get("Sec-Fetch-Dest") == "document"
+    )
+
+
 def error_text(err):
     """The manager's message in its stderr: the JSON {"error"} object (--json), else its text."""
     lines = [line.strip() for line in err.splitlines() if line.strip()]
@@ -171,7 +186,9 @@ class Relay:
 
 
 class Server:
-    def __init__(self, beanjar, access, novnc, icons, vnc_args=(), tls=False, hosts=None):
+    def __init__(
+        self, beanjar, access, novnc, icons, vnc_args=(), tls=False, hosts=None, inspector=None
+    ):
         self.beanjar = list(beanjar)
         self.hosts = tuple(hosts) if hosts else None  # --hosts: only these hosts' VMs
         self.access = access
@@ -189,6 +206,7 @@ class Server:
         self.list_cache = None  # (rows, error), shared by list polling and every preview
         self.list_checked = 0
         self.inspectors = Inspectors(self)
+        self.inspectors.origin = inspector  # --inspector-origin
 
     # -- the manager --
     async def spawn(self, words, stdin=False):
@@ -270,8 +288,12 @@ class Server:
         if request.method == "POST" or request.headers.get("Upgrade", "").lower() == "websocket":
             if origin and origin != own_origin:
                 raise web.HTTPForbidden(text="cross-origin request")
-            if request.headers.get("Sec-Fetch-Site") == "cross-site":
+            if request.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site"):
                 raise web.HTTPForbidden(text="cross-site request")
+        if foreign(request):
+            # another origin's page (the inspector's, another port of this host) fetching with
+            # this origin's cookie
+            raise web.HTTPForbidden(text="beanjar-web: a request from another site or origin")
         if access.mode == "token" and "token" in request.query:
             if not hmac.compare_digest(request.query["token"], access.secret):
                 raise web.HTTPForbidden(text="wrong token")
@@ -895,11 +917,18 @@ class Server:
         app.router.add_get(vm + "/audio", self.audio)
         app.router.add_get(vm + "/video", self.video)
         app.router.add_get(vm + "/inspector.json", self.inspectors.status)
-        app.router.add_get(vm + "/mitm", self.inspectors.slash)
-        app.router.add_route("*", vm + "/mitm/{path:.*}", self.inspectors.handle)
         app.router.add_static("/novnc/", self.novnc)
         app.router.add_static("/icons/", self.icons)
         app.on_shutdown.append(self.shutdown)
+        return app
+
+    def inspector_app(self):
+        """The inspector origin's (mitm.py): each VM's traffic inspector and nothing else, behind
+        its grant; shut down with the main app."""
+        app = web.Application(middlewares=[self.inspectors.auth, self.hosts_only])
+        vm = "/vm/{host}/{name}"
+        app.router.add_get(vm + "/mitm", self.inspectors.slash)
+        app.router.add_route("*", vm + "/mitm/{path:.*}", self.inspectors.handle)
         return app
 
 
@@ -930,6 +959,13 @@ def parser():
     p.add_argument("--listen", default="127.0.0.1", help="an IPv4 or IPv6 address or a host name "
                    "(default 127.0.0.1; 0.0.0.0 or :: for every address)")  # fmt: skip
     p.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"default {DEFAULT_PORT}; 0: any")
+    p.add_argument("--inspector-port", type=int, metavar="N",
+                   help="the traffic inspector's own listener (another origin; mitm.py): default "
+                   "--port + 1, or any with --port 0")  # fmt: skip
+    p.add_argument("--inspector-origin", metavar="URL",
+                   help="the inspector listener's public origin when a proxy serves it, e.g. "
+                   "https://inspector.example.org; default this server's host at the inspector "
+                   "port")  # fmt: skip
     p.add_argument("--auth", choices=access.MODES, default="token",
                    help="token (default): a token in the URL, kept in --token-file; password: a "
                    "login page, the password in --password-file; none: loopback only")  # fmt: skip
@@ -968,6 +1004,12 @@ def prepare(p, a):
         p.error(f"no Bootstrap Icons at {a.icons} (apt install bootstrap-icons, or --icons DIR)")
     if not 0 <= a.port <= 65535:
         p.error(f"--port {a.port}: 0 to 65535")
+    if a.inspector_port is None:
+        a.inspector_port = a.port + 1 if 0 < a.port < 65535 else 0
+    if not 0 <= a.inspector_port <= 65535 or (a.port and a.inspector_port == a.port):
+        p.error(f"--inspector-port {a.inspector_port}: 0 to 65535, not --port")
+    if a.inspector_origin:
+        a.inspector_origin = inspector_origin(p, a.inspector_origin)
     if a.auth != "password" and a.password_file:
         p.error("--password-file is for --auth password")
     if a.auth == "none" and a.token_file:
@@ -989,6 +1031,27 @@ def prepare(p, a):
         except (OSError, ssl.SSLError) as e:
             p.error(f"--certificate {a.certificate} --key {a.key}: {e}")
     return acc, tls
+
+
+def inspector_origin(p, value):
+    """--inspector-origin as scheme://host[:port], or p.error."""
+    from yarl import URL
+
+    try:
+        u = URL(value)
+    except ValueError:
+        u = None
+    if (
+        u is None
+        or u.scheme not in ("http", "https")
+        or not u.host
+        or u.path not in ("", "/")
+        or u.query_string
+        or u.fragment
+        or u.user
+    ):
+        p.error(f"--inspector-origin {value!r}: an origin, http(s)://HOST[:PORT], nothing more")
+    return str(u.origin())
 
 
 def check_hosts(p, given, beanjar_command):
@@ -1060,7 +1123,7 @@ def serve(argv):
     vnc_args = (["--size", a.size] if a.size else []) + (["--fps", str(a.fps)] if a.fps else [])
     server = Server(
         shlex.split(a.beanjar or default_beanjar()), acc, a.novnc, a.icons, vnc_args, bool(tls),
-        a.hosts,
+        a.hosts, a.inspector_origin,
     )  # fmt: skip
 
     async def run():
@@ -1072,18 +1135,26 @@ def serve(argv):
             loop.add_signal_handler(sig, stop.set)
         runner = web.AppRunner(server.app(), access_log=None)
         await runner.setup()
+        # the traffic inspector's own origin (mitm.py), on the same address
+        inspector = web.AppRunner(server.inspector_app(), access_log=None)
+        await inspector.setup()
         site = web.TCPSite(runner, a.listen or None, a.port, ssl_context=tls)
-        try:
-            await site.start()
-        except OSError as e:
-            await runner.cleanup()
-            print(f"beanjar-web: cannot listen on {a.listen} port {a.port}: {e}", file=sys.stderr)
-            return 2
+        isite = web.TCPSite(inspector, a.listen or None, a.inspector_port, ssl_context=tls)
+        for s, n in ((site, a.port), (isite, a.inspector_port)):
+            try:
+                await s.start()
+            except OSError as e:
+                await inspector.cleanup()
+                await runner.cleanup()
+                print(f"beanjar-web: cannot listen on {a.listen} port {n}: {e}", file=sys.stderr)
+                return 2
         port = site._server.sockets[0].getsockname()[1]
+        server.inspectors.port = isite._server.sockets[0].getsockname()[1]
         url, on = where(a, scheme, port, acc, with_token=not a.state_file)
         if a.state_file:
             # under start: no token in the journal; status reads it from its file
             write_state(a.state_file, {"pid": os.getpid(), "listen": a.listen, "port": port,
+                                       "inspector_port": server.inspectors.port,
                                        "scheme": scheme, "auth": a.auth, "file": acc.path,
                                        "hosts": list(a.hosts) if a.hosts else None})  # fmt: skip
             print(f"beanjar-web: listening on {on}, {scheme}, --auth {a.auth}", flush=True)
@@ -1095,7 +1166,8 @@ def serve(argv):
             if a.auth == "password":
                 print(f"beanjar-web: the password is in {acc.path}", flush=True)
         await stop.wait()
-        await runner.cleanup()
+        await inspector.cleanup()  # its WebSockets closed before the main app's shutdown ends
+        await runner.cleanup()  # the inspectors' `mitm connect`s
         return 0
 
     return asyncio.run(run())

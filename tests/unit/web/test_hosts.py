@@ -117,10 +117,11 @@ class Web(unittest.IsolatedAsyncioTestCase):
             r = await c.request(method, route_path(path, "local"))
             self.assertNotEqual(r.status, 403, path)
 
-    def host_routes(self, s):
-        """(method, canonical path) of every route naming a host, from the route table."""
+    def host_routes(self, s, app=None):
+        """(method, canonical path) of every route naming a host, from the route table (the main
+        app's, or app's)."""
         found = []
-        for route in s.app().router.routes():
+        for route in (app or s.app()).router.routes():
             canonical = route.resource.canonical
             if canonical.startswith("/vm/"):
                 self.assertIn("{host}", canonical, "a /vm/ route without {host}")
@@ -137,7 +138,7 @@ class Web(unittest.IsolatedAsyncioTestCase):
         kinds = {p.removeprefix("/vm/{host}/{name}") for _, p in routes}
         for kind in ("/", "/{action}", "/operation", "/vnc", "/layout.json",
                      "/screenshot.png", "/rfb", "/remote", "/audio", "/video",
-                     "/inspector.json", "/mitm", "/mitm/{path}"):  # fmt: skip
+                     "/inspector.json"):  # fmt: skip
             self.assertIn(kind, kinds)
         for method, path in routes:
             for host in ("local", "pi", "unknown"):
@@ -148,7 +149,7 @@ class Web(unittest.IsolatedAsyncioTestCase):
                     if method != "HEAD":
                         self.assertIn("not served here", await r.text())
         # the WebSockets too, refused in the handshake
-        for kind in ("rfb", "remote", "audio", "video", "mitm/updates"):
+        for kind in ("rfb", "remote", "audio", "video"):
             with self.assertRaises(Exception) as e:
                 await c.ws_connect(f"/vm/local/tv/{kind}")
             self.assertEqual(getattr(e.exception, "status", None), 403, kind)
@@ -157,6 +158,28 @@ class Web(unittest.IsolatedAsyncioTestCase):
         r = await c.get("/vm/rk-2/k8/layout.json")
         self.assertEqual(r.status, 502)
         self.assertEqual(fake.calls, [["remote", "layout", "rk-2/k8", "--json"]])
+
+
+class InspectorHosts(unittest.IsolatedAsyncioTestCase):
+    async def test_every_inspector_route_refused(self):
+        """The inspector origin's routes (Server.inspector_app) for another host than --hosts:
+        refused even with that VM's grant, no beanjar command run."""
+        s, fake = make(("rk-2",))
+        app = s.inspector_app()
+        routes = Web.host_routes(self, s, app)
+        kinds = {p.removeprefix("/vm/{host}/{name}") for _, p in routes}
+        self.assertEqual(kinds, {"/mitm", "/mitm/{path}"})
+        c = TestClient(TestServer(app))
+        await c.start_server()
+        self.addAsyncCleanup(c.close)
+        for method, path in routes:
+            for host in ("local", "pi", "unknown"):
+                url = route_path(path, host)
+                r = await c.request(method, f"{url}?grant={s.inspectors.grant(host + '/tv')}")
+                self.assertEqual(r.status, 403, f"{method} {url}")
+                if method != "HEAD":
+                    self.assertIn("not served here", await r.text())
+        self.assertEqual(fake.calls, [], "a beanjar command ran for a refused host")
 
 
 class TestStartUp:

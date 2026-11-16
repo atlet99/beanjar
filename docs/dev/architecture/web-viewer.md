@@ -35,7 +35,8 @@ host/web/bin/beanjar-web start     # from the checkout, with the checkout's mana
   the unit is active, waits (at most 20 s) until the server listens, then prints what `status`
   prints; a unit that fails is shown with its journal. The unit's `RuntimeDirectory`
   (`$XDG_RUNTIME_DIR/beanjar-web/`) holds `state.json`, which `serve` writes once it listens: its
-  address, port, scheme, auth mode, `--hosts` and the secret's file, never the secret; systemd
+  address, port, the inspector's port, scheme, auth mode, `--hosts` and the secret's file, never
+  the secret; systemd
   removes it when the unit stops. Under the unit the URL is printed without the token, so it is not in the journal.
 - **`enable [options]`** is `start` made permanent: the same command line, environment and
   service properties written as the unit file `$XDG_CONFIG_HOME/systemd/user/beanjar-web.service`
@@ -209,8 +210,8 @@ Without `--hosts` nothing changes: one `beanjar list --json` of every host, and 
 | `/vm/HOST/NAME/layout.json` | `beanjar remote layout HOST/NAME --json` |
 | `/vm/HOST/NAME/screenshot.png` | `beanjar screenshot HOST/NAME -` |
 | `/vm/HOST/NAME/screenshot.png?thumbnail=1` | a shared 384×216 card preview (`beanjar screenshot HOST/NAME - --size 384x216`); cached pictures return immediately, refreshing in the background after 5 s; a first picture may wait; eligibility uses the shared VM list, returning 204 unless Running with beanjar-vnc or Off (its kept `--last` thumbnail, fetched once per state, or 204) |
-| `/vm/HOST/NAME/inspector.json` | `beanjar mitm show --json HOST/NAME` without the URL and password file: `{mode, status, ready, problem}` (problem: why a started VM's inspector is off, no usable mitmweb, with what to install; else null); the manager's failure 502 |
-| `/vm/HOST/NAME/mitm/...` | the VM's traffic inspector (mitmweb), every method and its `/updates` WebSocket ([below](#the-traffic-inspector)); `/vm/HOST/NAME/mitm` redirects to it with the slash |
+| `/vm/HOST/NAME/inspector.json` | `beanjar mitm show --json HOST/NAME` without the URL and password file: `{mode, status, ready, problem, url}` (problem: why a started VM's inspector is off, no usable mitmweb, with what to install; else null; url: where to open it, on the inspector's own origin with the VM's grant, once it is ready); the manager's failure 502 |
+| `/vm/HOST/NAME/mitm/...` (the inspector origin) | the VM's traffic inspector (mitmweb), every method and its `/updates` WebSocket, on the inspector's own listener only ([below](#the-traffic-inspector)); `/vm/HOST/NAME/mitm` redirects to it with the slash |
 | `/remote.html?vm=HOST/NAME` | the popup remote |
 | `/api/session` | `{"auth": MODE}`: the list shows Log Out for `password` |
 | `/login`, `POST /login`, `POST /logout` | `--auth password`'s login page, its form, Log Out |
@@ -311,10 +312,39 @@ the expanded socket matches across commands, differs across hosts, and persists 
 
 ### The traffic inspector
 
-A `mode = "mitm"` VM's mitmweb is served at `/vm/HOST/NAME/mitm/`, for this machine's VMs and
-other hosts' alike, behind the server's own access like every `/vm/HOST/NAME` route (and
-`--hosts`). Whoever passes that already drives the VM, so the server logs in to mitmweb for them:
-the browser never sees the inspector's password.
+A `mode = "mitm"` VM's mitmweb is served at `/vm/HOST/NAME/mitm/` of the inspector's own origin,
+for this machine's VMs and other hosts' alike (and `--hosts`). Whoever may open it already drives
+the VM, so the server logs in to mitmweb for them: the browser never sees the inspector's password.
+
+- **Its own origin.** mitmweb renders the guest's traffic, which the guest controls; a script that
+  got into its page would, on beanjar-web's origin, drive every VM of every host with the user's
+  session. So the inspector has a listener of its own on the same address, `--inspector-port N`
+  (default `--port` + 1, 8060; any with `--port 0`), serving the inspectors and nothing else
+  (`Server.inspector_app`), and the main origin serves no inspector. Its access is a grant per VM:
+  an HMAC of `HOST/NAME` with a key made at each start (`Inspectors.grant`).
+  `/vm/HOST/NAME/inspector.json` of the main origin, behind its access, gives the URL with
+  `?grant=`; the first request with it sets the grant as an `HttpOnly`, `SameSite=Strict` cookie
+  (`beanjar_inspector`, `Path=/vm/HOST/NAME/mitm`, `Secure` behind HTTPS) and redirects without
+  it, as the main token does. A wrong grant, another VM's or one of a previous start is 403.
+  Cookies are not kept apart by port, so the browser sends the main session cookie to the
+  inspector origin too: it is `HttpOnly` (the page cannot read it), is never accepted there, and
+  is never passed to mitmweb (nor the grant). The page there could still send requests to the
+  main origin, which the browser would send the session cookie with (another port of the same
+  host is the same site): the main origin refuses a POST or WebSocket whose `Origin` is not its
+  own or whose `Sec-Fetch-Site` is `same-site` or `cross-site`, and any other request from
+  another site or origin that is not a page opened at the top (`server.foreign`: Fetch Metadata,
+  `Sec-Fetch-Mode: navigate` and `Sec-Fetch-Dest: document`), so it can neither read the main
+  origin's answers nor act with its cookie. The inspector origin applies the same rules to
+  itself. Behind a proxy that gives the inspector another public name
+  ([below](#behind-a-reverse-proxy-cloudflare-tunnel)), `--inspector-origin URL` is its origin in
+  the URL; otherwise it is the page's host at the inspector's port. Not chosen: a
+  `Content-Security-Policy: sandbox` page on the main origin without `allow-same-origin`. Its
+  opaque origin breaks mitmweb (12.3.1): its API helper reads the XSRF cookie from
+  `document.cookie`, which throws there, so every PUT, POST and DELETE fails; its module scripts
+  and `modulepreload` are CORS requests from origin `null`; its `fetch` is `credentials:
+  "same-origin"`, so no cookie would authenticate it; and mitmweb refuses a non-GET whose
+  `Sec-Fetch-Site` is not `same-origin`. The inspectors share their origin with each other: a
+  script in one VM's inspector page can reach another VM's that this browser holds a grant for.
 
 - **Where it is: `beanjar mitm connect --json HOST/NAME`.** It prints one JSON line, the URL from
   which this machine reaches the inspector and its password, then holds until its stdin ends. For
@@ -360,8 +390,8 @@ the browser never sees the inspector's password.
   `same-origin` or `none`. This server checks the browser's `Origin` for POSTs and WebSockets (the
   middleware) and for PUT and DELETE (the route), sends mitmweb no `Origin`, `Referer`,
   `X-Forwarded-*` or `Authorization` of the browser's, and passes `Sec-Fetch-Site` on.
-- **The viewer's link.** More has Traffic Inspector (`binoculars`), opening `/vm/HOST/NAME/mitm/`
-  in a new tab, for a Running VM whose list row says mitm, once `inspector.json` says it is ready
+- **The viewer's link.** More has Traffic Inspector (`binoculars`), opening `inspector.json`'s
+  `url` in a new tab (`rel=noopener`), for a Running VM whose list row says mitm, once `inspector.json` says it is ready
   (asked every 15 s until it is, then every minute; hidden again when it is not). While it is off
   for good (`problem`), a dimmed "Traffic Inspector off" item takes its place with the problem
   below it in small selectable text; it is a disabled menu item, reached with the arrow keys and
@@ -377,13 +407,16 @@ HTTPS too (CSP Level 3's `'self'`).
 Every POST, including VNC start, login and logout, checks `Origin` against the request's own
 scheme and host (or a trusted local proxy's forwarded scheme and host, below), and refuses
 another origin or `null` with 403 before running a handler.
-`Sec-Fetch-Site: cross-site` is also refused. Requests without Origin remain available to
-non-browser clients. This applies in every authentication mode, including loopback `none`;
+`Sec-Fetch-Site: cross-site` or `same-site` is also refused, and so is any other request from
+another site or origin that is not a page opened at the top (Fetch Metadata; the traffic
+inspector's origin is another port of the same site, [above](#the-traffic-inspector)). Requests
+without Origin remain available to non-browser clients. This applies in every authentication mode, including loopback `none`;
 start/stop also require the same session as the rest of the VM endpoints. WebSockets retain
 the same origin check.
 
 It listens on 127.0.0.1 by default (`--listen ADDRESS`: IPv4, IPv6 or a host name; `--port N`,
-8059 by default, 0 for any). `--auth` says who may open it:
+8059 by default, 0 for any; the traffic inspector's own listener on `--inspector-port N`, by
+default the next port). `--auth` says who may open it:
 
 - **`token`** (the default): a random token (`secrets.token_urlsafe(24)`), made once and kept in
   `web.token` in the manager's config directory (`$XDG_CONFIG_HOME/beanjar/`, beside
@@ -443,6 +476,12 @@ not interpret that redundant header. `cloudflared` preserves the public `Host` b
 If [httpHostHeader](https://developers.cloudflare.com/tunnel/reference/origin-parameters/#httphostheader)
 overrides it, [cloudflared's HTTP origin proxy](https://github.com/cloudflare/cloudflared/blob/master/ingress/origin_proxy.go)
 sets `X-Forwarded-Host` to the original public host.
+
+The traffic inspector has its own listener (`--inspector-port`, 8060 by default), which needs a
+public hostname of its own, e.g. `https://inspector.example.org` pointed at
+`http://127.0.0.1:8060`, given as `--inspector-origin https://inspector.example.org` so that the
+viewer's link names it; without one the link names the main hostname at port 8060, which the
+tunnel does not serve. Put it behind the same Access application.
 
 With Cloudflare Access, `--auth none` is supported on the loopback listener. **The Access policy
 is then the only lock: the tunnel must only route beanjar-web through an Access application.**
@@ -848,8 +887,13 @@ from the PATH; from the checkout, `host/web/bin/beanjar-web` runs the checkout's
   one `list --json` and no route refused. `test_unit.py` checks that `start` and `enable` put
   `--hosts` in the unit's command line and that `status` prints it.
 - `test_mitm.py` (`tests/unit/web/`): the inspector route against a stand-in mitmweb with 12.2.3's
-  login and XSRF rules and a stand-in manager whose `mitm connect` is a real process: the token
-  and `--hosts` before anything runs; a VM without mitm and a stopped one 409 with the manager's
+  login and XSRF rules and a stand-in manager whose `mitm connect` is a real process: no inspector
+  route on the main origin, whatever its session; the main origin refusing a same-site fetch, a
+  framed page, a POST and a WebSocket from the inspector's origin, but not a page opened there;
+  the inspector origin serving nothing else, taking no main session cookie, passing neither it nor
+  its grant to mitmweb; the grant from `inspector.json` exchanged for its cookie (`HttpOnly`,
+  `SameSite=Strict`, the VM's path), another VM's grant and a missing one refused; the main
+  token and `--hosts` before anything runs; a VM without mitm and a stopped one 409 with the manager's
   message, an inspector that does not answer 502 after a second `mitm connect`, failures not
   kept; the page, the API with its query as sent, the script's two `/flows/dump` made relative and
   another script untouched; the password checked once, the Bearer on every request, no

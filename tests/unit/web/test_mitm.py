@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""beanjar-web's traffic inspector route (host/web/beanjar_web/mitm.py): /vm/HOST/NAME/mitm/
-against a stand-in mitmweb (its login as the pinned 12.2.3's: a Bearer password or its signed
+"""beanjar-web's traffic inspector (host/web/beanjar_web/mitm.py): /vm/HOST/NAME/mitm/ of its own
+origin (Server.inspector_app, behind a per-VM grant) against a stand-in mitmweb (its login as the pinned 12.2.3's: a Bearer password or its signed
 session cookie, else 403; its XSRF cookie and check; /updates) and a stand-in manager whose `mitm
 connect` is a real process that prints where the inspector is and waits for its stdin to end.
 
-Checked: the server's own auth first; --hosts; a VM without mitm and a stopped one (the manager's
+Checked: the inspector is not on the main origin, whose cookie it never takes; its grant per VM
+from the main origin's inspector.json; the main origin refuses the inspector page's fetches, POSTs
+and WebSockets; the server's own auth first; --hosts; a VM without mitm and a stopped one (the manager's
 refusal, 409); HTTP and WebSocket relayed both ways; the login done here (the password and the
 session cookie never in the browser, the browser's cookies never upstream but mitmweb's XSRF one,
 whose path becomes the prefix); File > Save's /flows/dump made relative; a new password after a
@@ -177,14 +179,30 @@ class Test(unittest.IsolatedAsyncioTestCase):
         """The `mitm connect`s running now."""
         return [n for n in os.listdir(self.dir) if n.startswith("connect-")]
 
-    async def client(self, acc=None, hosts=None, idle=mitm.IDLE):
+    async def main_client(self, acc=None, hosts=None, idle=mitm.IDLE):
+        """The Server and a client of its main origin."""
         s = server.Server(self.beanjar, acc or access.Access("none"), STATIC, STATIC,
                           hosts=hosts)  # fmt: skip
         s.inspectors.idle = idle
-        app = s.app()
-        c = TestClient(TestServer(app))
+        m = TestClient(TestServer(s.app()))
+        await m.start_server()
+        self.addAsyncCleanup(m.close)
+        return s, m
+
+    async def client(self, acc=None, hosts=None, idle=mitm.IDLE, grants=("local/tv",)):
+        """The Server and a client of its inspector origin, holding the grants of the VMs named
+        (as a page of the main origin's link opened), or the Server, the inspector client and the
+        main client with acc."""
+        s, m = await self.main_client(acc, hosts, idle)
+        c = TestClient(TestServer(s.inspector_app()))
         await c.start_server()
         self.addAsyncCleanup(c.close)
+        s.inspectors.port = c.port
+        for spec in grants:
+            r = await c.get(f"/vm/{spec}/mitm/?grant={s.inspectors.grant(spec)}",
+                            allow_redirects=False)  # fmt: skip
+            self.assertEqual(r.status, 302, await r.text())
+        self.main = m
         return s, c
 
     async def wait_for(self, condition, timeout=5.0):
@@ -193,6 +211,71 @@ class Test(unittest.IsolatedAsyncioTestCase):
                 return
             await asyncio.sleep(0.05)
         self.fail("timed out")
+
+    async def test_not_on_the_main_origin(self):
+        """The inspector is no route of the main origin, whatever its session: a script in
+        mitmweb's page (the guest's traffic) must not run where it could drive the VMs."""
+        acc = access.Access("token", "t0ken")
+        _s, m = await self.main_client(acc)
+        self.assertEqual((await m.get("/?token=t0ken", allow_redirects=False)).status, 302)
+        for path in ("/vm/local/tv/mitm/", "/vm/local/tv/mitm", "/vm/local/tv/mitm/flows"):
+            self.assertEqual((await m.get(path, allow_redirects=False)).status, 404, path)
+        self.assertEqual([x for x in self.calls() if "connect" in x], [])
+
+    async def test_main_origin_refuses_the_inspector_page(self):
+        """What the inspector origin's page (another port: the same site) could send the main
+        origin with its cookie: a fetch, a POST, a WebSocket, refused; opening a page is not."""
+        acc = access.Access("token", "t0ken")
+        _s, m = await self.main_client(acc)
+        self.assertEqual((await m.get("/?token=t0ken", allow_redirects=False)).status, 302)
+        theirs = f"http://127.0.0.1:{m.port + 1}"  # the inspector's
+        same_site = {"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "cors",
+                     "Sec-Fetch-Dest": "empty"}  # fmt: skip
+        self.assertEqual((await m.get("/api/session")).status, 200)
+        r = await m.get("/api/session", headers=same_site)
+        self.assertEqual(r.status, 403)
+        r = await m.get("/vm/local/tv/inspector.json", headers=same_site)
+        self.assertEqual(r.status, 403)
+        r = await m.get("/vm/local/tv/inspector.json", headers={**same_site, "Sec-Fetch-Dest": "iframe",
+                        "Sec-Fetch-Mode": "navigate"})  # fmt: skip
+        self.assertEqual(r.status, 403, "framed")
+        for headers in ({"Origin": theirs}, {"Sec-Fetch-Site": "same-site"}):
+            r = await m.post("/vm/local/tv/stop", headers=headers)
+            self.assertEqual(r.status, 403, headers)
+            with self.assertRaises(Exception) as e:
+                await m.ws_connect("/vm/local/tv/remote", headers=headers)
+            self.assertEqual(getattr(e.exception, "status", None), 403, headers)
+        # a page opened from there (a top-level navigation) is the user's
+        r = await m.get("/api/session", headers={**same_site, "Sec-Fetch-Mode": "navigate",
+                        "Sec-Fetch-Dest": "document"})  # fmt: skip
+        self.assertEqual(r.status, 200)
+        self.assertEqual([x for x in self.calls() if "stop" in x], [])
+
+    async def test_inspector_origin_takes_no_main_cookie(self):
+        """The inspector origin serves only the inspectors, never takes beanjar-web's session
+        cookie (cookies are not kept apart by port) and never passes it or its own grant to
+        mitmweb; another origin's fetches and writes are refused there too."""
+        acc = access.Access("token", "t0ken")
+        s, c = await self.client(acc, grants=())
+        c.session.cookie_jar.update_cookies({"beanjar_web": acc.session})
+        for path in ("/vm/local/tv/mitm/", "/vm/local/tv/mitm/flows"):
+            self.assertEqual((await c.get(path)).status, 403, path)
+        for path in ("/", "/api/vms", "/api/session", "/vm/local/tv/", "/vm/local/tv/inspector.json",
+                     "/index.html"):  # fmt: skip
+            self.assertEqual((await c.get(path)).status, 404, path)
+        r = await c.get("/vm/local/tv/mitm/?grant=" + s.inspectors.grant("local/tv"))
+        self.assertEqual(r.status, 200)
+        r = await c.get("/vm/local/tv/mitm/flows")
+        self.assertEqual(r.status, 200)
+        for seen in self.mitmweb.seen:
+            self.assertNotIn("beanjar_web", seen.get("Cookie", ""))
+            self.assertNotIn(mitm.GRANT_COOKIE, seen.get("Cookie", ""))
+        r = await c.get("/vm/local/tv/mitm/flows", headers={"Sec-Fetch-Site": "same-site",
+                        "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty"})  # fmt: skip
+        self.assertEqual(r.status, 403)
+        r = await c.put("/vm/local/tv/mitm/flows/abc", data="x",
+                        headers={"Origin": f"http://127.0.0.1:{self.main.port}"})  # fmt: skip
+        self.assertEqual(r.status, 403)
 
     async def test_proxy_and_login(self):
         _s, c = await self.client()
@@ -268,7 +351,7 @@ class Test(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await c.get("/vm/local/tv/mitm/flows")).status, 403)
 
     async def test_refusals(self):
-        _s, c = await self.client()
+        _s, c = await self.client(grants=("local/tv", "local/direct", "local/off"))
         for vm, message in (("direct", "no traffic inspector"), ("off", "VM tv is not running")):
             r = await c.get(f"/vm/local/{vm}/mitm/")
             self.assertEqual(r.status, 409)
@@ -276,17 +359,26 @@ class Test(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.connects(), [])
         self.assertEqual(_s.inspectors.upstreams, {}, "a failure is not kept")
         # the state the viewer asks for, without the URL or the password file
-        r = await c.get("/vm/local/tv/inspector.json")
-        self.assertEqual(
-            await r.json(), {"mode": "mitm", "status": "Running", "ready": True, "problem": None}
-        )
-        r = await c.get("/vm/local/direct/inspector.json")
+        r = await self.main.get("/vm/local/tv/inspector.json")
         self.assertEqual(
             await r.json(),
-            {"mode": "direct", "status": "Not running", "ready": False, "problem": None},
+            {
+                "mode": "mitm",
+                "status": "Running",
+                "ready": True,
+                "problem": None,
+                "url": f"http://127.0.0.1:{c.port}/vm/local/tv/mitm/?grant="
+                + _s.inspectors.grant("local/tv"),
+            },
         )
+        r = await self.main.get("/vm/local/direct/inspector.json")
+        self.assertEqual(
+            await r.json(),
+            {"mode": "direct", "status": "Not running", "ready": False, "problem": None,
+             "url": None},
+        )  # fmt: skip
         # started without a usable mitmweb: why, with what to install, for the viewer to show
-        r = await c.get("/vm/local/nomitm/inspector.json")
+        r = await self.main.get("/vm/local/nomitm/inspector.json")
         self.assertEqual(
             await r.json(),
             {
@@ -294,9 +386,10 @@ class Test(unittest.IsolatedAsyncioTestCase):
                 "status": f"Inspector off: {NO_MITMWEB}",
                 "ready": False,
                 "problem": NO_MITMWEB,
+                "url": None,
             },
         )
-        r = await c.get("/vm/local/nope/inspector.json")
+        r = await self.main.get("/vm/local/nope/inspector.json")
         self.assertEqual((r.status, await r.json()), (502, {"error": "no VM named x"}))
         # an inspector that does not answer at all: 502 after the second try
         self.state["local/tv"]["url"] = "http://127.0.0.1:9/"
@@ -307,21 +400,35 @@ class Test(unittest.IsolatedAsyncioTestCase):
 
     async def test_auth_and_hosts(self):
         acc = access.Access("token", "t0ken")
-        _s, c = await self.client(acc, hosts=("local",))
-        for path in (
-            "/vm/local/tv/mitm/",
-            "/vm/local/tv/mitm/flows",
-            "/vm/local/tv/inspector.json",
-        ):
-            self.assertEqual((await c.get(path)).status, 403, path)
+        s, c = await self.client(acc, hosts=("local",), grants=())
+        m = self.main
+        # the main origin's access first: the inspector's URL is behind it
+        self.assertEqual((await m.get("/vm/local/tv/inspector.json")).status, 403)
+        # the inspector origin: nothing without the VM's grant, not even with the main token
+        for path in ("/vm/local/tv/mitm/", "/vm/local/tv/mitm/flows", "/vm/local/tv/mitm",
+                     "/vm/local/tv/mitm/?token=t0ken"):  # fmt: skip
+            self.assertEqual((await c.get(path, allow_redirects=False)).status, 403, path)
         with self.assertRaises(Exception) as e:
             await c.ws_connect("/vm/local/tv/mitm/updates")
         self.assertEqual(getattr(e.exception, "status", None), 403)
-        r = await c.get("/vm/local/tv/mitm/?token=t0ken", allow_redirects=False)
+        r = await m.get("/?token=t0ken", allow_redirects=False)
         self.assertEqual(r.status, 302)
-        self.assertEqual(r.headers["Location"], "/vm/local/tv/mitm/")
+        url = (await (await m.get("/vm/local/tv/inspector.json")).json())["url"]
+        self.assertTrue(url.startswith(f"http://127.0.0.1:{c.port}/vm/local/tv/mitm/?grant="), url)
+        r = await c.get(url.removeprefix(f"http://127.0.0.1:{c.port}"), allow_redirects=False)
+        self.assertEqual((r.status, r.headers["Location"]), (302, "/vm/local/tv/mitm/"))
+        (granted,) = [x for x in c.session.cookie_jar if x.key == mitm.GRANT_COOKIE]
+        self.assertEqual(granted["path"], "/vm/local/tv/mitm")
+        self.assertTrue(granted["httponly"])
+        self.assertEqual(granted["samesite"], "Strict")
         self.assertEqual((await c.get("/vm/local/tv/mitm/")).status, 200)
-        r = await c.get("/vm/pi/tv/mitm/")
+        # the grant is the VM's: another VM's page is refused, as is an old grant
+        r = await c.get("/vm/local/off/mitm/")
+        self.assertEqual(r.status, 403)
+        r = await c.get("/vm/local/off/mitm/?grant=" + s.inspectors.grant("local/tv"))
+        self.assertEqual(r.status, 403)
+        # --hosts after the grant
+        r = await c.get("/vm/pi/tv/mitm/?grant=" + s.inspectors.grant("pi/tv"))
         self.assertEqual(r.status, 403)
         self.assertIn("not served here", await r.text())
         self.assertNotIn("local/tv", " ".join(self.mitmweb.seen[-1].get("Cookie", "")))
@@ -342,5 +449,6 @@ class Test(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await c.get("/vm/local/tv/mitm/flows")).status, 200)
         self.assertEqual(len(self.connects()), 1)
         await c.close()
+        await self.main.close()  # the main app's shutdown ends them
         self.assertEqual(s.procs, set())
         await self.wait_for(lambda: not self.connects())

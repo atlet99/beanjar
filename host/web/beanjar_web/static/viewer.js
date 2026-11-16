@@ -66,14 +66,15 @@ loadVm().then((vm) => {
   if (portrait) remoteOpen(); // its rotation reports
 });
 
-// More's Traffic Inspector: mitmweb through the server (/vm/HOST/NAME/mitm/), shown only while
-// the VM's inspector is ready (`beanjar mitm show`), asked again every 15 s until it is, then
-// every minute. An inspector that is off for good (no usable mitmweb: its problem says what to
+// More's Traffic Inspector: mitmweb through the server, on its own origin (inspector.json's url:
+// the inspector's port, /vm/HOST/NAME/mitm/ and the VM's grant), shown only while the VM's
+// inspector is ready (`beanjar mitm show`), asked again every 15 s until it is, then every
+// minute. An inspector that is off for good (no usable mitmweb: its problem says what to
 // install) shows that, dimmed, in the link's place; one still starting shows nothing.
 function watchInspector() {
-  inspectorLink.href = `${base}/mitm/`;
   const check = () => fetch(`${base}/inspector.json`).then((r) => r.json()).then((s) => {
-    inspectorLink.hidden = !s.ready;
+    if (s.url) inspectorLink.href = s.url;
+    inspectorLink.hidden = !(s.ready && s.url);
     inspectorOff.hidden = !!s.ready || !s.problem;
     inspectorOffWhy.textContent = s.problem || "";
   }).catch(() => { inspectorLink.hidden = inspectorOff.hidden = true; })

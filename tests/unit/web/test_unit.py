@@ -80,6 +80,7 @@ class FakeSystemd:
 def options(**kw):
     a = dict(listen="127.0.0.1", port=8059, auth="none", token_file=None, password_file=None,
              certificate=None, key=None, size=None, fps=None, hosts=None,
+             inspector_port=None, inspector_origin=None,
              novnc="/usr/share/novnc", icons="/usr/share/bootstrap-icons/svg")  # fmt: skip
     a.update(kw)
     return argparse.Namespace(**a)
@@ -158,6 +159,19 @@ class TestUnitTest:
         self.state["hosts"] = ["rk-2"]
         rc, out, _ = self.call(unit.status)
         assert "beanjar-web: only the VMs of --hosts rk-2" in out
+
+    def test_inspector(self):
+        """The traffic inspector's own listener and public origin go into the unit's command line;
+        status says its port."""
+        _props, _env, argv = unit.service(options(), "/bin/true", UNIT)
+        assert "--inspector-port" not in argv and "--inspector-origin" not in argv
+        _props, _env, argv = unit.service(
+            options(inspector_port=8070, inspector_origin="https://i.example"), "/bin/true", UNIT
+        )
+        assert argv[argv.index("--inspector-port") + 1] == "8070"
+        assert argv[argv.index("--inspector-origin") + 1] == "https://i.example"
+        self.state["inspector_port"] = 8070
+        assert "the traffic inspector on port 8070" in "\n".join(unit.describe(self.state))
 
     def test_token_file_not_token(self):
         token_file = os.path.join(self.tmp, "web.token")

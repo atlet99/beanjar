@@ -6,7 +6,8 @@ mitmtool.py finds it; skipped, 77, without one of 12.0.1 or newer): mitmweb run 
 regular proxy on loopback, with mitm_addon.py's password, and beanjar-web in front of it with a
 stand-in manager whose `mitm connect` answers with mitmweb's address and password.
 
-Through /vm/local/tv/mitm/ with an aiohttp client: the page and its assets, the API (/flows,
+Through /vm/local/tv/mitm/ of the inspector's own origin (Server.inspector_app), opened with the
+VM's grant, with an aiohttp client: the page and its assets, the API (/flows,
 /options), a PUT with mitmweb's XSRF cookie from /updates, a flow recorded through the proxy
 arriving over /updates, the rewritten File > Save. With headless Chromium (skipped without it): the
 page itself, the flow in its list, its WebSocket at the prefix, no request outside the prefix.
@@ -92,7 +93,7 @@ class Browser:
         return r["result"].get("value")
 
 
-async def browser_checks(tmp, base, page):
+async def browser_checks(tmp, base, page, grant):
     profile = Path(tmp, "profile")
     chrome = subprocess.Popen(
         [CHROME, "--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
@@ -109,7 +110,7 @@ async def browser_checks(tmp, base, page):
                 b = Browser(ws)
                 await b.cmd("Network.enable")
                 await b.cmd("Runtime.enable")
-                await b.cmd("Page.navigate", url=base + page)
+                await b.cmd("Page.navigate", url=base + page + grant)
                 await until(lambda: b.js("document.querySelectorAll('.flow-table tbody tr').length"
                                          " > 0 && document.body.innerText.includes('/e2e')"))  # fmt: skip
                 text = await b.js("document.body.innerText")
@@ -153,8 +154,15 @@ async def main(tmp):
     await runner.setup()
     site = web.TCPSite(runner, "127.0.0.1", 0)
     await site.start()
-    base = f"http://127.0.0.1:{site._server.sockets[0].getsockname()[1]}"
+    main_base = f"http://127.0.0.1:{site._server.sockets[0].getsockname()[1]}"
+    inspector = web.AppRunner(s.inspector_app())
+    await inspector.setup()
+    isite = web.TCPSite(inspector, "127.0.0.1", 0)
+    await isite.start()
+    s.inspectors.port = isite._server.sockets[0].getsockname()[1]
+    base = f"http://127.0.0.1:{s.inspectors.port}"  # the inspector's own origin
     page = "/vm/local/tv/mitm/"
+    grant = f"?grant={s.inspectors.grant('local/tv')}"
     target = web.Application()
     target.router.add_get("/e2e", lambda r: web.Response(text="hello"))
     target_runner = web.AppRunner(target)
@@ -163,7 +171,11 @@ async def main(tmp):
     await target_site.start()
     target_url = f"http://127.0.0.1:{target_site._server.sockets[0].getsockname()[1]}/e2e"
     try:
-        async with aiohttp.ClientSession() as c:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as c:
+            async with c.get(main_base + page) as r:
+                assert r.status == 404, ("the main origin serves no inspector", r.status)
+            async with c.get(base + page) as r:
+                assert r.status == 403, ("no grant", r.status)
 
             async def up():
                 try:
@@ -176,7 +188,7 @@ async def main(tmp):
             # unauthenticated, mitmweb itself refuses
             async with c.get(upstream + "flows") as r:
                 assert r.status == 403, r.status
-            async with c.get(base + page) as r:
+            async with c.get(base + page + grant) as r:  # the grant's cookie, then the page
                 html = await r.text()
                 assert r.status == 200 and "./static/index-" in html, (r.status, html[:200])
                 assert "mitmproxy-auth" not in str(r.headers.getall("Set-Cookie", []))
@@ -221,10 +233,11 @@ async def main(tmp):
             print("a proxied request seen over /updates and in /flows")
             await ws.close()
         if CHROME:
-            await browser_checks(tmp, base, page)
+            await browser_checks(tmp, base, page, grant)
         else:
             print("chromium is not installed: the browser check skipped")
     finally:
+        await inspector.cleanup()
         await runner.cleanup()
         await target_runner.cleanup()
         proxy.terminate()
