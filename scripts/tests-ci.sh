@@ -13,8 +13,9 @@
 #
 # unit: the prebuilt QEMU, FFmpeg and neatvnc of packaging/vendor.toml (meson/vendor.py, into
 # build/vendor) and role host's build dependencies (packaging/debian/build-deps.sh), as the
-# Packages workflow's build has them; the host build in build/host, then
-# `meson test --suite unit`, the failures' logs printed. Its exit status is the tests'.
+# Packages workflow's build has them; the pinned Homebrew Channel IPKs in Meson's package cache;
+# the host build in build/host, then `meson test --suite unit`, the failures' logs printed. Its
+# exit status is the tests'.
 set -eu
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 job=${1:-}
@@ -64,6 +65,23 @@ unit() {
 	step "build dependencies (role host)"
 	"$TOP/packaging/debian/build-deps.sh" host
 	apt-get install -y --no-install-recommends "$TOP"/build/packages/beanjar-build-deps-host_*_all.deb
+
+	# The hbchannel layer's tests build it from each pinned release's IPK when Meson's package cache
+	# has it; a guest build downloads it there (guest/layers/hbchannel/build-layer.sh), as here.
+	step "Homebrew Channel releases"
+	cache=${MESON_PACKAGE_CACHE_DIR:-$TOP/subprojects/packagecache}
+	mkdir -p "$cache"
+	for env in "$TOP"/guest/layers/hbchannel/versions/*/release.env; do
+		(
+			. "$env"
+			ipk=$cache/${URL##*/}
+			[ -f "$ipk" ] && [ "$(sha256sum "$ipk" | cut -d' ' -f1)" = "$SHA256" ] && exit 0
+			curl -fsSL --retry 3 -o "$ipk.part" "$URL"
+			[ "$(sha256sum "$ipk.part" | cut -d' ' -f1)" = "$SHA256" ] ||
+				{ echo "tests-ci.sh: $URL: not sha256 $SHA256" >&2; rm -f "$ipk.part"; exit 1; }
+			mv "$ipk.part" "$ipk"
+		)
+	done
 	t1=$(date +%s)
 
 	# There is no firmware for the cache; the virtual camera is built, so check-virtcam runs.

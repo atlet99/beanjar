@@ -5,7 +5,7 @@
 # tests, which need those tools. unit: the unit tier and the compiled checks of a host build
 # (`meson test --suite unit`), natively on amd64 and arm64. scripts/tests-ci.sh does the work, in a
 # debian:trixie container as the other workflows, as root. What is kept between runs: the vendored
-# downloads and Meson's package cache.
+# downloads and Meson's package cache (the wraps' sources and the Homebrew Channel IPKs).
 name: Tests
 
 on:
@@ -68,7 +68,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: subprojects/packagecache
-          key: tests-wraps-${{ hashFiles('subprojects/*.wrap') }}
+          key: tests-wraps-${{ hashFiles('subprojects/*.wrap', 'guest/layers/hbchannel/versions/*/release.env') }}
           restore-keys: tests-wraps-
       - name: Build and test
         run: scripts/tests-ci.sh unit
