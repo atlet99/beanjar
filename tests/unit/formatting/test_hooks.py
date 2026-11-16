@@ -12,8 +12,11 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[3]
+# what install-hooks.py needs on PATH (the CI's lint job has them all)
+MISSING = [name for name in ("pre-commit", "ruff", "clang-format") if not shutil.which(name)]
 
 
+@pytest.mark.skipif(bool(MISSING), reason=f"not installed: {', '.join(MISSING)}")
 class TestHooks:
     @pytest.fixture(autouse=True)
     def setup(self, tmp_path):
