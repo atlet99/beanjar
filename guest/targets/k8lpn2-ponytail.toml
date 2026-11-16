@@ -1,6 +1,7 @@
 models = ["W24P"]
 bring_up = ["W24P"]
 tested = false
+v4l2_capture = true
 
 # W24P ponytail-papikonda (33.31.61) keeps ombre's super.pak images (fonts without a suffix) and
 # every fstab and jail pin: ombre's paks and partition map.

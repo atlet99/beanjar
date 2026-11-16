@@ -2,6 +2,7 @@ models = ["W23A"]
 bring_up = ["W23A"]
 tested = false
 lg_scaler = [3840, 2160]
+v4l2_capture = true
 
 # W23A ponytail-papikonda (33.31.66) keeps number1's MStar fstab and jail pins and kernel modules, and
 # names the fonts pak fonts-global again.

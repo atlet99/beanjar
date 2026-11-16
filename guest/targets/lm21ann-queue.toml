@@ -2,6 +2,7 @@ models = ["W23A"]
 bring_up = ["W23A"]
 tested = false
 lg_scaler = [3840, 2160]
+v4l2_capture = true
 
 # W23A queue-qilian (43.22.80) keeps ponytail's paks and fstab pins; its jails' secure-store pins
 # move down by two (p17, p18, p21, p24), as the other queue firmwares' do. Its kernel stays 5.4

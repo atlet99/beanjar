@@ -4,6 +4,7 @@
 # the StanbyME's firmware and has no target.
 models = ["N21D"]
 lg_scaler = [1920, 1080]
+v4l2_capture = true
 
 [release]
 base = "kisscurl"

@@ -1,6 +1,7 @@
 models = ["W24H"]
 bring_up = ["W24H"]
 tested = false
+v4l2_capture = true
 
 # W24H ombre-okapi (23.23.30) keeps its paks in a super.pak with W24P's images (no region
 # suffixes). Its fstab pins license at p31, platform-plugins p34 and uhdcp p52 (W24P: p30, p33,

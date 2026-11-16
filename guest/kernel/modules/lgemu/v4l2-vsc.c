@@ -115,21 +115,6 @@ static void event(unsigned int index, u32 id, const void *data, size_t size)
     }
 }
 
-/* Read the same source and panel coordinates that are published to the viewer.
- * Capture must not manufacture source geometry when the scaler has none. */
-int lgemu_vsc_capture_geometry(struct lgemu_video_window *main, u32 *width, u32 *height)
-{
-    if (!v4l2_vsc || vsc_screen_count != 2)
-        return -ENODATA;
-    mutex_lock(&lock);
-    *main = state[0].window;
-    *width = vsc_screen[0];
-    *height = vsc_screen[1];
-    mutex_unlock(&lock);
-    return 0;
-}
-EXPORT_SYMBOL_GPL(lgemu_vsc_capture_geometry);
-
 /* A scaler connection is usable only while the VDO mux routes the requested
  * VDEC port to that window. Disconnecting either device retires the route. */
 static void publish(unsigned int index, u32 reason)

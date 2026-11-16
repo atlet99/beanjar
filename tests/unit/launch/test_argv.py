@@ -646,9 +646,9 @@ class ArgvTest(unittest.TestCase):
                 self.check_secondary_display_plan(accel)
 
     def test_capture_port(self):
-        """webos.capture, the port lg115x.ko's video60 reads the viewer through, is on every
-        target whose file sets v4l2_capture (the O22 family's, mullet to queue, not spacebuns), and on no
-        other."""
+        """webos.capture, the port the vendor module's video60 reads the viewer through, is on every
+        target whose file sets v4l2_capture (the O22 family's, mullet to queue, not spacebuns;
+        Realtek's from K6LP; LM21's), and on no other."""
         for target in (
             ("o22", "ombre"),
             ("o22n", "ombre"),
@@ -660,6 +660,8 @@ class ArgvTest(unittest.TestCase):
             ("o22", "mullet"),
             ("lm21u", "ombre"),
             ("k8hp", "ombre"),
+            ("k5lp", "goldilocks2"),
+            ("m16p", "dreadlocks2"),
         ):
             with (
                 self.subTest(target=target),
@@ -675,7 +677,7 @@ class ArgvTest(unittest.TestCase):
                     say=lambda _: None,
                     dry=True,
                 )
-                want = target[0].startswith("o2") and target[1] != "spacebuns"
+                want = target[1] not in ("spacebuns", "goldilocks2", "dreadlocks2")
                 self.assertEqual(targets.v4l2_capture(target), want)
                 self.assertEqual("name=webos.capture" in " ".join(p.argv), want)
 

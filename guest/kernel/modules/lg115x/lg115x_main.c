@@ -127,6 +127,14 @@ module_param(graphic_res, uint, 0444);
 MODULE_PARM_DESC(graphic_res, "GFX_RES, the graphic resolution, width << 16 | height");
 module_param(board_opt, uint, 0444);
 MODULE_PARM_DESC(board_opt, "BOARD_OPT (M16P's kernels), /proc/lg/base/board_opt; 0: no such file");
+static bool v4l2_capture;
+module_param(v4l2_capture, bool, 0444);
+MODULE_PARM_DESC(v4l2_capture, "/dev/video60, the TV picture from the viewer (webos.capture)");
+
+static int capture_add(void)
+{
+    return v4l2_capture ? lgemu_v4l2_capture_add() : 0;
+}
 
 /* ---- shared: commands logged once, the device class ---- */
 
@@ -217,7 +225,7 @@ static const struct {
     {"se", lx_se_add, lx_se_remove},
     {"logm", lx_logm_add, lx_logm_remove},
     {"de", lx_de_add, lx_de_remove},
-    {"v4l2-capture", lx_capture_add, lx_capture_remove},
+    {"v4l2-capture", capture_add, lgemu_v4l2_capture_remove},
     {"gpio", lx_gpio_add, lx_gpio_remove},
     {"sysfs-gpio", lx_sysfs_gpio_add, lx_sysfs_gpio_remove},
     {"pe", lx_pe_add, lx_pe_remove},

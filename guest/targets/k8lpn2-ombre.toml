@@ -1,5 +1,6 @@
 models = ["W24P"]
 bring_up = ["W24P"]
+v4l2_capture = true
 
 [release]
 base = "ombre"

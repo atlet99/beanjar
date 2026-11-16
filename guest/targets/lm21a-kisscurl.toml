@@ -1,6 +1,7 @@
 models = ["W21A"]
 bring_up = ["W21A"]
 lg_scaler = [3840, 2160]
+v4l2_capture = true
 
 # W21A shares the release's service layout, but its shipped map puts rootfs at p27
 # and state at p52-p54. Its see-init still contains the obsolete bootstrap table.

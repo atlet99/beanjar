@@ -102,6 +102,10 @@ static char *mstar_devnode(const struct device *dev, umode_t *mode)
     return NULL;
 }
 
+static bool v4l2_capture;
+module_param(v4l2_capture, bool, 0444);
+MODULE_PARM_DESC(v4l2_capture, "/dev/video60, the TV picture from the viewer (webos.capture)");
+
 static struct class *mstar_class;
 static struct proc_dir_entry *mmapger_dir, *utopia_entry, *counts_dir, *msos_dir;
 static void mstar_utopia_exit(void);
@@ -195,6 +199,11 @@ static int __init mstar_utopia_init(void)
     err = lgemu_gpiochip_usb_vbus(&gpio_chip, gpio_usb_vbus, gpio_usb_vbus_count);
     if (err)
         goto fail;
+    if (v4l2_capture) {
+        err = lgemu_v4l2_capture_add();
+        if (err)
+            goto fail;
+    }
     memory_log_layout();
     return 0;
 
@@ -206,6 +215,7 @@ fail:
 static void mstar_utopia_exit(void)
 {
     mmio_work_cancel();
+    lgemu_v4l2_capture_remove();
     lgemu_gpiochip_remove(&gpio_chip);
     for (size_t i = ARRAY_SIZE(chardevs); i--;) {
         struct chardev *c = &chardevs[i];

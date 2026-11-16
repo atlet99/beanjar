@@ -221,9 +221,10 @@ TVSERVICE = ("tvservice-dvb", "/mnt/lg/tvservice/lgapp/tvservice")
 # StanbyME (lm21u) has an FHD panel (panelResolution=FHD): its
 # videooutputd sets the regions in 1920x1080; None elsewhere. de_histogram: the stock
 # libpqeca (kadpd's histogram thread) reads /proc/lg/de/v4l2_capture_read and crashes in fscanf
-# when it is missing: lg115x.ko's stopped-histogram entry (de_histogram_proc). v4l2_capture: lg115x.ko's V4L2 capture (v4l2_capture=1),
-# /dev/video60, which captureservice's BLENDED and VIDEO read: every LG-O target from mullet to queue (libvtcapture's
-# VtDriver, and queue's nyxScreenCapture.module, make the same calls as W24G ombre's client).
+# when it is missing: lg115x.ko's stopped-histogram entry (de_histogram_proc). v4l2_capture: the V4L2 capture
+# /dev/video60 (lgemu.ko's v4l2-capture.c, added by the chip's vendor module, CAPTURE_MODULES, with v4l2_capture=1),
+# which captureservice's BLENDED and VIDEO read: every LG-O target from mullet to queue, Realtek's from K6LP and
+# MStar's LM21 (libvtcapture's VtDriver, and queue's nyxScreenCapture.module, make the same calls as W24G ombre's client).
 # tested: False for a target that has never booted (its file's tested = false; absent: True).
 Target = namedtuple(
     "Target", "models bring_up lg_scaler de_histogram v4l2_capture tested", defaults=(True,)
@@ -836,9 +837,13 @@ def of_firmware(model, release):
     return (chip, release) if chip else None
 
 
+# The vendor modules that add video60 for their chip (v4l2_capture=1): a chip has one of them.
+CAPTURE_MODULES = ("lg115x", "rtk", "mstar-utopia")
+
+
 def v4l2_capture(target):
-    """True for a target whose lg115x.ko serves the V4L2 capture (its file's v4l2_capture): the
-    module's video60 and the launcher's webos.capture port that feeds it."""
+    """True for a target whose vendor module serves the V4L2 capture (its file's v4l2_capture):
+    the module's video60 and the launcher's webos.capture port that feeds it."""
     return _target(target).v4l2_capture
 
 
@@ -1407,7 +1412,7 @@ def module_params(target, derived=None, vm=None, broadcast=None):
     out = {
         m.name: board_module_params(target, m.name, broadcast)
         + (("de_histogram_proc=1",) if _target(target).de_histogram and m.name == "lg115x" else ())
-        + (("v4l2_capture=1",) if v4l2_capture(target) and m.name == "lg115x" else ())
+        + (("v4l2_capture=1",) if v4l2_capture(target) and m.name in CAPTURE_MODULES else ())
         + tuple(derived.get(m.name, ()))
         + tuple(vm.get(m.name, ()))
         for m in s.modules

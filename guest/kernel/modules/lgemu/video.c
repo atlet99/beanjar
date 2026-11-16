@@ -90,6 +90,16 @@ void lgemu_video_screen(u32 w, u32 h)
 }
 EXPORT_SYMBOL_GPL(lgemu_video_screen);
 
+void lgemu_video_capture_geometry(struct lgemu_video_window *main, u32 *width, u32 *height)
+{
+    mutex_lock(&lock);
+    *main = windows[0];
+    *width = screen_w;
+    *height = screen_h;
+    mutex_unlock(&lock);
+}
+EXPORT_SYMBOL_GPL(lgemu_video_capture_geometry);
+
 void lgemu_video_window(unsigned int idx, const struct lgemu_video_window *w, u32 event)
 {
     if (idx >= WINDOWS || !queue)

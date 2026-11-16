@@ -38,8 +38,7 @@ class BootConfTest(unittest.TestCase):
 
     def test_lg_scaler_scope(self):
         # Stock O22, O22N, ombre and LM21's libval use video30/31 in UHD panel coordinates: the
-        # media lanes with our elements get lgemu.ko's model, spacebuns does not, and every O22
-        # family release but spacebuns lg115x's video60 readback.
+        # media lanes with our elements get lgemu.ko's model, spacebuns does not.
         for chip, release in (
             ("o22", "mullet"),
             ("o22", "number1"),
@@ -61,11 +60,26 @@ class BootConfTest(unittest.TestCase):
             # The scaler's panel space: UHD, but the StanbyME's (lm21u) panel is FHD.
             screen = "1920,1080" if chip == "lm21u" else "3840,2160"
             self.assertEqual(f"vsc_screen={screen}" in params, release != "spacebuns")
-            soc = conf["MODULE_PARAMS_lg115x"].split()
-            self.assertNotIn("v4l2_vsc=1", soc)
-            self.assertEqual(
-                "v4l2_capture=1" in soc, chip.startswith("o22") and release != "spacebuns"
+            self.assertNotIn("v4l2_vsc=1", conf["MODULE_PARAMS_lg115x"].split())
+
+    def test_v4l2_capture(self):
+        """video60 (v4l2_capture=1) is the chip's vendor module's, on every captureservice target
+        whose libvtcapture opens it: LG-O's but spacebuns, Realtek's from K6LP, MStar's LM21; no
+        other module gets the parameter, and no other target."""
+        for target in targets.all_targets():
+            chip, release = target
+            want = (
+                (chip.startswith("o2") and release != "spacebuns")
+                or (chip.startswith("k") and chip != "k5lp")
+                or chip.startswith("lm21")
             )
+            with self.subTest(target=targets.name(target)):
+                self.assertEqual(targets.v4l2_capture(target), want)
+                params = targets.module_params(target)
+                holders = [m for m, words in params.items() if "v4l2_capture=1" in words]
+                vendor = [m for m in params if m in targets.CAPTURE_MODULES]
+                self.assertEqual(holders, vendor if want else [])
+                self.assertLessEqual(len(vendor), 1)
 
     def test_far_field_mic(self):
         """lgemu.ko's mic=1 is the board's model's own hardware (Soc.mic): the C2's O22 board line

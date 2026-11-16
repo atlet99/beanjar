@@ -1,2 +1,3 @@
 models = ["W22P"]
 bring_up = ["W22P"]
+v4l2_capture = true

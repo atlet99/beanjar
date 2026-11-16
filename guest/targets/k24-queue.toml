@@ -1,6 +1,7 @@
 models = ["W24H"]
 bring_up = ["W24H"]
 tested = false
+v4l2_capture = true
 
 # W24H queue-qilian (43.22.72) keeps ombre's super.pak images and fstab pins; its jails'
 # secure-store pins move down by two (p17, p18, p21, p24), as the other queue firmwares' do.

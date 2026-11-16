@@ -1,6 +1,7 @@
 models = ["W23H"]
 bring_up = ["W23H"]
 tested = false
+v4l2_capture = true
 
 # W23H ponytail-papikonda (33.31.61) keeps number1's fstab and jail pins (appstore at p62) and
 # ponytail's global paks, fonts-global among them.

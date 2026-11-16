@@ -1,6 +1,7 @@
 models = ["W25P"]
 bring_up = ["W25P"]
 tested = false
+v4l2_capture = true
 
 # W25P queue-qilian (43.22.74) keeps ponytail's super.pak images and fstab pins; its jails'
 # secure-store pins move down by two (p17, p18, p21, p24), as the other queue firmwares' do.

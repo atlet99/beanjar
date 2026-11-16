@@ -1,5 +1,6 @@
 models = ["W23P"]
 bring_up = ["W23P"]
+v4l2_capture = true
 
 # W23P retains W22P's global pak and state pins; fonts loses its suffix.
 [release]

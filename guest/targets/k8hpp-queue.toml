@@ -1,6 +1,7 @@
 models = ["W23H"]
 bring_up = ["W23H"]
 tested = false
+v4l2_capture = true
 
 # W23H queue-qilian (43.22.73) keeps ponytail's paks and fstab pins; its jails' secure-store pins
 # move down by two (p17, p18, p21, p24), as W22O queue's do (o22-queue keeps its map too).

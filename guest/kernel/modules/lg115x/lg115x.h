@@ -44,9 +44,6 @@ void lx_de_histogram_remove(void);
 int lx_de_add(void);
 void lx_de_remove(void);
 
-int lx_capture_add(void);
-void lx_capture_remove(void);
-
 int lx_gpio_add(void);
 void lx_gpio_remove(void);
 

@@ -205,14 +205,24 @@ struct lgemu_video_window {
 };
 /* The screen the outputs are in (1920x1080 until set) */
 void lgemu_video_screen(u32 w, u32 h);
-/* The V4L2 scaler's MAIN window and the panel it is in (v4l2-vsc.c), for a capture of what it
- * shows; -ENODATA when the scaler is off. */
-int lgemu_vsc_capture_geometry(struct lgemu_video_window *main, u32 *width, u32 *height);
+/* The MAIN window and the screen it is in, as the SoC's scaler model last published them, for a
+ * capture of what it shows. */
+void lgemu_video_capture_geometry(struct lgemu_video_window *main, u32 *width, u32 *height);
 /* Window idx is now w; event: what changed it (enum webos_video_event) */
 void lgemu_video_window(unsigned int idx, const struct lgemu_video_window *w, u32 event);
 
 /* Fresh host-rendered capture; only the active provider can satisfy it. */
 bool lgemu_capture_available(void);
 int lgemu_capture_frame(u32 mode, u32 width, u32 height, u8 *rgba);
+
+/* ---- the V4L2 capture node (v4l2-capture.c) ---- */
+
+/* /dev/video60, libvtcapture's V4L2 capture of the TV picture (lgemu_capture_frame), added by the
+ * SoC driver module whose vendor's kernel has it (its v4l2_capture parameter; the launcher's
+ * targets.v4l2_capture) and owned by it. -EBUSY when it is there already. */
+#define lgemu_v4l2_capture_add() __lgemu_v4l2_capture_add(THIS_MODULE)
+int __lgemu_v4l2_capture_add(struct module *owner);
+/* undoes lgemu_v4l2_capture_add, if it added the node */
+void lgemu_v4l2_capture_remove(void);
 
 #endif

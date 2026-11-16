@@ -1,6 +1,7 @@
 models = ["W23P"]
 bring_up = ["W23P"]
 tested = false
+v4l2_capture = true
 
 # W23P ombre-okapi (23.25.55) keeps number1's paks (fonts without a suffix) and every fstab and
 # jail pin: number1's partition map.

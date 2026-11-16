@@ -1,6 +1,7 @@
 models = ["W24P"]
 bring_up = ["W24P"]
 tested = false
+v4l2_capture = true
 
 # W24P queue-qilian (43.22.76) keeps ombre's super.pak images and fstab pins: ombre's paks and
 # partition map. Its jails' secure-store pins move down by two (p17, p18, p21, p24), as the other

@@ -9,3 +9,4 @@
 # Stays in BRING_UP.
 models = ["W21P", "W21Z"]
 bring_up = ["W21Z"]
+v4l2_capture = true

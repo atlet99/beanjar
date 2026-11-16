@@ -2,6 +2,7 @@ models = ["W23A"]
 bring_up = ["W23A"]
 tested = false
 lg_scaler = [3840, 2160]
+v4l2_capture = true
 
 # W23A ombre-okapi (23.25.60) keeps number1's paks (fonts without a region suffix), its MStar fstab
 # and jail pins and its kernel modules: number1's rows.

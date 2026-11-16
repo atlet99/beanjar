@@ -1,4 +1,5 @@
 models = ["W20L"]
+v4l2_capture = true
 
 # W20L ignores builtin M-RCU motion until the native cursor-on event.
 [release]

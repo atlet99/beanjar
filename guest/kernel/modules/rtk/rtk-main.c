@@ -317,6 +317,10 @@ bool rtk_node_exists(const char *name)
     return false;
 }
 
+static bool v4l2_capture;
+module_param(v4l2_capture, bool, 0444);
+MODULE_PARM_DESC(v4l2_capture, "/dev/video60, the TV picture from the viewer (webos.capture)");
+
 static void rtk_exit(void);
 
 static int __init rtk_init(void)
@@ -375,6 +379,11 @@ static int __init rtk_init(void)
         if (err)
             goto fail;
     }
+    if (v4l2_capture) {
+        err = lgemu_v4l2_capture_add();
+        if (err)
+            goto fail;
+    }
     err = lgemu_cdev_add(&rtk_cdev, 0, 0, MINORS, "rtk", &rtk_fops);
     if (err)
         goto fail;
@@ -415,6 +424,7 @@ static void rtk_exit(void)
     unsigned int m;
 
     rtk_fb_remove();
+    lgemu_v4l2_capture_remove();
     rtk_tee_remove();
     rtk_gal_gfx_remove();
     for_each_set_bit(m, devices_made, MINORS) device_destroy(&rtk_class, rtk_cdev.dev + m);

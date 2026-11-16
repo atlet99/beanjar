@@ -1,6 +1,7 @@
 models = ["W24H"]
 bring_up = ["W24H"]
 tested = false
+v4l2_capture = true
 
 # W24H ponytail-papikonda (33.31.68) keeps ombre's super.pak images and every fstab and jail pin.
 [release]

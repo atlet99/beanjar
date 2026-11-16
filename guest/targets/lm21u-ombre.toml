@@ -4,6 +4,7 @@
 # the StanbyME's firmware and has no target.
 models = ["N21D"]
 lg_scaler = [1920, 1080]
+v4l2_capture = true
 
 # N21D on webOS 24 (ombre-okapi): the StanbyME as a UK set from that firmware's own tables, and
 # W22A's widened mmapger: its libkadaptor's MAdp_SYS_GetMMAP reads 40-byte records of ids 0..120

@@ -1,12 +1,16 @@
 // SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 // SPDX-License-Identifier: GPL-2.0-only
-/* O22N2 libvtcapture's ARM32 video60 ABI, without the media subsystem.
+/* libvtcapture's ARM32 video60 ABI, without the media subsystem: what the SoC driver modules
+ * (lg115x.ko, rtk.ko, mstar-utopia.ko) share, each adding the node for its vendor's kernel when
+ * its own v4l2_capture parameter says so (lgemu-drv.h). LG-O's (O22N2's and the O22 family's),
+ * Realtek's (W20L's libvtcapture 1.0.0-29 on) and MStar LM21's (-38, -46) clients make the same
+ * calls; queue's nyxScreenCapture.module adds G_FMT and controls answered EOPNOTSUPP here.
  * Layouts and control IDs: LG W22H v4l2-controls-ext.h and vt_v4l2_cb_api.c.
  * The O22N2 client maps QUERYBUF offsets through video60 (queryBuffer,
  * 0x10f62..0x10f6c), not /dev/mem. These offsets name vmalloc-backed planes;
  * physical-address export is deliberately unsupported.
  * Frames come only from a fresh, successful viewer readback. */
-#define pr_fmt(fmt) KBUILD_MODNAME ": capture: " fmt
+#define pr_fmt(fmt) "capture: " fmt
 #include <linux/compat.h>
 #include <linux/fs.h>
 #include <linux/hrtimer.h>
@@ -23,7 +27,6 @@
 #include <linux/version.h>
 #include <linux/vmalloc.h>
 #include "lgemu-drv.h"
-#include "lg115x.h"
 #include "../../../../include/webos-capture.h"
 
 #define CAP_QUERYCAP      0x80685600
@@ -47,12 +50,15 @@
 #define CAP_MEMORY_LIMIT  (64UL * 1024 * 1024)
 #define CAP_OFFSET_STRIDE (4UL * 1024 * 1024)
 
-static bool v4l2_capture;
-module_param(v4l2_capture, bool, 0444);
-MODULE_PARM_DESC(v4l2_capture, "enable video60 readback from the active viewer (webos.capture)");
 static atomic_long_t allocated = ATOMIC_LONG_INIT(0);
 static struct lgemu_cdev cdev;
-static struct lx_seen seen = LX_SEEN_INIT(seen);
+
+static int unknown_show(char *buf, size_t size, const struct lgemu_count *e)
+{
+    return scnprintf(buf, size, "%s %#x\n", e->what, e->a);
+}
+/* the ioctls not emulated; .module: the owner's name (lgemu_v4l2_capture_add) */
+DEFINE_LGEMU_COUNTS(unknown, 16, 32, unknown_show);
 
 struct capture_buffer {
     struct kref ref;
@@ -371,9 +377,7 @@ static int extended(struct file *file, unsigned int cmd, void __user *arg)
         {
             struct lgemu_video_window main;
             u32 panel_w, panel_h;
-            ret = lgemu_vsc_capture_geometry(&main, &panel_w, &panel_h);
-            if (ret)
-                return ret;
+            lgemu_video_capture_geometry(&main, &panel_w, &panel_h);
             /* Progressive rendered surfaces in the modeled panel coordinate
              * space; the requested capture dimensions are independent. */
             put_unaligned_le32(1, data);
@@ -558,7 +562,7 @@ static long capture_ioctl_locked(struct file *file, unsigned int cmd, void __use
     case CAP_S_CTRL:
         return -EOPNOTSUPP; /* No divider or VTV processing is advertised. */
     default:
-        return lx_seen_log(&seen, "v4l2-capture", cmd, -ENOTTY);
+        return lgemu_ioctl_unhandled(&unknown, "video60", cmd, -ENOTTY);
     }
 }
 
@@ -648,8 +652,7 @@ static int capture_release(struct inode *inode, struct file *file)
     return 0;
 }
 
-static const struct file_operations fops = {
-    .owner = THIS_MODULE,
+static struct file_operations fops = {
     .open = capture_open,
     .release = capture_release,
     .unlocked_ioctl = capture_ioctl,
@@ -665,12 +668,14 @@ static char *capture_devnode(const struct device *dev, umode_t *mode)
 }
 static const struct class capture_class = {.name = "lg-capture", .devnode = capture_devnode};
 
-int lx_capture_add(void)
+int __lgemu_v4l2_capture_add(struct module *owner)
 {
     struct device *dev;
     int ret;
-    if (!v4l2_capture)
-        return 0;
+    if (cdev.added)
+        return -EBUSY;
+    fops.owner = owner;
+    unknown.module = module_name(owner);
     ret = class_register(&capture_class);
     if (ret)
         return ret;
@@ -678,16 +683,19 @@ int lx_capture_add(void)
     if (ret)
         goto fail_class;
     dev = device_create(&capture_class, NULL, cdev.dev, NULL, "video60");
-    if (!IS_ERR(dev))
+    if (!IS_ERR(dev)) {
+        pr_info("video60 for %s\n", module_name(owner));
         return 0;
+    }
     ret = PTR_ERR(dev);
     lgemu_cdev_del(&cdev);
 fail_class:
     class_unregister(&capture_class);
     return ret;
 }
+EXPORT_SYMBOL_GPL(__lgemu_v4l2_capture_add);
 
-void lx_capture_remove(void)
+void lgemu_v4l2_capture_remove(void)
 {
     if (!cdev.added)
         return;
@@ -695,3 +703,4 @@ void lx_capture_remove(void)
     lgemu_cdev_del(&cdev);
     class_unregister(&capture_class);
 }
+EXPORT_SYMBOL_GPL(lgemu_v4l2_capture_remove);

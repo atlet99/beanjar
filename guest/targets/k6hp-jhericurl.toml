@@ -1,5 +1,6 @@
 models = ["W20H"]
 bring_up = ["W20H"]
+v4l2_capture = true
 
 [release]
 base = "jhericurl"

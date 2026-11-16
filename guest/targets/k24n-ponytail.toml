@@ -1,6 +1,7 @@
 models = ["W25H"]
 bring_up = ["W25H"]
 tested = false
+v4l2_capture = true
 
 # W25H ponytail-papikonda (33.31.68) has W24H's super.pak images and every fstab and jail pin of
 # W24H ponytail: K24's paks and partition map.

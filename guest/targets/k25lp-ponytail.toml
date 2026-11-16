@@ -1,6 +1,7 @@
 models = ["W25P"]
 bring_up = ["W25P"]
 tested = false
+v4l2_capture = true
 
 # W25P ponytail-papikonda (33.31.61) has W24P's super.pak images (no region suffixes) and every
 # fstab and jail pin of W24P ponytail: K8LPN2's paks and partition map.
