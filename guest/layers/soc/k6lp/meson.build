@@ -25,6 +25,12 @@ hal_stock = {
   'libdile_gal': ['libdile_gal.so.1', 'libdile_gal.so.1.0.2', []],
   'libdile_crypto': ['libdile_crypto.so.0', 'libdile_crypto.so.0.1.1', []],
 }
+# libhalgal: from W20L on, captureservice calls HAL_GAL_* itself (bsppart's libhalgal.so, the
+# .1.0.0 of every K6, K7 and K8 firmware, not DILE_GAL), and the stock HAL_GAL_Init's KADP_GAL_Init
+# reaches RHAL_SE_Init's se_open, which asserts (se_drv.c:167) when /dev/se0 cannot be mapped:
+# captureservice aborted at every start (K8 number1, before the shim). The shim serves HAL_GAL from
+# the DILE_GAL software engine, as on queue and O22. K6HP, K7LP and the K8 chain inherit it.
+hal_stock += {'libhalgal': ['libhalgal.so', 'libhalgal.so.1.0.0', ['libhalgal.so.1'], 'bsppart']}
 # Where the media elements (guest/layers/soc/src/video) go: the stock plugins' directory, and which:
 # Realtek's gst-omx decoders (libgstomx.so, by gstomx.conf's sections), dvovideosink and
 # rtkalsasink, against W20L's GStreamer and GLib.
