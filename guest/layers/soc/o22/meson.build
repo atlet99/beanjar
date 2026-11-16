@@ -22,9 +22,12 @@ hal_stock = {
 # calls HAL_GAL_* in bsppart's libhalgal.so.2, whose allocation fails on the emulator, so
 # executeOneShot answered ERROR_INTERNAL. W22O's .2.0.1 of number1, ponytail and queue and W24G
 # ombre's export the same 44 HAL_GAL_* (mullet's lacks CaptureFrameBufferToFile); the callers use
-# u16 dimensions and the 1056-byte surface, which the software engine serves (libdile_gal's shim's
-# engine; a firmware without a legacy DILE_GAL library, spacebuns, gets neither:
-# guest/layers/soc/meson.build). The stock file stays the dependency for the other exports.
+# u16 dimensions and the 1056-byte surface, which the software engine serves: libdile_gal's shim's,
+# or, in a firmware without a legacy DILE_GAL library (W23O to W25O queue, W24G spacebuns), the
+# shim's own copy (halgal_stock_fails, guest/layers/soc/meson.build), since the stock HAL's
+# HAL_GAL_CreateSurface fails there as well. The stock file stays the dependency for the other
+# exports.
+halgal_stock_fails = true
 hal_stock += {
   'libhalgal': ['libhalgal.so.2', 'libhalgal.so.2.0.1',
                ['libhalgal.so', 'libhalgal.so.0'], 'bsppart'],

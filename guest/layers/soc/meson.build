@@ -61,9 +61,12 @@ endif
 # carries the engine itself only where the stock HAL needs hardware the emulator does not have:
 # where bsppart's libkadaptor, which the stock libhalgal NEEDs, defines RHAL_SE_Init, Realtek's
 # SE 2D engine. Its KADP_GAL_Init runs RHAL_SE_Init, whose se_open maps /dev/se0 and asserts
-# (se_drv.c:167) when it cannot; rtk.ko's se0 has no mmap. A firmware whose libkadaptor has no SE
-# engine keeps the stock HAL.
+# (se_drv.c:167) when it cannot; rtk.ko's se0 has no mmap. A chip whose stock HAL cannot allocate
+# a surface on the emulator at all says so in its table (halgal_stock_fails: LG's O22 family), and
+# gets the engine without the question. Any other firmware whose libkadaptor has no SE engine keeps
+# the stock HAL.
 halgal_se = 'bsppart:bsp/usr/lib/libkadaptor.so:RHAL_SE_Init'
+halgal_stock_fails = get_variable('halgal_stock_fails', false)
 halgal_own_engine = false
 shims = {}
 foreach name, sonames : hal_stock    # [soname, stock file, aliases(, 'bsppart': not in the rootfs)]
@@ -75,13 +78,17 @@ foreach name, sonames : hal_stock    # [soname, stock file, aliases(, 'bsppart':
   if name == 'libhalgal' and gal_stock != ''
     fw_questions += 'path ' + gal_stock
   endif
-  if name == 'libhalgal' and not fw_path.get(gal_stock, false)
+  if name == 'libhalgal' and not fw_path.get(gal_stock, false) and not halgal_stock_fails
     fw_questions += 'defines ' + halgal_se
   endif
   if sonames.length() < 4 and not fw_path.get(stock, false)
     message('soc ' + soc + ': no ' + stock + ' in the firmware, no ' + name + ' shim')
   elif name == 'libhalgal' and not fw_path.get(gal_stock, false)
-    if fw_defines.get(halgal_se, false)
+    if halgal_stock_fails
+      message('soc ' + soc + ': no libdile_gal, the stock HAL cannot allocate here: libhalgal carries the software engine')
+      halgal_own_engine = true
+      shims += {name: sonames}
+    elif fw_defines.get(halgal_se, false)
       message('soc ' + soc + ': no libdile_gal, the stock HAL reaches the SE engine: libhalgal carries the software engine')
       halgal_own_engine = true
       shims += {name: sonames}
