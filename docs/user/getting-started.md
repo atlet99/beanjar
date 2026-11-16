@@ -92,17 +92,17 @@ not have yet needs a newer clone.
 
 ## From the Debian packages
 
-Each release has every package, the host's and the guest's, under file names without the
-version (the release's tag names it), so the links to the
-[latest release](https://github.com/webosbrew/beanjar/releases/latest) stay the same from one
-version to the next. Download and install, in a new directory, with no GitHub account needed:
+Each [release](https://github.com/webosbrew/beanjar/releases) `v<version>` has every package,
+the host's and the guest's. Download and install, in a new directory, with no GitHub account
+needed (`version` is the release these lines were written for; a newer one works the same):
 
 ```sh
 mkdir beanjar-debs && cd beanjar-debs
+version=0.4.0
 arch=$(dpkg --print-architecture)
-url=https://github.com/webosbrew/beanjar/releases/latest/download
-wget $url/beanjar_$arch.deb $url/beanjar-qemu_$arch.deb $url/beanjar-ui_all.deb $url/beanjar-guest_all.deb
-sudo apt-get install ./beanjar_$arch.deb ./beanjar-qemu_$arch.deb ./beanjar-ui_all.deb ./beanjar-guest_all.deb
+url=https://github.com/webosbrew/beanjar/releases/download/v$version
+wget $url/beanjar_${version}_$arch.deb $url/beanjar-qemu_${version}_$arch.deb $url/beanjar-ui_${version}_all.deb $url/beanjar-guest_${version}_all.deb
+sudo apt-get install ./beanjar_${version}_$arch.deb ./beanjar-qemu_${version}_$arch.deb ./beanjar-ui_${version}_all.deb ./beanjar-guest_${version}_all.deb
 ```
 
 The GitHub CLI fetches every package of the latest release at once, the optional ones included:
@@ -117,8 +117,8 @@ also accepts, is enough only for a VM that runs the TV natively on a host with a
 more line each in the same shell:
 
 ```sh
-wget $url/beanjar-vnc_$arch.deb && sudo apt-get install ./beanjar-vnc_$arch.deb
-wget $url/beanjar-web_all.deb && sudo apt-get install ./beanjar-web_all.deb
+wget $url/beanjar-vnc_${version}_$arch.deb && sudo apt-get install ./beanjar-vnc_${version}_$arch.deb
+wget $url/beanjar-web_${version}_all.deb && sudo apt-get install ./beanjar-web_${version}_all.deb
 ```
 
 The [packages guide](../../packaging/debian/README.md) describes every package.
@@ -132,12 +132,12 @@ window), `beanjar-ui` (the manager window), `beanjar-viewer`, and with the optio
 On an x86_64 PC Beanjar by default emulates the whole TV, its kernel included, under TCG: it
 works, but slowly. The **experimental**, opt-in x86-64 guest kernel runs the kernel under KVM and
 translates only the TV's programs. It is the package `beanjar-guest-x86-64` (amd64), in the same
-release as `beanjar-guest` and of the same version. Install it, then switch a VM to it
-([Settings](vms.md#settings) says what it can boot so far):
+release as `beanjar-guest` and of the same version. Install it from the same shell as above, then
+switch a VM to it ([Settings](vms.md#settings) says what it can boot so far):
 
 ```sh
-wget https://github.com/webosbrew/beanjar/releases/latest/download/beanjar-guest-x86-64_amd64.deb
-sudo apt-get install ./beanjar-guest-x86-64_amd64.deb
+wget $url/beanjar-guest-x86-64_${version}_amd64.deb
+sudo apt-get install ./beanjar-guest-x86-64_${version}_amd64.deb
 beanjar settings tv1 set guest_kernel=x86-64
 ```
 

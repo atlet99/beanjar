@@ -138,16 +138,19 @@ once it has published; ccache makes every target's kernel after the first a cach
 machine. The wraps download from their upstreams, checked by their hashes. A manual run of the
 workflow only checks that the guest builds and keeps the `.deb` files as a run artifact.
 
-A release is one tag `v<version>` on the public repository, which both workflows build, for
-example `git tag v0.5.0 <commit> && git push <public remote> v0.5.0`. The version is the one
-`packaging/identity.py` gives that commit there (`0.5.0` at the commit that set
-`packaging/VERSION`, `0.5.0+gitN.g<12 hex>` after it; "Versions and compatibility", from the public
-repository's own history, which differs from the private one's). Each workflow checks that the tag
-names the version its build produced, else it fails and names the right tag; in any other
-repository a tag only builds and checks. Both then put their packages into the one release
-`v<version>` with `scripts/release-debs.sh`, under names without the version
-(`beanjar_amd64.deb`, `beanjar-guest_all.deb`, ...; the version is the tag's and in each package's
-control data), so that `.../releases/latest/download/<name>` links stay the same across versions:
+A release is one tag `v<version>` on the public repository, which both workflows build. A
+release normally tags the commit that bumps `packaging/VERSION` to `X.Y.Z` (its subject
+"Beanjar X.Y.Z"), where the version is plain `X.Y.Z`: for example
+`git tag v0.5.0 <commit> && git push <public remote> v0.5.0`. That commit also updates the
+`version=` lines of the install commands in `README.md` and `docs/user/getting-started.md`,
+which `tests/unit/packaging/test_install_version.py` holds equal to `packaging/VERSION`. Any other
+commit can be released too, as the version `packaging/identity.py` gives it there
+(`X.Y.Z+gitN.g<12 hex>`; "Versions and compatibility", from the public repository's own history,
+which differs from the private one's). Each workflow checks that the tag names the version its
+build produced, else it fails and names the right tag; in any other repository a tag only builds
+and checks. Both then put their packages, as built (`beanjar_<version>_amd64.deb`, ...), into the
+one release `v<version>` with `scripts/release-debs.sh`, which also writes the release's notes
+with the install commands for that version:
 
 - The workflows run at the same time and either may finish first (the guest takes far longer). The
   first creates the release, not marked Latest; a create that fails because the other has just
@@ -169,7 +172,7 @@ until then, and otherwise when changes should reach users.
 A manual Packages run fetches the guest that pairs with its host (`packaging/guest_release.py`):
 of the public repository's `v<version>` releases that hold `beanjar-guest`, the newest of the
 host's `0.Y` (the range `beanjar` depends on, below), checked against the release's `SHA256SUMS`,
-uploaded as `beanjar-debs-guest` under the build's versioned names. Without one the run fails,
+uploaded as `beanjar-debs-guest`. Without one the run fails,
 naming the tag to push. Pushes and pull requests build only the host.
 
 The same script builds the packages locally as root in a throwaway trixie container, for example
