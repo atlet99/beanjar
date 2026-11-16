@@ -2,6 +2,7 @@ models = ["W25G"]
 bring_up = ["W25G"]
 tested = false
 lg_scaler = [3840, 2160]
+v4l2_capture = true
 de_histogram = true
 
 # W25G ponytail-papikonda (33.31.68) has O22N2 ponytail's super.pak images and every fstab and

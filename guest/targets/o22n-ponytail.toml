@@ -2,6 +2,7 @@ models = ["W23O"]
 bring_up = ["W23O"]
 tested = false
 lg_scaler = [3840, 2160]
+v4l2_capture = true
 de_histogram = true
 
 # W23O ponytail-papikonda (33.31.68) keeps number1's fstab and jail pins and names the fonts pak

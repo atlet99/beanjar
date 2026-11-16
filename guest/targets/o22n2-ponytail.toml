@@ -2,6 +2,7 @@ models = ["W24G"]
 bring_up = ["W24G"]
 tested = false
 lg_scaler = [3840, 2160]
+v4l2_capture = true
 de_histogram = true
 
 # W24G ponytail-papikonda (33.31.68) keeps ombre's super.pak images (no region suffixes) and

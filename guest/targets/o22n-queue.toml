@@ -2,6 +2,7 @@ models = ["W23O"]
 bring_up = ["W23O"]
 tested = false
 lg_scaler = [3840, 2160]
+v4l2_capture = true
 de_histogram = true
 
 # W23O queue-qilian (44.00.92) keeps ponytail's paks and fstab pins; its jails' secure-store pins

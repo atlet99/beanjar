@@ -1,6 +1,7 @@
 models = ["W22O"]
 bring_up = ["W22O"]
 lg_scaler = [3840, 2160]
+v4l2_capture = true
 
 [release]
 base = "mullet"

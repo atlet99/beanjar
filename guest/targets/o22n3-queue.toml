@@ -2,6 +2,7 @@ models = ["W25G"]
 bring_up = ["W25G"]
 tested = false
 lg_scaler = [3840, 2160]
+v4l2_capture = true
 de_histogram = true
 
 # W25G queue-qilian (43.21.96) exists only as the Japanese ARIB build (HE_DTV_W25G_AFABJAAA): its

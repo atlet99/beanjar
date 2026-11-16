@@ -38,8 +38,8 @@ class BootConfTest(unittest.TestCase):
 
     def test_lg_scaler_scope(self):
         # Stock O22, O22N, ombre and LM21's libval use video30/31 in UHD panel coordinates: the
-        # media lanes with our elements get lgemu.ko's model, spacebuns does not, and only ombre
-        # lg115x's video60 readback.
+        # media lanes with our elements get lgemu.ko's model, spacebuns does not, and every O22
+        # family release but spacebuns lg115x's video60 readback.
         for chip, release in (
             ("o22", "mullet"),
             ("o22", "number1"),
@@ -63,7 +63,9 @@ class BootConfTest(unittest.TestCase):
             self.assertEqual(f"vsc_screen={screen}" in params, release != "spacebuns")
             soc = conf["MODULE_PARAMS_lg115x"].split()
             self.assertNotIn("v4l2_vsc=1", soc)
-            self.assertEqual("v4l2_capture=1" in soc, (chip, release) == ("o22n2", "ombre"))
+            self.assertEqual(
+                "v4l2_capture=1" in soc, chip.startswith("o22") and release != "spacebuns"
+            )
 
     def test_far_field_mic(self):
         """lgemu.ko's mic=1 is the board's model's own hardware (Soc.mic): the C2's O22 board line

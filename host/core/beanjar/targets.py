@@ -221,7 +221,9 @@ TVSERVICE = ("tvservice-dvb", "/mnt/lg/tvservice/lgapp/tvservice")
 # StanbyME (lm21u) has an FHD panel (panelResolution=FHD): its
 # videooutputd sets the regions in 1920x1080; None elsewhere. de_histogram: the stock
 # libpqeca (kadpd's histogram thread) reads /proc/lg/de/v4l2_capture_read and crashes in fscanf
-# when it is missing: lg115x.ko's stopped-histogram entry (de_histogram_proc). v4l2_capture: lg115x.ko's V4L2 capture (v4l2_capture=1).
+# when it is missing: lg115x.ko's stopped-histogram entry (de_histogram_proc). v4l2_capture: lg115x.ko's V4L2 capture (v4l2_capture=1),
+# /dev/video60, which captureservice's BLENDED and VIDEO read: every LG-O target from mullet to queue (libvtcapture's
+# VtDriver, and queue's nyxScreenCapture.module, make the same calls as W24G ombre's client).
 # tested: False for a target that has never booted (its file's tested = false; absent: True).
 Target = namedtuple(
     "Target", "models bring_up lg_scaler de_histogram v4l2_capture tested", defaults=(True,)

@@ -647,7 +647,8 @@ class ArgvTest(unittest.TestCase):
 
     def test_capture_port(self):
         """webos.capture, the port lg115x.ko's video60 reads the viewer through, is on every
-        target whose file sets v4l2_capture (the O22 family's ombre), and on no other."""
+        target whose file sets v4l2_capture (the O22 family's, mullet to queue, not spacebuns), and on no
+        other."""
         for target in (
             ("o22", "ombre"),
             ("o22n", "ombre"),
@@ -655,7 +656,10 @@ class ArgvTest(unittest.TestCase):
             ("o24", "ombre"),
             ("o22n2", "spacebuns"),
             ("o22", "ponytail"),
+            ("o22", "queue"),
+            ("o22", "mullet"),
             ("lm21u", "ombre"),
+            ("k8hp", "ombre"),
         ):
             with (
                 self.subTest(target=target),
@@ -671,7 +675,7 @@ class ArgvTest(unittest.TestCase):
                     say=lambda _: None,
                     dry=True,
                 )
-                want = target[1] == "ombre" and target[0] != "lm21u"
+                want = target[0].startswith("o2") and target[1] != "spacebuns"
                 self.assertEqual(targets.v4l2_capture(target), want)
                 self.assertEqual("name=webos.capture" in " ".join(p.argv), want)
 
