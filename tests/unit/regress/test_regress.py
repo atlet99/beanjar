@@ -405,6 +405,16 @@ class ArgsTest(unittest.TestCase):
 
 
 class DryRunTest(unittest.TestCase):
+    def setUp(self):
+        # what is built and checked depends on the machine (guest builds on x86_64 only), and a
+        # --local run's deadlines on its accelerator: an x86 PC's, TCG
+        for pin in (
+            mock.patch.object(regress, "machine", return_value="x86_64"),
+            mock.patch.object(regress.qemu, "default_accel", return_value="tcg"),
+        ):
+            pin.start()
+            self.addCleanup(pin.stop)
+
     def dry_run(self, argv):
         out = io.StringIO()
         real = regress.parse
@@ -1431,7 +1441,14 @@ class InstanceTest(unittest.TestCase):
         real = regress.parse
         regress.parse = lambda argv: real(argv, found=FOUND, env={})
         try:
-            with contextlib.redirect_stdout(out):
+            # a --local run's capacity and accelerator are this machine's: pinned to an x86 PC's
+            # with room for both VMs
+            with (
+                contextlib.redirect_stdout(out),
+                mock.patch.object(regress, "machine", return_value="x86_64"),
+                mock.patch.object(regress, "host_capacity", return_value=(16, 32 << 20)),
+                mock.patch.object(regress.qemu, "default_accel", return_value="tcg"),
+            ):
                 rc = regress.main(
                     [
                         "-n",

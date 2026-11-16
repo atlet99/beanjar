@@ -1286,8 +1286,12 @@ class ArgvTest(unittest.TestCase):
             self.assertEqual(
                 tree.qemu({"QEMU": installed}), (installed, ["-L", "/usr/share/beanjar/qemu"])
             )
-        with mock.patch.object(
-            paths.Tree, "installed", new_callable=mock.PropertyMock, return_value=True
+        # whether or not this host has beanjar-qemu installed
+        with (
+            mock.patch.object(
+                paths.Tree, "installed", new_callable=mock.PropertyMock, return_value=True
+            ),
+            mock.patch("os.path.isfile", side_effect=lambda f: f != installed and real_isfile(f)),
         ):
             self.assertEqual(
                 tree.qemu({}), ("qemu-system-aarch64", []), "no beanjar-qemu: the system's"

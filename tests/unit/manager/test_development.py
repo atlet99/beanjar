@@ -8,7 +8,7 @@ from unittest import mock
 
 import pytest
 
-from beanjar import development, paths, vmconfig
+from beanjar import development, paths, qemu, vmconfig
 
 
 class Dev:
@@ -148,7 +148,9 @@ def test_real_config_preparation_and_reuse(dev):
         MAC=dev.config["mac"],
         SERIAL=dev.config["serial"],
     )
-    resolved = development.prepare(env, dev.tree)
+    # the default display follows the host's accelerator (KVM: egl-headless); pinned to TCG's
+    with mock.patch.object(qemu, "default_accel", return_value="tcg"):
+        resolved = development.prepare(env, dev.tree)
     cfg = vmconfig.read(Path(dev.directory) / "vm.toml", {})
     assert cfg["mac"] == dev.config["mac"]
     assert cfg["serial"] == dev.config["serial"]
@@ -157,7 +159,8 @@ def test_real_config_preparation_and_reuse(dev):
     assert resolved["STATE"] == dev.directory + "/state"
     assert not ((dev.repo / "local").exists())
     assert not ((Path(dev.directory) / "compatibility.toml").exists()), "no per-VM marker"
-    assert development.prepare(env, dev.tree) == resolved
+    with mock.patch.object(qemu, "default_accel", return_value="tcg"):
+        assert development.prepare(env, dev.tree) == resolved
 
 
 def test_empty_setting_overrides_the_stored_one(dev):

@@ -2070,9 +2070,14 @@ def schedule(items, jobs, work, stop=lambda r: False):
     return [done[i] for i in sorted(done)]
 
 
+def machine():
+    """This machine's architecture: guest builds happen only on x86_64 (the SDK's)."""
+    return os.uname().machine
+
+
 def prepare(a, sel):
     """Build (or check) and sync; False on a failure."""
-    x86 = os.uname().machine == "x86_64"
+    x86 = machine() == "x86_64"
     if a.no_build:
         say("checking what is built")
     elif x86:
