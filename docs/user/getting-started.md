@@ -94,7 +94,7 @@ not have yet needs a newer clone.
 
 Each [release](https://github.com/webosbrew/beanjar/releases) `v<version>` has every package,
 the host's and the guest's. Download and install, in a new directory, with no GitHub account
-needed (`version` is the release these lines were written for; a newer one works the same):
+needed (`version` is the newest release on the releases page):
 
 ```sh
 mkdir beanjar-debs && cd beanjar-debs
@@ -104,6 +104,8 @@ url=https://github.com/webosbrew/beanjar/releases/download/v$version
 wget $url/beanjar_${version}_$arch.deb $url/beanjar-qemu_${version}_$arch.deb $url/beanjar-ui_${version}_all.deb $url/beanjar-guest_${version}_all.deb
 sudo apt-get install ./beanjar_${version}_$arch.deb ./beanjar-qemu_${version}_$arch.deb ./beanjar-ui_${version}_all.deb ./beanjar-guest_${version}_all.deb
 ```
+
+`apt-get` installs everything else these packages need from Debian.
 
 The GitHub CLI fetches every package of the latest release at once, the optional ones included:
 `gh release download -R webosbrew/beanjar -p "*_$(dpkg --print-architecture).deb" -p '*_all.deb'`
@@ -159,6 +161,11 @@ Check:
 ls -l /dev/kvm /dev/dri/renderD*   # crw-rw---- 1 root kvm ..., crw-rw---- 1 root render ...
 id -nG                             # ... kvm render ...
 ```
+
+Without a render node (no GPU driver, or no `/dev/dri/renderD*` at all), an x86_64 PC draws the
+guest's 3D on a surfaceless display, which Mesa renders on the CPU (llvmpipe): it works, but
+slowly. Under WSL the same display renders on the GPU through d3d12 ([WSL](wsl.md)). An arm64
+host under KVM expects its GPU's render node, `/dev/dri/renderD128`.
 
 ### mitmproxy
 
