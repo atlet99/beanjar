@@ -4,7 +4,7 @@
 # (`meson test -C build/host --suite unit`); `pytest tests/unit` runs the Python ones.
 
 # host/media (the media-helper's): its IPC, the decode engines' leases, the unavailable decoder,
-# the media pool's allocator and its ivshmem server
+# the media pool's allocator and its ivshmem server, the helper's bounded logs
 check_media_ipc = executable('check-media-ipc', 'media/check-ipc.c', '../../host/media/ipc.c',
   override_options: ['c_std=gnu11', 'warning_level=2', 'werror=true'])
 test('check-media-ipc', check_media_ipc, suite: ['unit', 'media'], timeout: 10)
@@ -35,6 +35,10 @@ check_media_ivserver = executable('check-media-ivserver', 'media/check-ivserver.
   dependencies: dependency('threads'),
   override_options: ['c_std=gnu11', 'warning_level=2', 'werror=true'])
 test('check-media-ivserver', check_media_ivserver, suite: ['unit', 'media'], timeout: 10, protocol: 'tap')
+check_media_log = executable('check-media-log', 'media/check-log.c', '../../host/media/log.c',
+  dependencies: dependency('threads'),
+  override_options: ['c_std=gnu11', 'warning_level=2', 'werror=true'])
+test('check-media-log', check_media_log, suite: ['unit', 'media'], timeout: 10, protocol: 'tap')
 
 # beanjar-vnc's keysym map (host/vnc/keysym.c), where beanjar-vnc is built
 if have_vnc
