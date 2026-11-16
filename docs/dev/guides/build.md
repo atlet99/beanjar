@@ -820,9 +820,9 @@ launcher checks what the guest payload has: the target's components and the modu
 The host packages for amd64 and arm64 are also built by the Packages workflow on GitHub, on every
 push to `main` and pull request as a check, and on a manual run with the `.deb` files as the run's
 artifacts, beside the released `beanjar-guest` of the host's `0.Y`. `beanjar-guest`, from every
-target, is built and released by the Guest workflow on a tag `guest-<version>` of the public
-repository, pushed at the commit to release: whenever the host-guest contract's minor changes, and
-otherwise when guest changes should reach users (packaging/debian/README.md, "Built on GitHub").
+target, is built by the Guest workflow. A tag `v<version>` of the public repository, pushed at the
+commit to release, releases both: the two workflows put the host and the guest packages into one
+release `v<version>` (packaging/debian/README.md, "Built on GitHub").
 
 ## Host packages
 

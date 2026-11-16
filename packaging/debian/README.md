@@ -127,43 +127,50 @@ Pushes to `main` and pull requests run it as a check; a manual run (Actions, Pac
 workflow") also uploads the `.deb` files as the run's artifacts `beanjar-debs-amd64` (with the
 host's architecture-all packages) and `beanjar-debs-arm64`.
 
-`beanjar-guest` changes rarely and takes hours to build, so the Packages workflow does not build
-it. The Guest workflow (`.github/workflows/guest.yml`) does, in the public repository
-(webosbrew/beanjar) only, on a tag `guest-<version>` there, and releases it on that repository:
-the `.deb` and a `SHA256SUMS`. It runs `scripts/build-packages.sh guest` on the amd64 runner:
-role `guest`'s build dependencies and ccache; the webOS and NetCast SDKs, openlgtv/buildroot-nc4
-release assets pinned by SHA-256 in the script, unpacked in `/opt` where the cross files look;
-every target of `guest/targets` built in turn, from its checked-in firmware facts, into one
-publish directory (each build directory removed once it has published; ccache makes every
-target's kernel after the first a cache hit); then `build.py --guest-only`. The wraps download
-from their upstreams, checked by their hashes. The tag must name the version the build produced
-("Versions and compatibility", from the public repository's own history, which differs from the
-private one's), else the run fails and names the right tag; a manual run of the workflow only
-checks that the guest builds and keeps the `.deb` as a run artifact.
+`beanjar-guest` takes hours to build, so the Packages workflow does not build it. The Guest
+workflow (`.github/workflows/guest.yml`) does, in the public repository (webosbrew/beanjar) only.
+It runs `scripts/build-packages.sh guest` on the amd64 runner: role `guest`'s build dependencies
+and ccache; the webOS and NetCast SDKs, openlgtv/buildroot-nc4 release assets pinned by SHA-256 in
+the script, unpacked in `/opt` where the cross files look; every target of `guest/targets` built in
+turn, from its checked-in firmware facts, into one publish directory (each build directory removed
+once it has published; ccache makes every target's kernel after the first a cache hit); then
+`build.py --guest-only`, which also makes the optional `beanjar-guest-x86-64` on that amd64
+machine. The wraps download from their upstreams, checked by their hashes. A manual run of the
+workflow only checks that the guest builds and keeps the `.deb` files as a run artifact.
 
-To release a guest, push the tag on the public repository at the commit to release, for example
-`git tag guest-0.4.0 <commit> && git push <public remote> guest-0.4.0`; the version is the one
-`packaging/identity.py` gives that commit there (`0.4.0` at the commit that set
-`packaging/VERSION`, `0.4.0+gitN.g<12 hex>` after it). Release one whenever the host-guest
-contract's minor changes, since no host of the new `0.Y` has a guest until then, and otherwise when
-guest changes should reach users.
+A release is one tag `v<version>` on the public repository, which both workflows build, for
+example `git tag v0.5.0 <commit> && git push <public remote> v0.5.0`. The version is the one
+`packaging/identity.py` gives that commit there (`0.5.0` at the commit that set
+`packaging/VERSION`, `0.5.0+gitN.g<12 hex>` after it; "Versions and compatibility", from the public
+repository's own history, which differs from the private one's). Each workflow checks that the tag
+names the version its build produced, else it fails and names the right tag; in any other
+repository a tag only builds and checks. Both then put their packages into the one release
+`v<version>` with `scripts/release-debs.sh`, under names without the version
+(`beanjar_amd64.deb`, `beanjar-guest_all.deb`, ...; the version is the tag's and in each package's
+control data), so that `.../releases/latest/download/<name>` links stay the same across versions:
+
+- The workflows run at the same time and either may finish first (the guest takes far longer). The
+  first creates the release, not marked Latest; a create that fails because the other has just
+  created it falls through, and both upload their files with `--clobber`, so a rerun replaces them.
+- One `SHA256SUMS` covers every `.deb` in the release. After its upload, each workflow writes it
+  from the SHA-256 digests GitHub lists for the release's assets (its own files checked against
+  their local sums), uploads it and lists the release again; when a `.deb` has appeared or
+  `SHA256SUMS` is no longer the one it wrote (the other workflow wrote one meanwhile), it writes it
+  again. Whoever writes last has seen every `.deb`, so the file ends complete.
+- The workflow that finds the release holding `beanjar` for amd64 and arm64 and `beanjar-guest`
+  marks it Latest, so `releases/latest` only moves to a release that has both halves. Until then
+  the release is visible on the releases page but incomplete, and `releases/latest` stays on the
+  previous one.
+
+A failed half is rerun from its workflow run; its release job uploads into the existing release.
+Release whenever the host-guest contract's minor changes, since no host of a new `0.Y` has a guest
+until then, and otherwise when changes should reach users.
 
 A manual Packages run fetches the guest that pairs with its host (`packaging/guest_release.py`):
-of the public repository's `guest-<version>` releases, the newest of the host's `0.Y` (the range
-`beanjar` depends on, below), checked against the release's `SHA256SUMS`, uploaded as
-`beanjar-debs-guest`. Without one the run fails, naming the tag to push. Pushes and pull requests
-build only the host.
-
-The Packages workflow releases the host on a tag `host-<version>` of the public repository: it
-builds both architectures, the tag must name the version the build produced (as for the guest; else
-the run fails and names the right tag), and one release carries every host `.deb` of amd64 and
-arm64 (the architecture-all ones once) and a `SHA256SUMS` of them. The release does not repeat the
-guest `.deb`, which is over 100 MB and has a release of its own: its notes name the guest release
-that pairs with the host, found as a manual run finds it (`guest_release.py select`), and the run
-fails without one, naming the tag to push, so release the guest first. Any later guest release of
-the same contract pairs as well. In any other repository a tag only builds and checks; the release
-is skipped. To release a host, for example `git tag host-0.4.0 <commit> && git push <public remote>
-host-0.4.0`.
+of the public repository's `v<version>` releases that hold `beanjar-guest`, the newest of the
+host's `0.Y` (the range `beanjar` depends on, below), checked against the release's `SHA256SUMS`,
+uploaded as `beanjar-debs-guest` under the build's versioned names. Without one the run fails,
+naming the tag to push. Pushes and pull requests build only the host.
 
 The same script builds the packages locally as root in a throwaway trixie container, for example
 `docker run --rm -v "$PWD:/src" debian:trixie /src/scripts/build-packages.sh host` (or `guest`)

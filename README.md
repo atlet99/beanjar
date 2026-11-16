@@ -36,27 +36,28 @@ On an arm64 machine, `setarch linux32 true` succeeds when it runs 32-bit code at
 
 On Windows 11, Beanjar runs in WSL2 with a Debian 13 distribution, as on an x86_64 PC; see [Running Beanjar on Windows with WSL](docs/user/wsl.md).
 
-The Debian packages are on the [releases page](https://github.com/webosbrew/beanjar/releases): the host packages in the newest `host-<version>` release, and `beanjar-guest` in the `guest-<version>` release its notes name. Download both into an empty directory (this needs no GitHub account; [Getting started](docs/user/getting-started.md#from-the-debian-packages) has the same with the GitHub CLI), then install:
+The Debian packages are in the [latest release](https://github.com/webosbrew/beanjar/releases/latest), the host's and the guest's together. Download and install them in a new directory (no GitHub account needed):
 
 ```sh
-sudo apt install curl jq
 mkdir beanjar-debs && cd beanjar-debs
-releases=$(curl -fsSL https://api.github.com/repos/webosbrew/beanjar/releases)
-host=$(echo "$releases" | jq -r '[.[].tag_name | select(startswith("host-"))][0]')
-guest=$(echo "$releases" | jq -r --arg t "$host" '.[] | select(.tag_name == $t) | .body' |
-  grep -o 'guest-[0-9][^]]*' | head -n1)
-echo "$releases" | jq -r --arg h "$host" --arg g "$guest" --arg a "$(dpkg --print-architecture)" \
-  '.[] | select(.tag_name == $h or .tag_name == $g) | .assets[].browser_download_url
-   | select(endswith("_\($a).deb") or endswith("_all.deb"))' | xargs -n1 curl -fsSLOJ
-sudo apt install ./beanjar_*.deb ./beanjar-qemu_*.deb ./beanjar-ui_*.deb ./beanjar-guest_*.deb
+arch=$(dpkg --print-architecture)
+url=https://github.com/webosbrew/beanjar/releases/latest/download
+wget $url/beanjar_$arch.deb $url/beanjar-qemu_$arch.deb $url/beanjar-ui_all.deb $url/beanjar-guest_all.deb
+sudo apt-get install ./beanjar_$arch.deb ./beanjar-qemu_$arch.deb ./beanjar-ui_all.deb ./beanjar-guest_all.deb
 ```
 
-`beanjar-qemu` is Beanjar's patched QEMU; the qemu-user route, the x86-64 guest kernel and WSL need it. `beanjar-vnc` (a VM's picture over VNC) and `beanjar-web` (VMs in a web browser) are optional.
-
-To try the experimental x86-64 guest kernel on an x86_64 PC with KVM, install its package from the same directory and switch a VM (here `tv1`, made as in [Using it](#using-it)) to it:
+`beanjar-qemu` is Beanjar's patched QEMU; the qemu-user route, the x86-64 guest kernel and WSL need it. Two packages are optional; each is one more line in the same shell:
 
 ```sh
-sudo apt install ./beanjar-guest-x86-64_*.deb
+wget $url/beanjar-vnc_$arch.deb && sudo apt-get install ./beanjar-vnc_$arch.deb   # a VM's picture over VNC
+wget $url/beanjar-web_all.deb && sudo apt-get install ./beanjar-web_all.deb       # VMs in a web browser
+```
+
+To try the experimental x86-64 guest kernel on an x86_64 PC with KVM, install its package (amd64 only) and switch a VM (here `tv1`, made as in [Using it](#using-it)) to it:
+
+```sh
+wget https://github.com/webosbrew/beanjar/releases/latest/download/beanjar-guest-x86-64_amd64.deb
+sudo apt-get install ./beanjar-guest-x86-64_amd64.deb
 beanjar settings tv1 set guest_kernel=x86-64
 ```
 
