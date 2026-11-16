@@ -22,7 +22,10 @@ spec.loader.exec_module(guest_release)
 H = "0123456789ab"
 
 
-def release(tag, draft=False, assets=()):
+GUEST = ["beanjar-guest_all.deb", "beanjar-guest-x86-64_amd64.deb", "SHA256SUMS"]
+
+
+def release(tag, draft=False, assets=GUEST):
     return {
         "tag_name": tag,
         "draft": draft,
@@ -31,26 +34,29 @@ def release(tag, draft=False, assets=()):
 
 
 RELEASES = [
-    release("guest-0.3.9"),
-    release("guest-0.4.0"),
-    release(f"guest-0.4.0+git12.g{H}"),
-    release(f"guest-0.4.0+git3.g{H}"),
-    release("guest-0.4.2", draft=True),
-    release("guest-0.5.0"),
-    release("guest-1.0.0"),
-    release("v0.4.9"),
-    release("guest-0.4.x"),
+    release("v0.3.9"),
+    release("v0.4.0"),
+    release(f"v0.4.0+git12.g{H}"),
+    release(f"v0.4.0+git3.g{H}"),
+    release("v0.4.2", draft=True),
+    # the host's half only: the Guest workflow has not finished
+    release("v0.4.3", assets=["beanjar_amd64.deb", "SHA256SUMS"]),
+    release("v0.5.0"),
+    release("v1.0.0"),
+    release("guest-0.4.9"),
+    release("host-0.4.9"),
+    release("v0.4.x"),
 ]
 
 
 def test_newest_of_the_contract():
     version, picked = guest_release.select(RELEASES, "0.4")
     assert version == f"0.4.0+git12.g{H}"
-    assert picked["tag_name"] == f"guest-{version}"
+    assert picked["tag_name"] == f"v{version}"
 
 
 def test_patch_beats_commits_and_drafts_skipped():
-    version, _ = guest_release.select(RELEASES + [release("guest-0.4.1")], "0.4")
+    version, _ = guest_release.select(RELEASES + [release("v0.4.1")], "0.4")
     assert version == "0.4.1"
 
 
@@ -90,20 +96,24 @@ def fake_api(releases, files):
 
 def test_fetch_checks_the_sum(tmp_path):
     deb = b"a guest"
-    name = "beanjar-guest_0.4.0_all.deb"
     x86 = b"an x86-64 kernel"
-    x86_name = "beanjar-guest-x86-64_0.4.0_amd64.deb"
     sums = (
-        f"{hashlib.sha256(deb).hexdigest()}  {name}\n"
-        f"{hashlib.sha256(x86).hexdigest()}  {x86_name}\n"
+        f"{hashlib.sha256(deb).hexdigest()}  beanjar-guest_all.deb\n"
+        f"{hashlib.sha256(x86).hexdigest()}  beanjar-guest-x86-64_amd64.deb\n"
+        f"{hashlib.sha256(b'host').hexdigest()}  beanjar_amd64.deb\n"
     ).encode()
-    releases = [release("guest-0.4.0", assets=[name, x86_name, "SHA256SUMS"])]
-    files = {name: deb, x86_name: x86, "SHA256SUMS": sums}
+    releases = [release("v0.4.0", assets=[*GUEST, "beanjar_amd64.deb"])]
+    files = {
+        "beanjar-guest_all.deb": deb,
+        "beanjar-guest-x86-64_amd64.deb": x86,
+        "SHA256SUMS": sums,
+    }
+    name = "beanjar-guest_0.4.0_all.deb"
     with fake_api(releases, files):
         assert guest_release.fetch("o/r", "0.4.1", tmp_path) == tmp_path / name
     assert (tmp_path / name).read_bytes() == deb
-    assert (tmp_path / x86_name).read_bytes() == x86
-    tampered = fake_api(releases, {**files, x86_name: b"tampered"})
+    assert (tmp_path / "beanjar-guest-x86-64_0.4.0_amd64.deb").read_bytes() == x86
+    tampered = fake_api(releases, {**files, "beanjar-guest-x86-64_amd64.deb": b"tampered"})
     with tampered, pytest.raises(guest_release.Error, match="SHA-256"):
         guest_release.fetch("o/r", "0.4.1", tmp_path / "bad")
     assert not (tmp_path / "bad").exists()
@@ -111,22 +121,23 @@ def test_fetch_checks_the_sum(tmp_path):
 
 def test_fetch_none_names_the_tag(tmp_path):
     with (
-        fake_api([release("guest-0.3.0")], {}),
+        fake_api([release("v0.3.0")], {}),
         pytest.raises(
             guest_release.Error,
-            match=r"contract 0\.4 .*>= 0\.4, << 0\.5.*tag guest-<version> on o/r",
+            match=r"contract 0\.4 .*>= 0\.4, << 0\.5.*tag v<version> on o/r",
         ),
     ):
         guest_release.fetch("o/r", "0.4.0", tmp_path)
 
 
-def test_select_prints_the_tag(tmp_path, capsys):
+def test_main_fetches_for_the_tree(tmp_path, capsys):
     (tmp_path / "packaging").mkdir()
-    (tmp_path / "packaging/VERSION").write_text("0.4.2\n")
-    with fake_api(RELEASES, {}):
-        assert guest_release.main(["select", "--repo", "o/r", "--top", str(tmp_path)]) == 0
-    assert capsys.readouterr().out == f"guest-0.4.0+git12.g{H}\n"
     (tmp_path / "packaging/VERSION").write_text("0.6.0\n")
     with fake_api(RELEASES, {}):
-        assert guest_release.main(["select", "--repo", "o/r", "--top", str(tmp_path)]) == 1
+        assert (
+            guest_release.main(
+                ["fetch", "--out", str(tmp_path / "o"), "--repo", "o/r", "--top", str(tmp_path)]
+            )
+            == 1
+        )
     assert "contract 0.6" in capsys.readouterr().err
