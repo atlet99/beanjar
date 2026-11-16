@@ -27,11 +27,6 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def unversioned(name):
-    package, _, arch = name.removesuffix(".deb").split("_")
-    return f"{package}_{arch}.deb"
-
-
 @pytest.fixture
 def run(tmp_path):
     bin_dir = tmp_path / "bin"
@@ -66,7 +61,7 @@ def run(tmp_path):
 
 
 def sums_of(names):
-    lines = sorted((unversioned(n), sha(n.encode())) for n in names)
+    lines = sorted((n, sha(n.encode())) for n in names)
     return "".join(f"{digest}  {name}\n" for name, digest in lines)
 
 
@@ -74,11 +69,10 @@ def test_first_creates_not_latest_and_second_marks_latest(run, tmp_path):
     p, state = run(f"v{V}", GUEST)
     assert p.returncode == 0, p.stderr
     assert state["title"] == f"Beanjar {V}"
-    assert "sudo apt-get install" in state["notes"]
+    assert f"version={V}\n" in state["notes"]
+    assert "url=https://github.com/o/r/releases/download/v$version\n" in state["notes"]
     assert state["latest"] is False
-    assert sorted(state["assets"]) == sorted(
-        ["SHA256SUMS", "beanjar-guest_all.deb", "beanjar-guest-x86-64_amd64.deb"]
-    )
+    assert sorted(state["assets"]) == sorted(["SHA256SUMS", *GUEST])
     assert state["assets"]["SHA256SUMS"] == sha(sums_of(GUEST).encode())
     p, state = run(f"v{V}", HOST)
     assert p.returncode == 0, p.stderr
@@ -91,14 +85,14 @@ def test_create_lost_to_the_other_falls_through(run):
     p, state = run(f"v{V}", HOST, FAKE_GH_CREATE_RACE="1")
     assert p.returncode == 0, p.stderr
     assert "created meanwhile" in p.stdout
-    assert "beanjar_amd64.deb" in state["assets"]
+    assert f"beanjar_{V}_amd64.deb" in state["assets"]
 
 
 def test_stale_sums_from_the_other_are_rewritten(run, tmp_path):
     # the other workflow's packages appear, and its own SHA256SUMS (without ours) replaces ours,
     # right after our first SHA256SUMS upload
     other = tmp_path / "other.json"
-    other.write_text(json.dumps({unversioned(n): sha(n.encode()) for n in GUEST}))
+    other.write_text(json.dumps({n: sha(n.encode()) for n in GUEST}))
     p, state = run(f"v{V}", HOST, FAKE_GH_OTHER=str(other))
     assert p.returncode == 0, p.stderr
     assert state["assets"]["SHA256SUMS"] == sha(sums_of(HOST + GUEST).encode())
