@@ -19,6 +19,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <sys/eventfd.h>
+#include <sys/resource.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -40,6 +41,8 @@
 #define GUEST_MAX   (64u << 20) /* PICTURE answers queued for the guest before they are dropped */
 #define VIDEO_FRAME ((int)sizeof(struct webos_video_packet))
 #define MAX_PORTS   WEBOS_MEDIA_PORTS
+/* RLIMIT_FSIZE above the pool's size: no file the helper writes grows past it */
+#define FSIZE_MARGIN (64u << 20)
 
 struct msg {
     struct msg *next;
@@ -600,6 +603,17 @@ int main(int argc, char **argv)
      * frame.c's malloc_trim rather than staying spread over many arenas (two 1080p sessions at once
      * left 28 MB with the default, 13 MB with 2). */
     mallopt(M_ARENA_MAX, 2);
+    /* A backstop behind the logs' own caps (log.h), for whatever else writes a file here: none
+     * grows past the pool file's size and a margin. SIGXFSZ ignored, such a write fails with EFBIG
+     * (log.c rotates or counts the line lost) instead of ending the helper and the VM's media. */
+    signal(SIGXFSZ, SIG_IGN);
+    struct rlimit fsize;
+    rlim_t fsize_max = (rlim_t)pool_size + FSIZE_MARGIN;
+    if (!getrlimit(RLIMIT_FSIZE, &fsize) &&
+        (fsize.rlim_max == RLIM_INFINITY || fsize.rlim_max > fsize_max)) {
+        fsize.rlim_cur = fsize.rlim_max = fsize_max;
+        setrlimit(RLIMIT_FSIZE, &fsize);
+    }
     /* Without --log and --decode-log the lines go to stderr, as limited (the tests, ad-hoc runs);
      * with them stderr keeps only what comes before and the helper's fatal errors. */
     if (logpath && hm_log_open(&sessions, logpath) < 0)

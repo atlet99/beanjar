@@ -16,6 +16,7 @@ import json
 import math
 import os
 import shutil
+import signal
 import socket
 import struct
 import subprocess
@@ -1230,6 +1231,17 @@ class LogFileTest(HubBase):
             sessions = f.read()
         self.assertRegex(sessions, r"(?m)^\d{4}-\d\d-\d\dT[\d:.]+Z media 0: open video test-out")
         self.assertNotIn("media 0:", self.log())
+
+    def test_file_size_limit(self):
+        """RLIMIT_FSIZE above the pool file and the logs' caps, SIGXFSZ ignored: a write past it
+        fails (EFBIG) instead of ending the helper."""
+        with open(f"/proc/{self.hub.pid}/limits") as f:
+            limit = [l.split() for l in f if l.startswith("Max file size")][0]
+        self.assertEqual(int(limit[3]), self.POOL + (64 << 20))
+        self.assertEqual(int(limit[4]), self.POOL + (64 << 20))
+        with open(f"/proc/{self.hub.pid}/status") as f:
+            ignored = [int(l.split()[1], 16) for l in f if l.startswith("SigIgn:")][0]
+        self.assertTrue(ignored & (1 << (signal.SIGXFSZ - 1)))
 
 
 # TinyPoolTest and the log tests run only their own tests: not the ones they inherit from HubBase
