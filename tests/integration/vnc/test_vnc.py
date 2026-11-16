@@ -23,6 +23,8 @@ CHECKS = {
     "check-vnc-rate": ("check-rate.py", ["--seconds", "4"], 60),
     # Display1.Screenshot thumbnails, cached while nothing changes, and the headless fallback
     "check-vnc-thumbnail": ("check-thumbnail.py", ["viewer_headless"], 90),
+    # the guest's capture answered while idle (fake-qemu --dmabuf): skipped without a render node
+    "check-vnc-capture": ("check-capture.py", [], 60),
     # partial frames against fake-qemu --bar
     "check-vnc-damage": ("check-damage.py", [], 60),
     # the planes hidden by beanjar-web's beanjar:planes= marker

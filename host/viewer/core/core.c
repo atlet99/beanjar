@@ -2093,12 +2093,16 @@ static int capture_render_frame(void *data, const struct webos_capture_header *r
                                 unsigned char **pixels)
 {
     struct wv *v = data;
-    if (!v->valid || v->quit)
-        return -ENODATA;
     if (request->mode < WEBOS_CAPTURE_VIDEO || request->mode > WEBOS_CAPTURE_OSD)
         return -EOPNOTSUPP;
-    int w = request->width, h = request->height;
     current(v);
+    /* idle since before the first copy (beanjar-vnc with no client): the guest's frame is there,
+     * only not copied yet, as for a bus Screenshot */
+    if (!v->valid && v->stale)
+        refresh(v);
+    if (!v->valid || v->quit)
+        return -ENODATA;
+    int w = request->width, h = request->height;
     GLint previous;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previous);
     GLuint tex, fbo;
