@@ -154,6 +154,9 @@ class ManagerTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="beanjar-test-")
         ACTIVE.add(self.tmp)
+        # the first cleanup runs last: after the test's own (a VM stopped, a directory made
+        # writable again), which would otherwise run after tmp is gone and make it again
+        self.addCleanup(cleanup, self.tmp)
         self.lib_dir = os.path.join(self.tmp, "lib")
         self.repo = os.path.join(self.tmp, "repo")
         os.makedirs(os.path.join(self.repo, "build"))
@@ -213,9 +216,6 @@ class ManagerTest(unittest.TestCase):
         with open(os.path.join(self.fw_src, "fonts.pak"), "wb") as f:
             f.write(b"hsqs fonts of fwdir")
         open(os.path.join(self.fw_src, "kernel.pak"), "wb").close()  # not one the guest attaches
-
-    def tearDown(self):
-        cleanup(self.tmp)
 
     def mem_available(self, mib):
         """What the host has free, as the start's admission reads it (BEANJAR_MEMINFO)."""
@@ -1674,7 +1674,8 @@ class ManagerTest(unittest.TestCase):
         self.cli("host", "config", "set", f"firmware_dirs={self.tmp}/none:{coll}")
         for d in (fw, coll):
             os.chmod(d, 0o555)
-        self.addCleanup(lambda: [os.chmod(d, 0o755) for d in (coll, fw)])
+        # writable again before tmp goes (setUp's cleanup runs after this one)
+        self.addCleanup(lambda: [os.chmod(d, 0o755) for d in (coll, fw) if os.path.isdir(d)])
         return fw
 
     def test_firmware_in_place(self):
