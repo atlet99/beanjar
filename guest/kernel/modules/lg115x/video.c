@@ -214,6 +214,10 @@ static long de_set_vtm(void __user *uarg)
         reply->secure = 0;
         reply->w_out_size = (struct lx_de_rect){.w = w, .h = h};
         reply->win_size = reply->w_out_size;
+        /* M14's KADP_DE_GetVTMStatus gives a panel of 1920 or less the frame's size from
+         * src_size (HAL_VT_GetAllVideoFrameBufferProperty's width and height) */
+        if (!req)
+            reply->src_size = reply->w_out_size;
         reply->ext_secure = 0;
         reply->mem_fd = 0;
         r.y_frame[0] = de_y_frame(0);
