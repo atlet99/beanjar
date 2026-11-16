@@ -25,7 +25,7 @@ concurrency:
 jobs:
   # Every target in one job, one after the other: they share the downloaded wraps, the unpacked
   # sources, Mesa builds of the same configuration and (ccache) the kernel, and each target's build
-  # directory is removed once it has published. On GitHub's runner the lane takes about 2.5 hours.
+  # directory is removed once it has published. On GitHub's runner the lane takes about an hour.
   # Nothing is cached between runs: the SDKs (650 MB) download in under a minute, and the wraps (a
   # few hundred MB) come with the first targets.
   build:
