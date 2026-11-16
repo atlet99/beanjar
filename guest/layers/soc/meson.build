@@ -62,7 +62,7 @@ endif
 # where bsppart's libkadaptor, which the stock libhalgal NEEDs, defines RHAL_SE_Init, Realtek's
 # SE 2D engine. Its KADP_GAL_Init runs RHAL_SE_Init, whose se_open maps /dev/se0 and asserts
 # (se_drv.c:167) when it cannot; rtk.ko's se0 has no mmap. A chip whose stock HAL cannot allocate
-# a surface on the emulator at all says so in its table (halgal_stock_fails: LG's O22 family), and
+# a surface on the emulator at all says so in its table (halgal_stock_fails: LG's O22 family, MStar's LM21), and
 # gets the engine without the question. Any other firmware whose libkadaptor has no SE engine keeps
 # the stock HAL.
 halgal_se = 'bsppart:bsp/usr/lib/libkadaptor.so:RHAL_SE_Init'
