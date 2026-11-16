@@ -25,6 +25,12 @@ beanjar.launch with host/core on PYTHONPATH).
   host/scripts/vm-launcher put-out [--dir VM-DIR] SRC DEST   copy the host file SRC into the VM's out share
                                    at DEST (/host/out/DEST, /mnt/host/out/DEST in webOS), never
                                    through a link the guest made there (share.place)
+  host/scripts/vm-launcher get-out [--dir VM-DIR] SRC [DEST]   copy the regular file SRC of the VM's out
+                                   share to DEST (a file or directory; default -, standard output),
+                                   never through a link the guest made there, never from a FIFO
+                                   (share.take); exit 1 if it is missing or not a regular file
+  host/scripts/vm-launcher rm-out [--dir VM-DIR] PATH...   remove files of the VM's out share,
+                                   never through a link the guest made there (share.remove)
   host/scripts/vm-launcher logs [--dir VM-DIR]   save the guest's finished logs (check-m1.sh's) to SAVED_LOG_DIR now
   host/scripts/vm-launcher prepare [--dir VM-DIR] [--force]   work out the VM's board data from its
                                    firmware (prepare.py: partition map, new EEPROM chip, local key,
@@ -1037,6 +1043,15 @@ def parser():
     s.add_argument("--dir", help="a VM directory: its run/share")
     s.add_argument("src")
     s.add_argument("dest", help="the path in the out share")
+    s = sub.add_parser(
+        "get-out", help="copy a regular file of the VM's out share (/host/out/SRC) to DEST"
+    )
+    s.add_argument("--dir", help="a VM directory: its run/share")
+    s.add_argument("src", help="the path in the out share")
+    s.add_argument("dest", nargs="?", default="-", help="a file or directory; - (default): stdout")
+    s = sub.add_parser("rm-out", help="remove files of the VM's out share (/host/out/PATH)")
+    s.add_argument("--dir", help="a VM directory: its run/share")
+    s.add_argument("paths", nargs="+", help="paths in the out share")
     s = sub.add_parser("logs", help="save the guest's finished logs to SAVED_LOG_DIR")
     s.add_argument("--dir", help="a VM directory: its run/share and logs/saved")
     s = sub.add_parser(
@@ -1156,7 +1171,7 @@ def main(argv_=None):
             r = qmp(sock, a.command)
             print(json.dumps(r))
             return 1 if "error" in r else 0
-        if a.cmd in ("put", "put-out", "logs"):
+        if a.cmd in ("put", "put-out", "get-out", "rm-out", "logs"):
             if a.dir:
                 vm_dir = os.path.abspath(a.dir)
                 run_dir, saved = os.path.join(vm_dir, "run"), os.path.join(vm_dir, "logs", "saved")
@@ -1170,6 +1185,11 @@ def main(argv_=None):
             elif a.cmd == "put-out":
                 share.place(share.dirs(run_dir)[3], a.dest, a.src)
                 print(f"/host/out/{a.dest}")
+            elif a.cmd == "get-out":
+                share.take(share.dirs(run_dir)[3], a.src, a.dest)
+            elif a.cmd == "rm-out":
+                for rel in a.paths:
+                    share.remove(share.dirs(run_dir)[3], rel)
             else:
                 for d in share.harvest(run_dir, saved, say):
                     print(f"logs saved: {d}")

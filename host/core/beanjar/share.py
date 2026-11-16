@@ -30,7 +30,9 @@ Everything under out/ is the guest's, and the guest is root on a 9p share with s
 its links (to any host path), FIFOs and sockets there are real host ones. The host reads a log
 directory there only through descriptors opened without following links, copies only its regular
 files and directories (save), and writes nothing into out/ (the launcher's own logs go into the
-saved copy)."""
+saved copy). The guest's other files there are read the same way: one regular file at a time, no
+link followed on the way (read, take: `vm-launcher get-out`), and removed without following a
+linked directory on the way (remove: `vm-launcher rm-out`)."""
 
 import errno
 import os
@@ -71,6 +73,10 @@ LAYER_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]*")
 
 class Error(Exception):
     pass
+
+
+class MissingError(Error):
+    """A path of the out share (read, take, remove) or a directory on its way is not there."""
 
 
 def dirs(run_dir):
@@ -674,33 +680,134 @@ def harvest(run_dir, saved, say=_say):
     return out
 
 
-def place(out, rel, src):
-    """Copy the host file src into the guest's out share (out: RUN_DIR/share/out) at rel, a path
-    relative to it, without following any link the guest made there: each directory on the way is
-    made, or must be a real one; the file is written under a new temporary name and renamed over
-    whatever entry rel names (a link is replaced, never written through). Returns the path; Error
-    if rel is not a plain relative path or a directory on the way is not a real one."""
+def _out_parts(rel):
     parts = rel.split("/")
     if not all(_plain(p) for p in parts):
         raise Error(f"{rel}: not a plain path in the out share")
+    return parts
+
+
+def _out_dir(out, parts, make=False):
+    """A descriptor of the directory out/parts[:-1] (out: RUN_DIR/share/out), each directory on the
+    way opened without following a link (made first with make); Error if one is missing (Error's
+    errno ENOENT) or not a real directory."""
     try:
         fd = os.open(out, _DIR_FLAGS)
     except OSError as e:
         raise Error(f"{out}: {e.strerror}") from None
     try:
         for i, p in enumerate(parts[:-1]):
-            try:
-                os.mkdir(p, 0o755, dir_fd=fd)
-            except FileExistsError:
-                pass
+            if make:
+                try:
+                    os.mkdir(p, 0o755, dir_fd=fd)
+                except FileExistsError:
+                    pass
             try:
                 sub = os.open(p, _DIR_FLAGS, dir_fd=fd)
+            except FileNotFoundError:
+                raise MissingError(f"{'/'.join(parts[: i + 1])}: not in the out share") from None
             except OSError:
                 raise Error(
                     f"{'/'.join(parts[: i + 1])}: not a directory in the out share"
                 ) from None
             os.close(fd)
             fd = sub
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _open_out_file(out, rel):
+    """A descriptor of the regular file rel of the guest's out share, opened without following a
+    link at any step and without blocking on a FIFO; MissingError if it is not there, Error if it or
+    a directory on the way is anything but a real file or directory."""
+    parts = _out_parts(rel)
+    dfd = _out_dir(out, parts)
+    try:
+        try:
+            fd = os.open(
+                parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=dfd
+            )
+        except FileNotFoundError:
+            raise MissingError(f"{rel}: not in the out share") from None
+        except OSError:
+            try:
+                kind = _kind(os.stat(parts[-1], dir_fd=dfd, follow_symlinks=False).st_mode)
+            except OSError:
+                kind = "unknown"
+            raise Error(f"{rel}: a {kind}, not a regular file in the out share") from None
+    finally:
+        os.close(dfd)
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode):
+        os.close(fd)
+        raise Error(f"{rel}: a {_kind(st.st_mode)}, not a regular file in the out share")
+    return fd
+
+
+def read(out, rel):
+    """The bytes of the regular file rel (a path relative to out, RUN_DIR/share/out), read without
+    following any link the guest made there, never from a FIFO, socket or device; MissingError if
+    it is not there, Error if it is not a regular file or a directory on the way is not a real one."""
+    with open(_open_out_file(out, rel), "rb") as f:
+        return f.read()
+
+
+def take(out, rel, dest):
+    """Copy the regular file rel of the guest's out share (read's rules) to the host path dest, a
+    file (replaced if it is there) or an existing directory (dest/<rel's name>), or "-" for
+    standard output; returns where it went. The copy's mode is 0644."""
+    with open(_open_out_file(out, rel), "rb") as src:
+        if dest == "-":
+            shutil.copyfileobj(src, sys.stdout.buffer)
+            sys.stdout.buffer.flush()
+            return dest
+        if os.path.isdir(dest):
+            dest = os.path.join(dest, rel.rsplit("/", 1)[-1])
+        with open(
+            os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o644), "wb"
+        ) as o:
+            shutil.copyfileobj(src, o)
+    return dest
+
+
+def remove(out, rel):
+    """Remove the entry rel of the guest's out share, whatever it is but a directory (a link is
+    unlinked, not followed), with no link followed on the way; whether there was one. Nothing is
+    removed if a directory on the way is missing (False) or is not a real directory (Error), or if
+    rel names a directory (Error)."""
+    parts = _out_parts(rel)
+    try:
+        dfd = _out_dir(out, parts)
+    except MissingError:
+        return False
+    try:
+        os.unlink(parts[-1], dir_fd=dfd)
+        return True
+    except FileNotFoundError:
+        return False
+    except IsADirectoryError:
+        raise Error(f"{rel}: a directory in the out share") from None
+    except OSError as e:
+        if e.errno == errno.EPERM and stat.S_ISDIR(
+            os.stat(parts[-1], dir_fd=dfd, follow_symlinks=False).st_mode
+        ):
+            raise Error(f"{rel}: a directory in the out share") from None
+        raise Error(f"{rel}: {e.strerror}") from None
+    finally:
+        os.close(dfd)
+
+
+def place(out, rel, src):
+    """Copy the host file src into the guest's out share (out: RUN_DIR/share/out) at rel, a path
+    relative to it, without following any link the guest made there: each directory on the way is
+    made, or must be a real one; the file is written under a new temporary name and renamed over
+    whatever entry rel names (a link is replaced, never written through). Returns the path; Error
+    if rel is not a plain relative path or a directory on the way is not a real one."""
+    parts = _out_parts(rel)
+    fd = _out_dir(out, parts, make=True)
+    try:
         name = parts[-1]
         tmp = f".{name}.{os.getpid()}.{os.urandom(4).hex()}"
         with open(src, "rb") as f, open(os.open(tmp, _NEW_FILE, 0o644, dir_fd=fd), "wb") as o:

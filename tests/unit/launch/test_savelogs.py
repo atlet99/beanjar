@@ -306,3 +306,84 @@ def test_put_out_command(fx):
     assert (r.returncode, r.stdout) == (0, "/host/out/tone.wav\n"), r.stderr
     assert (fx.out / "tone.wav").read_bytes() == b"RIFF"
     assert fx.bashrc.read_text() == "# the user's\n"
+
+
+def test_read_and_take(fx):
+    """share.read, share.take (vm-launcher get-out): a regular file of the out share only, never
+    through a link the guest made there, never blocking on its FIFO."""
+    (fx.out / "regress").mkdir()
+    (fx.out / "regress" / "boot.txt").write_text("booted\n")
+    assert share.read(str(fx.out), "regress/boot.txt") == b"booted\n"
+    dest = fx.tmp / "results"
+    dest.mkdir()
+    assert share.take(str(fx.out), "regress/boot.txt", str(dest)) == str(dest / "boot.txt")
+    assert (dest / "boot.txt").read_text() == "booted\n"
+    share.take(str(fx.out), "regress/boot.txt", str(dest / "again.txt"))
+    assert (dest / "again.txt").read_text() == "booted\n"
+    # a link at the name, a link on the way, a FIFO, a directory: refused, nothing read or made
+    os.symlink(fx.bashrc, fx.out / "regress" / "link.txt")
+    os.symlink(fx.home, fx.out / "home")
+    os.mkfifo(fx.out / "regress" / "fifo.txt")
+    for rel in ("regress/link.txt", "home/.bashrc", "regress/fifo.txt", "regress", "../x", "/x"):
+        with pytest.raises(share.Error) as e:
+            share.read(str(fx.out), rel)
+        assert not isinstance(e.value, share.MissingError), rel
+        with pytest.raises(share.Error):
+            share.take(str(fx.out), rel, str(dest / "taken"))
+        assert not (dest / "taken").exists()
+    with pytest.raises(share.MissingError):
+        share.read(str(fx.out), "regress/none.txt")
+    with pytest.raises(share.MissingError):
+        share.read(str(fx.out), "none/boot.txt")
+
+
+def test_remove(fx):
+    """share.remove (vm-launcher rm-out): a file or link of the out share unlinked, never anything
+    through a linked directory on the way."""
+    before = fx.snapshot()
+    (fx.out / "regress").mkdir()
+    (fx.out / "regress" / "boot.rc").write_text("0\n")
+    os.symlink(fx.bashrc, fx.out / "regress" / "link.rc")
+    assert share.remove(str(fx.out), "regress/boot.rc")
+    assert share.remove(str(fx.out), "regress/link.rc")
+    assert not share.remove(str(fx.out), "regress/boot.rc")
+    assert not share.remove(str(fx.out), "none/boot.rc")
+    assert os.listdir(fx.out / "regress") == []
+    with pytest.raises(share.Error):
+        share.remove(str(fx.out), "regress")
+    # the guest's regress is a link to a directory of the user's: nothing removed there
+    os.rmdir(fx.out / "regress")
+    os.symlink(fx.secret_dir, fx.out / "regress")
+    with pytest.raises(share.Error):
+        share.remove(str(fx.out), "regress/keep")
+    assert fx.snapshot() == before
+
+
+def test_get_out_and_rm_out_commands(fx):
+    """`host/scripts/vm-launcher get-out --dir VM SRC [DEST]` and `rm-out --dir VM PATH...`."""
+
+    def vm(*args):
+        return subprocess.run(
+            [sys.executable, VM, args[0], "--dir", str(fx.tmp / "vm"), *args[1:]],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=TOP,
+            timeout=30,
+        )
+
+    (fx.out / "step.txt").write_text("output\n")
+    r = vm("get-out", "step.txt")
+    assert (r.returncode, r.stdout) == (0, "output\n"), r.stderr
+    r = vm("get-out", "step.txt", str(fx.tmp / "copy.txt"))
+    assert r.returncode == 0 and (fx.tmp / "copy.txt").read_text() == "output\n", r.stderr
+    os.symlink(fx.bashrc, fx.out / "secret.txt")
+    os.mkfifo(fx.out / "fifo.txt")
+    for name in ("secret.txt", "fifo.txt", "none.txt"):
+        r = vm("get-out", name)
+        assert (r.returncode, r.stdout) == (1, ""), name
+        assert "the user's" not in r.stderr
+    r = vm("rm-out", "step.txt", "secret.txt", "none.txt")
+    assert r.returncode == 0, r.stderr
+    assert sorted(os.listdir(fx.out)) == ["fifo.txt", "logs"]
+    assert fx.bashrc.read_text() == "# the user's\n"

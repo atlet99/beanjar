@@ -322,7 +322,7 @@ from one checkout without sharing a file:
 | `SAVED_LOG_DIR` | `build/logs` | `build/instances/<id>/logs` |
 | systemd user unit | its development VM's, `beanjar-vm-<tag>-dev-<hash>`; regress: `beanjar-vm-regress-default` | its development VM's; regress: `beanjar-vm-regress-<id>` |
 
-Every `host/scripts/vm-launcher` command (`start`, `stop`, `console`, `qmp`, `put`, `put-out`, `logs`, `reset-state`)
+Every `host/scripts/vm-launcher` command (`start`, `stop`, `console`, `qmp`, `put`, `put-out`, `get-out`, `rm-out`, `logs`, `reset-state`)
 takes `INSTANCE` from the environment; without it (or with `INSTANCE=default`) it is the default
 instance, which `host/scripts/vm-launcher`, the regress run on the Pi and the manager's checks of "the checkout's
 own VM" use as before. Each instance is a VM with a slot of its own, so its ports are on its own
