@@ -4,7 +4,9 @@
 
 Beanjar runs LG TV firmware in virtual machines on your computer. Give it a firmware file you have, and it boots LG's own software to the TV's Home screen in a window, with an on-screen remote. Each virtual TV keeps its own firmware, settings, state and identity, and several can run side by side.
 
-![Beanjar viewer showing a webOS 1 Home screen beside the on-screen remote](docs/assets/screenshots/beanjar-viewer.png)
+![The Beanjar viewer playing Big Buck Bunny under the webOS 1 Home launcher, beside the on-screen remote](docs/assets/screenshots/beanjar-viewer.png)
+
+<sub>Video: [Big Buck Bunny](https://peach.blender.org/) © Blender Foundation, [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)</sub>
 
 ## What it is for
 

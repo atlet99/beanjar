@@ -75,10 +75,14 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "Mariotaku <git@mariotaku.me> and the Beanjar contributors"
 SPDX-License-Identifier = "GPL-2.0-or-later"
 
-# The landing page's viewer shot, and the share card made from it, show a frame of Big Buck
-# Bunny playing on the TV.
+# The landing page's viewer shot, the README's copy of it and the share card made from it show a
+# frame of Big Buck Bunny playing on the TV.
 [[annotations]]
-path = ["site/images/viewer-window.png", "site/images/share-card.png"]
+path = [
+  "site/images/viewer-window.png",
+  "site/images/share-card.png",
+  "docs/assets/screenshots/beanjar-viewer.png",
+]
 precedence = "aggregate"
 SPDX-FileCopyrightText = [
   "Mariotaku <git@mariotaku.me> and the Beanjar contributors",
