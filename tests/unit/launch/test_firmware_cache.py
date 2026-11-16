@@ -254,7 +254,11 @@ class LayerImageTest(unittest.TestCase):
         img = layerimage.image(self.tree, self.src, ("layer.toml",))
         cache = os.path.join(self.top, "build", "layer-images")
         self.assertEqual(os.path.dirname(img), cache)
-        self.assertEqual(os.listdir(cache), [os.path.basename(img)])
+        # the image and the cache's lock file (layerimage.LOCK, kept: it is flocked, not removed),
+        # no partial image left beside them
+        self.assertEqual(
+            sorted(os.listdir(cache)), sorted([os.path.basename(img), layerimage.LOCK])
+        )
         listing = subprocess.run(
             ["unsquashfs", "-lln", img], check=True, stdout=subprocess.PIPE, text=True
         ).stdout
