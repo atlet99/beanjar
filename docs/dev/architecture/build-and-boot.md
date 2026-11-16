@@ -106,8 +106,10 @@ so a partial extraction cannot change a selection. `guest/layers/soc/meson.build
   `libhalgal` is served from the `libdile_gal` shim's engine where the rootfs has the stock
   `libdile_gal`. Without one, it carries its own copy of the engine only where bsppart's
   `libkadaptor.so` defines `RHAL_SE_Init` (the fact `defines bsppart:bsp/usr/lib/libkadaptor.so:RHAL_SE_Init`):
-  the Realtek KADP whose `KADP_GAL_Init` opens the SE 2D engine the emulator lacks. Elsewhere the
-  stock HAL stays.
+  the Realtek KADP whose `KADP_GAL_Init` opens the SE 2D engine the emulator lacks, or where the
+  chip's table sets `halgal_stock_fails` (LG's O22 family and MStar's LM21, whose stock
+  `HAL_GAL_CreateSurface` fails here; the question is not asked there). Elsewhere the stock HAL
+  stays.
 - `libsestore`: the stock `libsestore.so.0.1.0` and a direct reader, the gateway's
   `ssl-cert-getter.js` (its TLS key) or `nyxSecureStore.module` (nyx crypto's model secret).
   On a chip whose table sets `sestore_model_items_nyx` (O22 and its successors), a nyx
