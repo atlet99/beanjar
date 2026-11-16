@@ -305,7 +305,11 @@ static int media_message(struct chan *c, const unsigned char *data, size_t len)
         break;
     }
     case WEBOS_MEDIA_CAPS:
-        if (!c->caps || c->caps_len != len || memcmp(c->caps + sizeof h, pl, h.size))
+        /* a string ending in the payload's last byte, or decoder_submit refuses it: never read
+         * past the payload (into the next message's bytes) for the log */
+        if (!h.size || pl[h.size - 1])
+            say("media %d: caps of %u bytes, not a string", c->index, h.size);
+        else if (!c->caps || c->caps_len != len || memcmp(c->caps + sizeof h, pl, h.size))
             say("media %d: caps %.200s", c->index, (const char *)pl);
         keep(&c->caps, &c->caps_len, data, len);
         break;
