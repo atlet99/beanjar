@@ -7,8 +7,10 @@ import json
 import stat
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -21,10 +23,20 @@ FIXTURE = Path(__file__).parent / "fixtures/spacebuns-system.pa"
 PTTS = TOP / "guest/layers/webos/jhericurl/rootfs/etc/emulator/pulseaudio-ptts.sh"
 
 
+@pytest.fixture
+def sandbox():
+    """A temporary directory every user can reach: the non-owner reads run as nobody, who cannot
+    pass pytest's own tmp_path (under a 0700 directory of the user's)."""
+    root = Path(tempfile.mkdtemp(prefix="beanjar-spacebuns-"))
+    root.chmod(0o755)
+    yield root
+    shutil.rmtree(root, ignore_errors=True)
+
+
 class TestProviderTests:
     @pytest.fixture(autouse=True)
-    def setup(self, tmp_path):
-        self.root = tmp_path
+    def setup(self, sandbox):
+        self.root = sandbox
         self.config = self.root / "system.pa"
         self.config.write_bytes(FIXTURE.read_bytes())
         self.sound = self.root / "sound"
@@ -157,7 +169,6 @@ class TestProviderTests:
         reason="Non-owner read requires uid switching; run this fixture with sudo.",
     )
     def test_actual_non_owner_reader(self):
-        self.root.chmod(0o755)
         self.run_helper()
         output = self.runtime / "system.pa"
         code = (
@@ -317,8 +328,8 @@ class TestProviderTests:
 
 class TestModuleViewTests:
     @pytest.fixture(autouse=True)
-    def setup(self, tmp_path):
-        self.root = tmp_path
+    def setup(self, sandbox):
+        self.root = sandbox
         self.stock = self.root / "stock"
         self.stock.mkdir()
         self.sound = self.root / "sound"
@@ -434,7 +445,6 @@ class TestModuleViewTests:
         os.geteuid() != 0, reason="Non-owner read requires uid switching; run with sudo."
     )
     def test_actual_non_owner_can_read_module_view(self):
-        self.root.chmod(0o755)
         self.run_helper()
 
         def drop_user():
