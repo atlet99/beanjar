@@ -12,4 +12,5 @@ mkdir -p "$DIR" || exit 1
 [ -e "$DIR/ran-firstuse" ] && exit 0
 : > "$DIR/ran-firstuse" || exit 1
 sync
-logger -s "[normal] ran-firstuse was missing from this state: FirstUse skipped"
+# The marker is what counts: a log line that cannot be sent (no syslog socket) is no failure
+logger -s "[normal] ran-firstuse was missing from this state: FirstUse skipped" || :
