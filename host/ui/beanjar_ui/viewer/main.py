@@ -251,6 +251,11 @@ def main(args):
         return remote_preview(
             o["preview"], o["press"], o["seconds"], remote_layout(o["layout"], {})
         )
+    from .. import no_display
+
+    missing = no_display("viewer", "use --headless")
+    if missing:
+        raise SystemExit(missing)
     return run(o)
 
 

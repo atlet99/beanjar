@@ -64,6 +64,7 @@ from beanjar import (
 from beanjar.core import OFF, RUNNING, STARTING, Error, Library  # noqa: E402
 from beanjar.firmware import fmt_size  # noqa: E402
 
+from .. import no_display  # noqa: E402
 from . import header, picture, summary_facts  # noqa: E402
 
 PKG_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(core.__file__)))  # beanjar's
@@ -2260,6 +2261,10 @@ def main(argv=None):
         "host/ui/data/manager) instead of build/manager/beanjar.gresource",
     )
     a = p.parse_args(argv)
+    missing = no_display("beanjar", "use the command line (beanjar --help)")
+    if missing:
+        print(missing, file=sys.stderr)
+        return 1
     if a.ui_dir:
         from . import ui
 
