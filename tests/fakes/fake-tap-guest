@@ -125,15 +125,36 @@ def lease():
     return result
 
 
+def complete(data):
+    """Whether data is a whole HTTP response by its Content-Length (False: read on to the end)."""
+    head, sep, body = data.partition(b"\r\n\r\n")
+    if not sep or not head.startswith(b"HTTP/"):
+        return False
+    for line in head.split(b"\r\n")[1:]:
+        name, _, value = line.partition(b":")
+        if name.strip().lower() == b"content-length" and value.strip().isdigit():
+            return len(body) >= int(value)
+    return False
+
+
 def tcp(host, port, send=b"", timeout=5):
-    """What a TCP client sees: the first bytes received, or the error."""
+    """What a TCP client sees: what it receives until the server closes (or an HTTP response is
+    whole by its Content-Length), or the error. A server may write a reply in several pieces (an
+    HTTP server its headers, then its body), so one recv() could miss the end of it."""
+    data = b""
     try:
         with socket.create_connection((host, port), timeout) as c:
             if send:
                 c.sendall(send)
-            return {"data": c.recv(4096).decode("latin-1")}
+            while not complete(data):
+                chunk = c.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
     except (OSError, socket.timeout) as e:
-        return {"error": type(e).__name__}
+        if not data:
+            return {"error": type(e).__name__}
+    return {"data": data.decode("latin-1")}
 
 
 def udp(host, port, send=b"", timeout=5):

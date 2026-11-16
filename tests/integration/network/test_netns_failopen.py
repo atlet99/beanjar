@@ -269,6 +269,12 @@ class RealRouting(unittest.TestCase):
             self.skipTest("TUN unavailable")
         if subprocess.run(["unshare", "-rn", "true"], stderr=subprocess.DEVNULL).returncode:
             self.skipTest("unprivileged namespaces unavailable")
+        # the late proxy sets its device's rp_filter: a container's /proc/sys is read-only
+        sysctl = "/proc/sys/net/ipv4/conf/lo/rp_filter"
+        if subprocess.run(
+            ["unshare", "-rn", "sh", "-c", f"cat {sysctl} > {sysctl}"], stderr=subprocess.DEVNULL
+        ).returncode:
+            self.skipTest("/proc/sys not writable in a namespace")
         for mode in os.environ.get("MODES", "missing dead late").split():
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
                 env = dict(os.environ, PYTHONPATH=str(TOP / "host/core"))
