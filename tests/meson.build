@@ -40,7 +40,7 @@ foreach area, timeout : {
     'manager': 600, 'launch': 300, 'regress': 120, 'packaging': 180, 'securestore': 300,
     'netstub': 120, 'web': 60, 'model-config': 60, 'firmware': 60, 'formatting': 60,
     'publish': 60, 'kernel': 120, 'gl': 120, 'ui': 30, 'tcg': 30,
-    'layers': 120,
+    'layers': 120, 'build': 60,
   }
   if fs.is_dir(tests_dir / 'unit' / area)
     test('unit-' + area, python, args: pytest + [tests_dir / 'unit' / area],
