@@ -1,0 +1,186 @@
+<!doctype html>
+<!-- SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- Source of images/share-card.png, not part of the site. Re-render from site/: chromium --headless --hide-scrollbars --window-size=1200,630 --screenshot=images/share-card.png share-card.html, then pngquant it. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Beanjar share card</title>
+<style>
+:root { --jar:#B9E1DB; --jar-light:#E4F6F3; --jar-deep:#3F726D; --charcoal:#1D2223; --beak:#FFBE32; }
+* { box-sizing: border-box; margin: 0; }
+html, body { width: 1200px; height: 630px; overflow: hidden; }
+body { position: relative; background: #000; color: #E9EEEE; }
+.jar { display: block; overflow: visible; }
+h1 { font-weight: 700; letter-spacing: -.02em; color: #fff; line-height: 1; text-shadow: 0 .1rem .6rem rgba(0,0,0,.7); }
+.pitch { color: var(--jar-light); font-weight: 500; line-height: 1.25; }
+.url { color: var(--jar); font-weight: 600; }
+.credit { position: absolute; font-size: 15px; color: rgba(233,238,238,.6); }
+.shot { display: block; filter: drop-shadow(0 0 .5px rgba(255,255,255,.35)) drop-shadow(0 1.2rem 2rem rgba(0,0,0,.6)); }
+body { font-family: "Liberation Sans", Arial, sans-serif;
+  background: radial-gradient(ellipse 55% 75% at 78% 50%, rgba(185,225,219,.17), transparent 70%), radial-gradient(ellipse 40% 50% at 10% 15%, rgba(185,225,219,.08), transparent 70%), #000; }
+.brand { position: absolute; left: 64px; top: 70px; display: flex; align-items: center; gap: 22px; }
+.brand .jar { width: 104px; height: auto; }
+h1 { font-size: 96px; }
+.pitch { position: absolute; left: 64px; top: 262px; width: 520px; font-size: 60px; line-height: 1.2; }
+.url { position: absolute; left: 64px; bottom: 64px; font-size: 28px; }
+.shot { position: absolute; left: 600px; top: 110px; width: 680px; }
+.credit { left: 600px; bottom: 30px; }
+</style>
+</head>
+<body>
+<div class="brand">
+<svg class="jar" viewBox="84 46 344 432" aria-hidden="true" focusable="false">
+  <defs>
+    <radialGradient id="halo">
+      <stop offset="0" stop-color="#B9E1DB" stop-opacity=".55"/>
+      <stop offset=".35" stop-color="#B9E1DB" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#B9E1DB" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="pool">
+      <stop offset="0" stop-color="#B9E1DB" stop-opacity=".4"/>
+      <stop offset="1" stop-color="#B9E1DB" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="lit" cy=".45" r=".75">
+      <stop offset="0" stop-color="#E4F6F3"/>
+      <stop offset=".6" stop-color="#B9E1DB"/>
+      <stop offset="1" stop-color="#86BDB6"/>
+    </radialGradient>
+    <clipPath id="chamber"><path d="M116 100H396V428H116Z"/></clipPath>
+    <!-- Soft volume for each part: light from the fluid, darker away from it. -->
+    <radialGradient id="body" gradientUnits="userSpaceOnUse" cx="236" cy="240" r="175" fx="222" fy="214">
+      <stop offset="0" stop-color="#616867"/>
+      <stop offset=".4" stop-color="#474C4B"/>
+      <stop offset=".75" stop-color="#363938"/>
+      <stop offset="1" stop-color="#282B2A"/>
+    </radialGradient>
+    <!-- A gentle shadow towards the lower back gives the body a rounder volume. -->
+    <radialGradient id="body-shade" gradientUnits="userSpaceOnUse" cx="200" cy="352" r="120">
+      <stop offset="0" stop-color="#151716" stop-opacity=".5"/>
+      <stop offset="1" stop-color="#151716" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="legs" gradientUnits="userSpaceOnUse" x1="0" y1="352" x2="0" y2="394">
+      <stop offset="0" stop-color="#4B504F"/>
+      <stop offset="1" stop-color="#2A2D2C"/>
+    </linearGradient>
+    <linearGradient id="beak" gradientUnits="userSpaceOnUse" x1="0" y1="226" x2="0" y2="262">
+      <stop offset="0" stop-color="#FFDA80"/>
+      <stop offset=".55" stop-color="#FFBE32"/>
+      <stop offset="1" stop-color="#F5A623"/>
+    </linearGradient>
+    <linearGradient id="cap" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3E4849"/>
+      <stop offset=".45" stop-color="#2C3334"/>
+      <stop offset="1" stop-color="#1D2223"/>
+    </linearGradient>
+    <linearGradient id="wall" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9CC9C4"/>
+      <stop offset=".5" stop-color="#5F8F8B"/>
+      <stop offset="1" stop-color="#8DBBB6"/>
+    </linearGradient>
+    <linearGradient id="glint" gradientUnits="userSpaceOnUse" x1="0" y1="135" x2="0" y2="219">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity=".45"/>
+    </linearGradient>
+    <radialGradient id="bubble" cx=".5" cy=".5" r=".5" fx=".35" fy=".3">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset=".6" stop-color="#EDF8F7"/>
+      <stop offset="1" stop-color="#D3ECE8"/>
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+    <!-- Glass cylinder: liquid darker at the curved sides, brighter left of centre. -->
+    <linearGradient id="cyl" gradientUnits="userSpaceOnUse" x1="116" y1="0" x2="396" y2="0">
+      <stop offset="0" stop-color="#7DB3AC"/>
+      <stop offset=".14" stop-color="#A6D5CE"/>
+      <stop offset=".4" stop-color="#E0F4F1"/>
+      <stop offset=".62" stop-color="#C6E8E2"/>
+      <stop offset=".88" stop-color="#9ACAC3"/>
+      <stop offset="1" stop-color="#76ACA5"/>
+    </linearGradient>
+    <linearGradient id="edge-l" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3F726D" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#3F726D" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="edge-r" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3F726D" stop-opacity="0"/>
+      <stop offset="1" stop-color="#3F726D" stop-opacity=".45"/>
+    </linearGradient>
+    <!-- Round caps: darker towards both ends. -->
+    <linearGradient id="cap-round" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#000000" stop-opacity=".35"/>
+      <stop offset=".3" stop-color="#FFFFFF" stop-opacity=".07"/>
+      <stop offset=".55" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity=".4"/>
+    </linearGradient>
+    <filter id="soft" x="-100%" y="-10%" width="300%" height="120%">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+    <filter id="soft-thin" x="-200%" y="-10%" width="500%" height="120%">
+      <feGaussianBlur stdDeviation="2.5"/>
+    </filter>
+  </defs>
+
+  <!-- Light spilling into the room, and a pool of it on the floor. -->
+  <ellipse class="halo" cx="256" cy="262" rx="760" ry="620" fill="url(#halo)"/>
+  <ellipse class="halo" cx="256" cy="478" rx="300" ry="34" fill="url(#pool)"/>
+
+  <!-- Chamber fluid, brightest in the middle. -->
+  <path d="M116 100H396V428H116Z" fill="url(#cyl)"/>
+  <path d="M116 100H396V428H116Z" fill="url(#lit)" opacity=".45"/>
+  <!-- Thick curved glass darkens towards each wall. -->
+  <path d="M121 100H135V428H121Z" fill="url(#edge-l)"/>
+  <path d="M377 100H391V428H377Z" fill="url(#edge-r)"/>
+
+  <!-- The bean bird: legs, body, closed eyes, beak. -->
+  <g class="bird-body">
+    <g class="hip hip-l"><path class="leg leg-l" d="M191 355L177 377" stroke="url(#legs)" stroke-width="19" stroke-linecap="round"/></g>
+    <g class="hip hip-r"><path class="leg leg-r" d="M271 367L283 391" stroke="url(#legs)" stroke-width="19" stroke-linecap="round"/></g>
+    <path class="body-shape" d="M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 308 311C303 350 285 374 253 377C205 382 161 345 167 279Z" fill="url(#body)"/>
+    <path class="body-shape" d="M167 279C171 225 198 179 235 168C272 157 308 176 322 207C341 250 313 272 308 311C303 350 285 374 253 377C205 382 161 345 167 279Z" fill="url(#body-shade)"/>
+    <!-- Awake, as in the app icon: open eyes (they blink when motion is allowed) and an open beak. -->
+    <path class="eyes" d="M264 205L268 222M300 201L304 218" stroke="#FFFFFF" stroke-width="11" stroke-linecap="round"/>
+    <path d="M305 228C290 224 282 236 286 249C290 262 305 266 321 260L309 246L329 237L305 228Z" fill="url(#beak)"/>
+    <path d="M293 242L329 237L309 246L321 260Z" fill="#E68A12"/>
+  </g>
+
+  <!-- Translucent foreground fluid. -->
+  <path class="fluid" d="M116 100H396V428H116Z" fill="#B9E1DB" fill-opacity="0.28"/>
+
+  <!-- Bubbles, rising in a loop. -->
+  <g clip-path="url(#chamber)" fill="url(#bubble)" fill-opacity=".7">
+    <circle class="bubble" cx="339" cy="146" r="5" style="--from: 260px; --to: -40px; --delay: -3s"/>
+    <circle class="bubble" cx="355" cy="294" r="6" style="--from: 110px; --to: -190px; --delay: -6.5s"/>
+    <circle class="bubble" cx="343" cy="335" r="4" style="--from: 70px; --to: -230px; --delay: -1s"/>
+  </g>
+
+  <!-- Glass edges and reflection. -->
+  <!-- Specular bands on the curved front of the glass. -->
+  <rect x="134" y="122" width="16" height="284" rx="8" fill="#FFFFFF" fill-opacity=".3" filter="url(#soft)"/>
+  <rect x="371" y="136" width="5" height="256" rx="2.5" fill="#FFFFFF" fill-opacity=".3" filter="url(#soft-thin)"/>
+  <path d="M111 100H121V428H111ZM391 100H401V428H391Z" fill="url(#wall)"/>
+  <path class="glint" d="M139 139V215" stroke="url(#glint)" stroke-width="9" stroke-linecap="round"/>
+
+  <!-- Dark end caps, lit only along the edges that face the fluid, and the status strip. -->
+  <rect x="100" y="62" width="312" height="48" rx="12" fill="url(#cap)"/>
+  <rect x="100" y="62" width="312" height="48" rx="12" fill="url(#cap-round)"/>
+  <path d="M112 64.5H400" stroke="#FFFFFF" stroke-opacity=".14" stroke-width="3" stroke-linecap="round"/>
+  <path d="M108 109H404" stroke="#B9E1DB" stroke-opacity=".55" stroke-width="3"/>
+  <path d="M166 86H190M244 86H268M322 86H346" stroke="#1B2021" stroke-width="8" stroke-linecap="round"/>
+  <path d="M166 88H190M244 88H268M322 88H346" stroke="#FFFFFF" stroke-opacity=".08" stroke-width="3" stroke-linecap="round"/>
+  <rect x="100" y="418" width="312" height="44" rx="12" fill="url(#cap)"/>
+  <rect x="100" y="418" width="312" height="44" rx="12" fill="url(#cap-round)"/>
+  <path d="M108 419H404" stroke="#B9E1DB" stroke-opacity=".55" stroke-width="3"/>
+  <g class="status">
+    <path d="M236 440H276" stroke="#B9E1DB" stroke-width="12" stroke-linecap="round" filter="url(#glow)"/>
+    <path d="M236 440H276" stroke="#D9F2EE" stroke-width="8" stroke-linecap="round"/>
+  </g>
+</svg>
+<h1>Beanjar</h1></div>
+<p class="pitch">Real webOS TV,<br>emulated.</p>
+<p class="url">beanjar.webosbrew.org</p>
+<img class="shot" src="images/viewer-window.png" alt="">
+<p class="credit">Big Buck Bunny © Blender Foundation, CC BY 3.0</p>
+</body>
+</html>
