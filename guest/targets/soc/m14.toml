@@ -10,7 +10,11 @@
 # device every media window stayed unconnected). de_capacity is LG's DE_REG_M14_GetCapacity:
 # chip 2, 2 windows and layers, 1920x1080 in and out, out 120 Hz, mvir 2, 3D out SINGLE_2D, VT
 # up to 960x540, left-top align, both de-interlacings, no scaling up, down to 320x240, one
-# location; de_mem the emulator's, as M16P's.
+# location; de_mem the emulator's, as M16P's. de_abi: W15M's KADP numbers its VTM, block-state,
+# system-status, source-status and output-rate commands 49, 50, 55, 86, 87 and 22
+# (KADP_DE_SetVTM, _GetVTM, _SetVTMBlockState, _GetSysStatus, _GetSourceStatus, _GetOutFrRate),
+# and maps the VTM page through /dev/mem (HAL_VT_Init, DILE_VT_Create; tv.capture's SCREEN,
+# DISPLAY and VIDEO).
 
 board_cmdline = "/etc/emulator/board.cmdline"
 
@@ -31,4 +35,5 @@ params = [
     "timer_hz=198000000",
     "de_mem=0x7e000000:0x1000000",
     "de_capacity=2:2:2:1920:1080:1920:1080:0:120:2:0:960:540:1:1:1:0:0:0:1:320:240:1",
+    "de_abi=49:50:55:86:87:22",
 ]

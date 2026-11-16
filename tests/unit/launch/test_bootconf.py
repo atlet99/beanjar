@@ -162,6 +162,7 @@ class BootConfTest(unittest.TestCase):
                 "timer_hz=198000000",
                 "de_mem=0x7e000000:0x1000000",
                 "de_capacity=2:2:2:1920:1080:1920:1080:0:120:2:0:960:540:1:1:1:0:0:0:1:320:240:1",
+                "de_abi=49:50:55:86:87:22",
             ],
         )
         self.assertEqual(conf["MODULE_PARAMS_mstar_utopia"], "")

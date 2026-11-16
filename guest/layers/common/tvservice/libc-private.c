@@ -85,7 +85,10 @@ static void *sys_mmap(void *addr, size_t length, int prot, int flags, int fd,
 
 void *mmap64(void *addr, size_t length, int prot, int flags, int fd, off64_t offset)
 {
-    int gfx = physmem_gfx_fd(fd, (unsigned long long)offset, length);
+    int gfx = physmem_gfx_fd(fd, (unsigned long long)offset, length),
+        de = physmem_de_fd(fd, (unsigned long long)offset, length);
+    if (de >= 0)
+        return sys_mmap(addr, length, prot, flags, de, (unsigned long long)offset);
     if (gfx >= 0)
         return sys_mmap(addr, length, prot, flags, gfx,
                         (unsigned long long)offset - WEBOS_GFX_PHYS_BASE);

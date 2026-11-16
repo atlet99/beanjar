@@ -102,7 +102,7 @@ struct lx_de_vtm_block {
 #define DE_IOW_SET_SRC_SIZE         _IOW(DE_IOC_MAGIC, 55, struct lx_de_src_size)
 #define DE_IOR_GET_SRC_SIZE         _IOR(DE_IOC_MAGIC, 56, struct lx_de_src_size)
 
-static char *de_mem, *de_capacity;
+static char *de_mem, *de_capacity, *de_abi;
 static unsigned int de_panel;
 module_param(de_mem, charp, 0444);
 MODULE_PARM_DESC(de_mem, "the display engine's memory, base:size: the VTM page at base, the "
@@ -112,6 +112,10 @@ MODULE_PARM_DESC(
     de_capacity,
     "LX_DE_CAPACITY_T's 23 values, in order (chip_id:max_win:max_layer:"
     "in w:h:out w:h:in_fr:out_fr:mvir:3d_fmt:vtm w:h:4 flags:up w:h:down:down w:h:location)");
+module_param(de_abi, charp, 0444);
+MODULE_PARM_DESC(de_abi, "the DE's ioctl numbers set_vtm:get_vtm:vtm_block:sys_status:src_status:"
+                         "out_fr_rate (M14 49:50:55:86:87:22); unset: M16P's (88:89:92:10:26:8), "
+                         "with its sub-window mode, source sizes and GET_VTM_BUFFER");
 module_param(de_panel, uint, 0444);
 MODULE_PARM_DESC(de_panel, "LX_DE_PANEL_TYPE_T, the system status's display size (0 1920, 4 3840)");
 
@@ -125,6 +129,33 @@ static struct lx_de_src_size de_src_size[4];
 static DEFINE_MUTEX(de_lock);
 static u32 de_seen[DE_SEEN_MAX];
 static unsigned int de_seen_count;
+
+/* The commands whose numbers move between chips (de_abi), as M16P numbers them */
+static const unsigned int de_moved[] = {
+    DE_IOW_SET_VTM,        DE_IOR_GET_VTM,        DE_IOWR_SET_VTM_BLOCK_STATE,
+    DE_IOR_GET_SYS_STATUS, DE_IOR_GET_SRC_STATUS, DE_IOR_GET_OUT_FR_RATE};
+static u32 de_nr[ARRAY_SIZE(de_moved)];
+static bool de_abi_given;
+
+/* cmd as M16P numbers it: a moved command at the chip's number, or M16P's own commands without
+ * de_abi; 0 for anything else, whose number means something else on the chip */
+static unsigned int de_command(unsigned int cmd)
+{
+    for (unsigned int i = 0; i < ARRAY_SIZE(de_moved); i++)
+        if (cmd == ((de_moved[i] & ~_IOC_NRMASK) | de_nr[i] << _IOC_NRSHIFT))
+            return de_moved[i];
+    switch (cmd) {
+    case DE_IOR_GET_CAPACITY:
+        return cmd;
+    case DE_IOW_GET_VTM_BUFFER:
+    case DE_IOW_SET_SUB_MODE:
+    case DE_IOW_GET_SUB_MODE:
+    case DE_IOW_SET_SRC_SIZE:
+    case DE_IOR_GET_SRC_SIZE:
+        return de_abi_given ? 0 : cmd;
+    }
+    return 0;
+}
 
 /* a frame buffer's planes: the luma at the buffer, the chroma (4:2:0, interleaved) after it */
 static u32 de_y_frame(unsigned int i)
@@ -140,8 +171,10 @@ static u32 de_c_frame(unsigned int i)
 /* DE_IO_SetVTM: the stock driver keeps a copy of the request in its firmware's shared memory
  * ("webOS"), next to the one the DE firmware answers in (the "MCU" copy, which it waits up to
  * 1 s to fill), and returns the page's address, which KADP maps (448 bytes: two windows' pairs;
- * on M17, chip_id > 4, KADP reads window w's state from slot 2w + 1, the reply). Here the reply
- * is written at once: the frame buffers' addresses (in de_mem, which nothing backs: tvservice
+ * on M17, chip_id > 4, KADP reads window w's state from slot 2w + 1, the reply). M14's KADP
+ * (chip_id 2) maps the page through /dev/mem and reads window w's state from slot w, one 112-byte
+ * record a window (KADP_DE_SetVTM, KADP_DE_CmdVTM): the reply alone, no request copy. Here the
+ * reply is written at once: the frame buffers' addresses (in de_mem, which nothing backs: tvservice
  * maps them through its own /dev/mem, guest/layers/common/tvservice), a 4:2:0 semi-planar frame at
  * the requested output size, read index 0, no mute. */
 static long de_set_vtm(void __user *uarg)
@@ -153,14 +186,21 @@ static long de_set_vtm(void __user *uarg)
         return -EFAULT;
     if (r.win_id >= DE_WINS)
         return -EINVAL;
-    req = &de_vtm[2 * r.win_id];
-    reply = req + 1;
+    if (de_capa.chip_id > 4) {
+        req = &de_vtm[2 * r.win_id];
+        reply = req + 1;
+    } else {
+        req = NULL;
+        reply = &de_vtm[r.win_id];
+    }
     if (r.enable) {
         w = clamp_t(u16, r.w_out_size.w ?: de_capa.vtm_max.w, de_capa.down_w, de_capa.vtm_max.w);
         h = clamp_t(u16, r.w_out_size.h ?: de_capa.vtm_max.h, de_capa.down_h, de_capa.vtm_max.h);
-        *req = r;
-        req->secure = 0xff;
-        req->y_frame[0] = de_y_frame(0);
+        if (req) {
+            *req = r;
+            req->secure = 0xff;
+            req->y_frame[0] = de_y_frame(0);
+        }
         *reply = r;
         reply->address = de_base;
         reply->stride = ALIGN(w, 16);
@@ -178,7 +218,8 @@ static long de_set_vtm(void __user *uarg)
         reply->mem_fd = 0;
         r.y_frame[0] = de_y_frame(0);
     } else {
-        req->enable = 0;
+        if (req)
+            req->enable = 0;
         reply->enable = 0;
     }
     r.address = de_base;
@@ -196,7 +237,7 @@ static long de_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
     unsigned int i;
 
     mutex_lock(&de_lock);
-    switch (cmd) {
+    switch (de_command(cmd)) {
     case DE_IOR_GET_CAPACITY:
         ret = copy_to_user(uarg, &de_capa, sizeof(de_capa)) ? -EFAULT : 0;
         break;
@@ -334,6 +375,20 @@ int lx_de_add(void)
         .down_h = c[21],
         .location_limit = c[22],
     };
+    for (unsigned int i = 0; i < ARRAY_SIZE(de_moved); i++)
+        de_nr[i] = _IOC_NR(de_moved[i]);
+    if (de_abi) {
+        if (lgemu_parse_u32s(de_abi, 0, de_nr, ARRAY_SIZE(de_nr))) {
+            pr_err("de: de_abi is six ioctl numbers\n");
+            return -EINVAL;
+        }
+        for (unsigned int i = 0; i < ARRAY_SIZE(de_nr); i++)
+            if (de_nr[i] > _IOC_NRMASK) {
+                pr_err("de: de_abi: %u is no ioctl number\n", de_nr[i]);
+                return -EINVAL;
+            }
+        de_abi_given = true;
+    }
     de_base = mem[0];
     de_size = mem[1];
     /* a frame at the VT's largest size, luma and 4:2:0 chroma, rounded to whole pages */

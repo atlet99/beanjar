@@ -135,6 +135,49 @@ static void gfx_open(void)
         hal_log("physical memory: %s: %s", WEBOS_GFX_PATH, strerror(errno));
 }
 
+/* Whether fd is the physical memory */
+static int is_physmem(int fd)
+{
+    struct stat64 a, b;
+    return phys_fd >= 0 && fstat64(fd, &a) == 0 && fstat64(phys_fd, &b) == 0 &&
+           a.st_dev == b.st_dev && a.st_ino == b.st_ino;
+}
+
+/* ---- the display engine's VTM page ----
+ *
+ * M14's KADP (KADP_DE_SetVTM) maps the page whose address DE_IOW_SET_VTM returns through
+ * /dev/mem, the DE firmware's shared memory on the TV; lg115x.ko's de0 is what backs it here (its
+ * mmap of that page; M16P's KADP maps it through de0 itself). */
+static int de_fd = -1;
+static unsigned long long de_page = ~0ULL;
+static pthread_once_t de_once = PTHREAD_ONCE_INIT;
+
+static void de_open(void)
+{
+    unsigned long long base = 0, size = 0;
+    FILE *f = fopen("/sys/module/lg115x/parameters/de_mem", "re");
+    if (!f)
+        return;
+    if (fscanf(f, "%llx:%llx", &base, &size) == 2 && size) {
+        de_fd = __open64("/dev/lg/de0", O_RDWR | O_CLOEXEC);
+        if (de_fd < 0)
+            hal_log("physical memory: /dev/lg/de0: %s", strerror(errno));
+        else
+            de_page = base;
+    }
+    fclose(f);
+}
+
+int physmem_de_fd(int fd, unsigned long long offset, size_t length)
+{
+    if (!is_physmem(fd))
+        return -1;
+    pthread_once(&de_once, de_open);
+    if (de_fd < 0 || offset != de_page || length > 4096)
+        return -1;
+    return de_fd;
+}
+
 int physmem_gfx_fd(int fd, unsigned long long offset, size_t length)
 {
     struct stat64 a, b;
