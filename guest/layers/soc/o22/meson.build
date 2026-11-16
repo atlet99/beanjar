@@ -18,6 +18,17 @@ hal_stock = {
   'libaibsp': ['libaibsp.so.1', 'libaibsp.so.1.0.0', []],
   'libaibspLib': ['libaibspLib.so.1', 'libaibspLib.so.1.0.0', []],
 }
+# libhalgal: captureservice's GRAPHIC capture (and queue's NYX GAL, through the unversioned name)
+# calls HAL_GAL_* in bsppart's libhalgal.so.2, whose allocation fails on the emulator, so
+# executeOneShot answered ERROR_INTERNAL. W22O's .2.0.1 of number1, ponytail and queue and W24G
+# ombre's export the same 44 HAL_GAL_* (mullet's lacks CaptureFrameBufferToFile); the callers use
+# u16 dimensions and the 1056-byte surface, which the software engine serves (libdile_gal's shim's
+# engine; a firmware without a legacy DILE_GAL library, spacebuns, gets neither:
+# guest/layers/soc/meson.build). The stock file stays the dependency for the other exports.
+hal_stock += {
+  'libhalgal': ['libhalgal.so.2', 'libhalgal.so.2.0.1',
+               ['libhalgal.so', 'libhalgal.so.0'], 'bsppart'],
+}
 # The media elements under the stock modern LX names: the stock ones need /dev/vo and an AIMC
 # audio device, so the sink failed to start and the AAC decoder crashed on a NULL AIMC handle.
 gst_plugin_dir = 'usr/lib/gstreamer-1.0'
