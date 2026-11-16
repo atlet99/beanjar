@@ -53,7 +53,7 @@ struct decoder *decoder_create(unsigned ports, const char *hwdec)
     snprintf(m->hwdec, sizeof m->hwdec, "%s", hwdec ? hwdec : "auto");
     if (strcmp(m->hwdec, "auto") && strcmp(m->hwdec, "none") &&
         av_hwdevice_find_type_by_name(m->hwdec) == AV_HWDEVICE_TYPE_NONE) {
-        fprintf(stderr, "decode: invalid hwdec %s\n", m->hwdec);
+        elog(-1, "decode: invalid hwdec %s", m->hwdec);
         free(m);
         return NULL;
     }
@@ -118,7 +118,7 @@ void decoder_doorbell(struct decoder *m)
         if (s->shared) {
             /* the claiming file closed (the decoder's process gone): its pool goes back */
             if (pool_claim(m->pool, (unsigned)s->index) != s->claim) {
-                fprintf(stderr, "media %d: the guest's claim ended: pool session over\n", s->index);
+                elog(s->index, "media %d: the guest's claim ended: pool session over", s->index);
                 end_pool_session(s);
             } else
                 take_releases(s);
@@ -162,10 +162,10 @@ void decoder_detach(struct decoder *m, unsigned port)
         memset(&s->leases[i], 0, sizeof s->leases[i]);
     }
     if (s->force_download)
-        fprintf(stderr,
-                "decode %d: %u crash leases quarantined until helper exit; immutable software "
-                "export thereafter\n",
-                s->index, s->norphans);
+        elog(s->index,
+             "decode %d: %u crash leases quarantined until helper exit; immutable software "
+             "export thereafter",
+             s->index, s->norphans);
     pthread_mutex_unlock(&s->lock);
 }
 int decoder_tick(struct decoder *m, unsigned port)
@@ -220,9 +220,9 @@ int decoder_tick(struct decoder *m, unsigned port)
                             s->hw_import_failed = 1;
                             s->current_epoch = 0;
                             memset(s->sent_epoch, 0, sizeof s->sent_epoch);
-                            fprintf(stderr,
-                                    "decode %d: viewer import failed; downloading future frames\n",
-                                    s->index);
+                            elog(s->index,
+                                 "decode %d: viewer import failed; downloading future frames",
+                                 s->index);
                         }
                         av_frame_free(&s->leases[i].frame);
                         memset(&s->leases[i], 0, sizeof s->leases[i]);

@@ -276,10 +276,10 @@ static int take_slot(struct stream *s, size_t bytes, uint32_t input, unsigned ge
             }
             if (e < 0) { /* also a picture bigger than a session may have */
                 s->inline_only = 1;
-                fprintf(stderr,
-                        "media %d: pool full (%u-byte pictures): the session's pictures "
-                        "inline from now on\n",
-                        s->index, need);
+                elog(s->index,
+                     "media %d: pool full (%u-byte pictures): the session's pictures "
+                     "inline from now on",
+                     s->index, need);
                 r = -2;
                 break;
             }
@@ -353,8 +353,8 @@ void return_picture(struct stream *s, AVFrame *f, uint32_t input, int last)
     if (f && !layout(f, (uint32_t)s->dec_ret, &p, &bytes)) {
         static int warned;
         if (!warned++)
-            fprintf(stderr, "media %d: pixel format %s not returned\n", s->index,
-                    av_get_pix_fmt_name(f->format));
+            elog(s->index, "media %d: pixel format %s not returned", s->index,
+                 av_get_pix_fmt_name(f->format));
         s->return_errors++;
         f = NULL;
     }
@@ -484,8 +484,8 @@ static void push_frame(struct stream *s, AVFrame *f, unsigned gen)
     if (out->format != AV_PIX_FMT_DRM_PRIME && !supported_sw(out->format)) {
         static int warned;
         if (!warned++)
-            fprintf(stderr, "media %d: pixel format %s not shown\n", s->index,
-                    av_get_pix_fmt_name(out->format));
+            elog(s->index, "media %d: pixel format %s not shown", s->index,
+                 av_get_pix_fmt_name(out->format));
         av_frame_free(&out);
         return;
     }
@@ -743,8 +743,8 @@ void *decoder_thread(void *arg)
             /* hardware that cannot take this stream: software from here on */
             if (s->hw_format != AV_PIX_FMT_NONE && s->caps &&
                 (s->hw_fallback || (s->hw_errors >= 3 && s->decoded == 0))) {
-                fprintf(stderr, "media %d: hardware decoding %s, software instead\n", s->index,
-                        s->hw_fallback ? "not available for this stream" : "fails");
+                elog(s->index, "media %d: hardware decoding %s, software instead", s->index,
+                     s->hw_fallback ? "not available for this stream" : "fails");
                 s->hw_banned = 1;
                 open_codec(s, s->caps, 0);
             }
@@ -760,7 +760,7 @@ void *decoder_thread(void *arg)
                 s->dirty = 1;
             }
             pthread_mutex_unlock(&s->lock);
-            fprintf(stderr, "media %d: end of stream (%s)\n", s->index, kind_name(s));
+            elog(s->index, "media %d: end of stream (%s)", s->index, kind_name(s));
         }
         /* every input of a DECODE session is answered, with or without a picture */
         if (it->ret && (it->type == WEBOS_MEDIA_BUFFER || it->type == WEBOS_MEDIA_EOS)) {

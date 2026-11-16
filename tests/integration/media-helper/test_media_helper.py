@@ -328,6 +328,10 @@ class HubBase(unittest.TestCase):
     __test__ = False
     POOL = POOL_SIZE
 
+    def log_args(self, d):
+        """The helper's own logs (--log, --decode-log): none, its lines on stderr (helper.log)."""
+        return []
+
     def setUp(self):
         if not os.access(HUB, os.X_OK):
             self.skipTest(f"no {HUB}")
@@ -368,6 +372,7 @@ class HubBase(unittest.TestCase):
                 str(listener.fileno()),
                 "--pool-size",
                 str(self.POOL),
+                *self.log_args(d),
             ],
             stdout=self.logfile,
             stderr=self.logfile,
@@ -1165,10 +1170,73 @@ class TinyPoolTest(HubBase):
         self.assertEqual(self.log().count("pool full"), 1)
 
 
-# TinyPoolTest runs only its own test: not the ones it inherits from HubBase
-for _name in [n for n in vars(HubBase) if n.startswith("test_")]:
-    setattr(TinyPoolTest, _name, None)
-TinyPoolTest.__test__ = True
+class GuestLogTest(HubBase):
+    """What a guest can make the helper log: whole lines, printable, bounded."""
+
+    def test_caps_not_a_string(self):
+        """CAPS without its NUL, the next message right behind it: the log says so and reads
+        nothing past the payload (the next header's magic, WSM2)."""
+        self.send(0, OPEN, struct.pack("<IiiI28sI", 1, 42, 1, 0, b"test-out", 0))
+        self.guest["qemu-media-0.sock"].sendall(message(CAPS, b"video/x-h264") + message(FLUSH))
+        self.assertTrue(self.wait_log("media 0: caps of 12 bytes, not a string"), self.log())
+        self.assertNotIn("WSM2", self.log())
+
+    def test_guest_strings_printable(self):
+        """An element name and caps with a newline and a terminal escape: one line each, the
+        bytes as \\xNN."""
+        self.send(0, OPEN, struct.pack("<IiiI28sI", 1, 42, 1, 0, b"evil\nforged\x1b[2J", 0))
+        self.send(0, CAPS, b"video/x-h264\nforged caps\x07\0")
+        self.assertTrue(self.wait_log("caps (video) video/x-h264\\x0aforged caps\\x07"), self.log())
+        log = self.log()
+        self.assertIn("media 0: open video evil\\x0aforged\\x1b[2J", log)
+        self.assertNotIn("\x1b", log)
+        self.assertNotIn("\x07", log)
+        self.assertFalse([l for l in log.splitlines() if l.startswith("forged")], log)
+
+    def test_flush_flood_limited(self):
+        """A guest looping FLUSH: a burst of lines per site, then one line counting the rest."""
+        self.start_stream(0, 1, "video/x-h264, stream-format=(string)byte-stream", 0)
+        self.guest["qemu-media-0.sock"].sendall(b"".join(message(FLUSH) for _ in range(2000)))
+        self.assertTrue(self.wait_log("lines of port 0 suppressed: media %d: flush"), self.log())
+        log = self.log()
+        self.assertLess(log.count("media 0: flush"), 400, log[-2000:])
+        self.assertEqual(self.hub.poll(), None)
+
+
+class LogFileTest(HubBase):
+    """The launcher's way: --log (the sessions, stamped) and --decode-log (the engine's) are files
+    the helper owns; stderr keeps neither."""
+
+    def log_args(self, d):
+        self.sessions = os.path.join(d, "media-sessions.log")
+        self.decode = os.path.join(d, "media-helper.log")
+        return ["--log", self.sessions, "--decode-log", self.decode]
+
+    def test_owned_logs(self):
+        self.start_stream(
+            0, 1, "video/x-h264, stream-format=(string)byte-stream", time.monotonic_ns()
+        )
+        self.send(0, CLOSE)
+        end = time.monotonic() + 5
+        while time.monotonic() < end:
+            with open(self.decode, errors="replace") as f:
+                decode = f.read()
+            if "media 0: close video" in decode:
+                break
+            time.sleep(0.05)
+        self.assertIn("media 0: open video test-out (pid 42", decode)
+        self.assertIn("decode 0 video session=1 (closed)", decode)
+        with open(self.sessions, errors="replace") as f:
+            sessions = f.read()
+        self.assertRegex(sessions, r"(?m)^\d{4}-\d\d-\d\dT[\d:.]+Z media 0: open video test-out")
+        self.assertNotIn("media 0:", self.log())
+
+
+# TinyPoolTest and the log tests run only their own tests: not the ones they inherit from HubBase
+for _cls in (TinyPoolTest, GuestLogTest, LogFileTest):
+    for _name in [n for n in vars(HubBase) if n.startswith("test_")]:
+        setattr(_cls, _name, None)
+    _cls.__test__ = True
 
 
 if __name__ == "__main__":

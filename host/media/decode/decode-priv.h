@@ -9,6 +9,7 @@
 #include "../decode.h"
 
 #include "../clock.h"
+#include "../log.h"
 #include "../pool.h"
 
 #include <libavcodec/avcodec.h>
@@ -17,7 +18,9 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define NONE               WEBOS_MEDIA_NONE
+#define NONE WEBOS_MEDIA_NONE
+/* a line of the engine's log (log.h: printable, rate-limited per site and port) */
+#define elog(port, ...)    hm_logf(&hm_engine_log, (port), __VA_ARGS__)
 #define OUT_RATE           48000
 #define FRAME_QUEUE        24           /* decoded pictures waiting for their time */
 #define PACKET_BYTES_MAX   (64u << 20)  /* compressed data queued before the reader waits */

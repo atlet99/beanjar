@@ -38,21 +38,25 @@ const char *kind_name(const struct stream *s)
 void report(struct stream *s, const char *why)
 {
     /* session: the OPEN these counters belong to, as the viewer's present lines name it */
-    fprintf(stderr,
-            "decode %d %s session=%u%s: %s %s packets=%llu decoded=%llu dropped=%llu errors=%llu "
-            "decode=%.2f ms/packet",
-            s->index, kind_name(s), s->report_session, why, s->codec_name,
-            s->hw_active ? "hw" : "sw", s->packets, s->decoded, s->late_drops, s->errors,
-            s->packets ? s->decode_ns / 1e6 / s->packets : 0);
+    char more[160];
+    int n = 0;
+    more[0] = 0;
     if (s->returned || s->return_errors)
-        fprintf(stderr, " returned=%llu return-errors=%llu return=%.2f ms/picture%s", s->returned,
-                s->return_errors, s->returned ? s->return_ns / 1e6 / s->returned : 0,
-                s->shared ? " shared" : "");
-    if (s->shared && s->returned)
-        fprintf(stderr, " slot-wait=%.2f ms/picture", s->slot_wait_ns / 1e6 / s->returned);
-    if (s->slot_drops)
-        fprintf(stderr, " slot-drops=%llu", s->slot_drops);
-    fputc('\n', stderr);
+        n += snprintf(more + n, sizeof more - (size_t)n,
+                      " returned=%llu return-errors=%llu return=%.2f ms/picture%s", s->returned,
+                      s->return_errors, s->returned ? s->return_ns / 1e6 / s->returned : 0,
+                      s->shared ? " shared" : "");
+    if (s->shared && s->returned && n < (int)sizeof more)
+        n += snprintf(more + n, sizeof more - (size_t)n, " slot-wait=%.2f ms/picture",
+                      s->slot_wait_ns / 1e6 / s->returned);
+    if (s->slot_drops && n < (int)sizeof more)
+        snprintf(more + n, sizeof more - (size_t)n, " slot-drops=%llu", s->slot_drops);
+    elog(s->index,
+         "decode %d %s session=%u%s: %s %s packets=%llu decoded=%llu dropped=%llu errors=%llu "
+         "decode=%.2f ms/packet%s",
+         s->index, kind_name(s), s->report_session, why, s->codec_name, s->hw_active ? "hw" : "sw",
+         s->packets, s->decoded, s->late_drops, s->errors,
+         s->packets ? s->decode_ns / 1e6 / s->packets : 0, more);
 }
 
 /* A pool session's releases off its ring (with s->lock): each frees the slot it names if that is a
@@ -78,10 +82,10 @@ void take_releases(struct stream *s)
             old = e != s->pic_e && e != s->ctrl_e &&
                   pool_in_extent(s->m->pool, (unsigned)s->index, e, r.slot, 1);
         if (!old && !s->bad_releases++)
-            fprintf(stderr,
-                    "media %d: a release of %#x (input %u) names no slot of the session: "
-                    "dropped\n",
-                    s->index, r.slot, r.input);
+            elog(s->index,
+                 "media %d: a release of %#x (input %u) names no slot of the session: "
+                 "dropped",
+                 s->index, r.slot, r.input);
     }
 }
 
@@ -112,14 +116,13 @@ static void begin_pool_session(struct stream *s)
     if (!pool)
         ;
     else if (!(claim & 1))
-        fprintf(stderr, "media %d: the guest has not claimed the port: pictures inline\n",
-                s->index);
+        elog(s->index, "media %d: the guest has not claimed the port: pictures inline", s->index);
     else {
         uint32_t off, size;
         int e =
             pool_alloc(pool, (unsigned)s->index, sizeof(struct webos_media_control), &off, &size);
         if (e < 0)
-            fprintf(stderr, "media %d: pool full: pictures inline\n", s->index);
+            elog(s->index, "media %d: pool full: pictures inline", s->index);
         else {
             s->ctrl_e = e;
             s->claim = claim;
@@ -224,9 +227,9 @@ int handle(struct stream *s, const struct webos_media_header *h, const uint8_t *
         s->return_ns = 0;
         s->pts_first = s->pts_last = NONE;
         s->last_report = now;
-        fprintf(stderr, "media %d: open %s %s (pid %d, channel %d, pad %u%s)\n", s->index,
-                kind_name(s), s->info.element, s->info.pid, s->info.channel, s->info.pad,
-                s->info.output == WEBOS_MEDIA_OUTPUT(2, 0) ? ", to HDMI 0" : "");
+        elog(s->index, "media %d: open %s %s (pid %d, channel %d, pad %u%s)", s->index,
+             kind_name(s), s->info.element, s->info.pid, s->info.channel, s->info.pad,
+             s->info.output == WEBOS_MEDIA_OUTPUT(2, 0) ? ", to HDMI 0" : "");
         break;
     case WEBOS_MEDIA_CAPS:
     case WEBOS_MEDIA_BUFFER:
@@ -243,9 +246,9 @@ int handle(struct stream *s, const struct webos_media_header *h, const uint8_t *
                                     !strncmp((const char *)payload, "image/", 6)
                                 ? WEBOS_MEDIA_VIDEO
                                 : s->info.kind;
-            fprintf(stderr, "media %d: caps (%s) %.*s\n", s->index,
-                    kind == WEBOS_MEDIA_AUDIO ? "audio" : "video",
-                    (int)(h->size > 300 ? 300 : h->size), payload);
+            elog(s->index, "media %d: caps (%s) %.*s", s->index,
+                 kind == WEBOS_MEDIA_AUDIO ? "audio" : "video",
+                 (int)(h->size > 300 ? 300 : h->size), payload);
             if (kind != s->info.kind) {
                 s->info.kind = kind;
                 s->reset_current = 1;
@@ -261,9 +264,9 @@ int handle(struct stream *s, const struct webos_media_header *h, const uint8_t *
             break;
         memcpy(&s->state, payload, sizeof s->state);
         s->have_state = 1;
-        fprintf(stderr, "media %d: %s %s base_time=%.3f s pause_rt=%.3f s rate=%.2f\n", s->index,
-                kind_name(s), s->state.playing ? "playing" : "paused", s->state.base_time / 1e9,
-                s->state.pause_rt == NONE ? -1.0 : s->state.pause_rt / 1e9, s->state.rate);
+        elog(s->index, "media %d: %s %s base_time=%.3f s pause_rt=%.3f s rate=%.2f", s->index,
+             kind_name(s), s->state.playing ? "playing" : "paused", s->state.base_time / 1e9,
+             s->state.pause_rt == NONE ? -1.0 : s->state.pause_rt / 1e9, s->state.rate);
         break;
     case WEBOS_MEDIA_FLUSH:
         if (!s->open)
@@ -279,7 +282,7 @@ int handle(struct stream *s, const struct webos_media_header *h, const uint8_t *
          * plays it again with a new base time, which comes as STATE. Until then nothing is due. */
         s->state.playing = 0;
         s->state.pause_rt = NONE;
-        fprintf(stderr, "media %d: flush %s\n", s->index, kind_name(s));
+        elog(s->index, "media %d: flush %s", s->index, kind_name(s));
         break;
     case WEBOS_MEDIA_DECODE: {
         struct webos_media_decode d;
@@ -287,16 +290,16 @@ int handle(struct stream *s, const struct webos_media_header *h, const uint8_t *
             break;
         memcpy(&d, payload, sizeof d);
         if (d.format != WEBOS_MEDIA_NV12 && d.format != WEBOS_MEDIA_YUY2) {
-            fprintf(stderr, "media %d: decode to format %#x refused (NV12, YUY2)\n", s->index,
-                    d.format);
+            elog(s->index, "media %d: decode to format %#x refused (NV12, YUY2)", s->index,
+                 d.format);
             break;
         }
         s->ret = (int)d.format;
         end_pool_session(s);
         if (d.flags & WEBOS_MEDIA_DECODE_SHARED)
             begin_pool_session(s);
-        fprintf(stderr, "media %d: %s's pictures go back to the guest (%.4s, %s)\n", s->index,
-                s->info.element, (const char *)&d.format, s->shared ? "shared" : "inline");
+        elog(s->index, "media %d: %s's pictures go back to the guest (%.4s, %s)", s->index,
+             s->info.element, (const char *)&d.format, s->shared ? "shared" : "inline");
         break;
     }
     case WEBOS_MEDIA_CLOSE:
@@ -311,7 +314,7 @@ int handle(struct stream *s, const struct webos_media_header *h, const uint8_t *
         s->generation++;
         s->open = 0;
         s->reset_current = 1;
-        fprintf(stderr, "media %d: close %s\n", s->index, kind_name(s));
+        elog(s->index, "media %d: close %s", s->index, kind_name(s));
         break;
     }
     /* offsets after OPEN has reset them */

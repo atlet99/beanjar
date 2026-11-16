@@ -36,8 +36,8 @@ static AVBufferRef *hw_device(struct decoder *m, enum AVHWDeviceType type)
     if (!m->hw_tried[type]) {
         m->hw_tried[type] = 1;
         int r = av_hwdevice_ctx_create(&m->hw_device[type], type, NULL, NULL, 0);
-        fprintf(stderr, "media: hw device %s: %s\n", av_hwdevice_get_type_name(type),
-                r < 0 ? av_err2str(r) : "opened");
+        elog(-1, "media: hw device %s: %s", av_hwdevice_get_type_name(type),
+             r < 0 ? av_err2str(r) : "opened");
     }
     AVBufferRef *ref = m->hw_device[type] ? av_buffer_ref(m->hw_device[type]) : NULL;
     pthread_mutex_unlock(&m->hw_lock);
@@ -63,7 +63,7 @@ void open_codec(struct stream *s, const char *caps, int allow_hw)
     caps_codec(caps, &p);
     const AVCodec *codec = p.id != AV_CODEC_ID_NONE ? avcodec_find_decoder(p.id) : NULL;
     if (!codec) {
-        fprintf(stderr, "media %d: no decoder for %.120s\n", s->index, caps);
+        elog(s->index, "media %d: no decoder for %.120s", s->index, caps);
         av_free(p.extradata);
         pthread_mutex_lock(&s->lock);
         snprintf(s->codec_name, sizeof s->codec_name, "none");
@@ -115,8 +115,8 @@ void open_codec(struct stream *s, const char *caps, int allow_hw)
             ctx->get_format = get_format;
             ctx->extra_hw_frames = HW_QUEUE + HOST_MEDIA_LEASES + 4;
             hw = 1;
-            fprintf(stderr, "media %d: %s through %s (%s)\n", s->index, codec->name,
-                    av_hwdevice_get_type_name(cfg->device_type), av_get_pix_fmt_name(cfg->pix_fmt));
+            elog(s->index, "media %d: %s through %s (%s)", s->index, codec->name,
+                 av_hwdevice_get_type_name(cfg->device_type), av_get_pix_fmt_name(cfg->pix_fmt));
             break;
         }
     }
@@ -129,7 +129,7 @@ void open_codec(struct stream *s, const char *caps, int allow_hw)
     }
     int r = avcodec_open2(ctx, codec, NULL);
     if (r < 0) {
-        fprintf(stderr, "media %d: cannot open %s: %s\n", s->index, codec->name, av_err2str(r));
+        elog(s->index, "media %d: cannot open %s: %s", s->index, codec->name, av_err2str(r));
         avcodec_free_context(&ctx);
         if (hw) {
             open_codec(s, caps, 0);
@@ -139,7 +139,7 @@ void open_codec(struct stream *s, const char *caps, int allow_hw)
     }
     s->ctx = ctx;
     if (p.split && (s->parser = av_parser_init(codec->id)))
-        fprintf(stderr, "media %d: buffers are not whole frames: parsed into frames\n", s->index);
+        elog(s->index, "media %d: buffers are not whole frames: parsed into frames", s->index);
     s->hw_errors = 0;
     s->hw_fallback = 0;
     s->queue_max = hw ? HW_QUEUE : FRAME_QUEUE;
@@ -147,6 +147,6 @@ void open_codec(struct stream *s, const char *caps, int allow_hw)
     snprintf(s->codec_name, sizeof s->codec_name, "%s", codec->name);
     s->hw_active = hw;
     pthread_mutex_unlock(&s->lock);
-    fprintf(stderr, "media %d: decoder %s (%s)%s\n", s->index, codec->name,
-            hw ? "hardware" : "software", p.extradata_size ? ", with codec data" : "");
+    elog(s->index, "media %d: decoder %s (%s)%s", s->index, codec->name,
+         hw ? "hardware" : "software", p.extradata_size ? ", with codec data" : "");
 }

@@ -30,8 +30,11 @@
 #include "../../../include/webos-media.h"
 #include "../../media/decode.h"
 #include "../../media/ivserver.h"
+#include "../../media/log.h"
 #include "../../media/pool.h"
 #include "../../../include/webos-video.h"
+
+#include <libavutil/log.h>
 
 #define QUEUE_MAX   (8u << 20)  /* bytes queued for a viewer before messages are dropped */
 #define GUEST_MAX   (64u << 20) /* PICTURE answers queued for the guest before they are dropped */
@@ -172,23 +175,39 @@ static void guest_write(struct chan *c)
     }
 }
 
-static FILE *logf;
+/* The sessions log (--log; log.h: printable lines, rotated at its cap, rate-limited per site and
+ * port), stamped with the time; the decode engine's is hm_engine_log (--decode-log). */
+static struct hm_log sessions = HM_LOG_INIT(1);
 static struct decoder *decode;
-static void say(const char *fmt, ...)
+__attribute__((format(printf, 2, 3))) static void say(int port, const char *fmt, ...)
 {
-    struct timespec ts;
-    struct tm tm;
-    char t[32];
-    clock_gettime(CLOCK_REALTIME, &ts);
-    gmtime_r(&ts.tv_sec, &tm);
-    strftime(t, sizeof t, "%Y-%m-%dT%H:%M:%S", &tm);
     va_list ap;
     va_start(ap, fmt);
-    fprintf(logf, "%s.%03ldZ ", t, ts.tv_nsec / 1000000);
-    vfprintf(logf, fmt, ap);
-    fputc('\n', logf);
-    fflush(logf);
+    hm_logv(&sessions, port, fmt, ap);
     va_end(ap);
+}
+
+/* FFmpeg's own messages (a corrupt stream can make one per packet): the engine's log, limited per
+ * FFmpeg format string like the engine's lines, instead of the helper's stderr */
+static void ffmpeg_line(const char *key, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    hm_logkv(&hm_engine_log, -1, key, fmt, ap);
+    va_end(ap);
+}
+
+static void ffmpeg_log(void *avcl, int level, const char *fmt, va_list ap)
+{
+    static _Thread_local int prefix = 1;
+    if (level > av_log_get_level())
+        return;
+    char line[HM_LOG_LINE];
+    va_list aq;
+    va_copy(aq, ap);
+    av_log_format_line2(avcl, level, fmt, aq, line, sizeof line, &prefix);
+    va_end(aq);
+    ffmpeg_line(fmt, "%s", line);
 }
 
 static int unix_connect(const char *path)
@@ -277,7 +296,7 @@ static void viewer_close(struct chan *c, const char *why)
     close(c->vfd);
     c->vfd = -1;
     drop_queue(c);
-    say("%s %d: viewer %s", c->media ? "media" : "video", c->index, why);
+    say(c->media ? c->index : -1, "%s %d: viewer %s", c->media ? "media" : "video", c->index, why);
 }
 
 /* one complete WSM2 message from the guest: the session it changes, then to the viewer */
@@ -299,7 +318,7 @@ static int media_message(struct chan *c, const unsigned char *data, size_t len)
         keep(&c->state, &c->state_len, NULL, 0);
         c->eos = 0;
         c->buffers = c->dropped = c->flushes = 0;
-        say("media %d: open %s %s pid %d channel %d pad %u output %#x", c->index,
+        say(c->index, "media %d: open %s %s pid %d channel %d pad %u output %#x", c->index,
             o.kind == WEBOS_MEDIA_VIDEO ? "video" : "audio", o.element, o.pid, o.channel, o.pad,
             o.output);
         break;
@@ -308,16 +327,16 @@ static int media_message(struct chan *c, const unsigned char *data, size_t len)
         /* a string ending in the payload's last byte, or decoder_submit refuses it: never read
          * past the payload (into the next message's bytes) for the log */
         if (!h.size || pl[h.size - 1])
-            say("media %d: caps of %u bytes, not a string", c->index, h.size);
+            say(c->index, "media %d: caps of %u bytes, not a string", c->index, h.size);
         else if (!c->caps || c->caps_len != len || memcmp(c->caps + sizeof h, pl, h.size))
-            say("media %d: caps %.200s", c->index, (const char *)pl);
+            say(c->index, "media %d: caps %.200s", c->index, (const char *)pl);
         keep(&c->caps, &c->caps_len, data, len);
         break;
     case WEBOS_MEDIA_STATE: {
         struct webos_media_state s = {0};
         memcpy(&s, pl, h.size < sizeof s ? h.size : sizeof s);
         keep(&c->state, &c->state_len, data, len);
-        say("media %d: %s base_time=%.3f s pause_rt=%.3f s rate=%.2f", c->index,
+        say(c->index, "media %d: %s base_time=%.3f s pause_rt=%.3f s rate=%.2f", c->index,
             s.playing ? "playing" : "paused", s.base_time / 1e9,
             s.pause_rt == WEBOS_MEDIA_NONE ? -1.0 : s.pause_rt / 1e9, s.rate);
         break;
@@ -328,20 +347,20 @@ static int media_message(struct chan *c, const unsigned char *data, size_t len)
     case WEBOS_MEDIA_FLUSH:
         c->flushes++;
         c->eos = 0;
-        say("media %d: flush", c->index);
+        say(c->index, "media %d: flush", c->index);
         break;
     case WEBOS_MEDIA_EOS:
         c->eos = 1;
-        say("media %d: end of stream", c->index);
+        say(c->index, "media %d: end of stream", c->index);
         break;
     case WEBOS_MEDIA_DECODE:
-        say("media %d: decode for the guest", c->index);
+        say(c->index, "media %d: decode for the guest", c->index);
         break;
     case WEBOS_MEDIA_CLOSE:
-        say("media %d: close buffers=%llu flushes=%llu dropped-for-viewer=%llu", c->index,
+        say(c->index, "media %d: close buffers=%llu flushes=%llu dropped-for-viewer=%llu", c->index,
             c->buffers, c->flushes, c->dropped);
         if (c->gsent || c->gdropped)
-            say("media %d: to the guest: %llu messages, %llu dropped", c->index, c->gsent,
+            say(c->index, "media %d: to the guest: %llu messages, %llu dropped", c->index, c->gsent,
                 c->gdropped);
         c->gsent = c->gdropped = 0;
         drop_guest_queue(c, 1);
@@ -383,7 +402,8 @@ static void parse(struct chan *c)
         if (pos + len > c->inlen)
             break;
         if (media_message(c, c->in + pos, len) < 0) {
-            say("media %d: ingress overload/invalid message; reconnecting for a new keyframe "
+            say(c->index,
+                "media %d: ingress overload/invalid message; reconnecting for a new keyframe "
                 "session",
                 c->index);
             decoder_disconnect(decode, c->index);
@@ -421,7 +441,8 @@ static void guest_read(struct chan *c)
         }
         if (r < 0 && (errno == EAGAIN || errno == EINTR))
             break;
-        say("%s %d: QEMU's socket closed", c->media ? "media" : "video", c->index);
+        say(c->media ? c->index : -1, "%s %d: QEMU's socket closed", c->media ? "media" : "video",
+            c->index);
         if (c->media)
             decoder_disconnect(decode, c->index);
         close(c->gfd);
@@ -439,17 +460,18 @@ static void viewer_accept(struct chan *c)
     if (fd < 0)
         return;
     if (c->vfd >= 0) {
-        say("%s %d: a second viewer refused (one at a time)", c->media ? "media" : "video",
-            c->index);
+        say(c->media ? c->index : -1, "%s %d: a second viewer refused (one at a time)",
+            c->media ? "media" : "video", c->index);
         close(fd);
         return;
     }
     c->vfd = fd;
     if (c->media) {
-        say("media %d: viewer connected%s", c->index, c->open ? ", session replayed" : "");
+        say(c->index, "media %d: viewer connected%s", c->index,
+            c->open ? ", session replayed" : "");
         decoder_attach(decode, c->index, fd);
     } else {
-        say("video %d: viewer connected", c->index);
+        say(-1, "video %d: viewer connected", c->index);
         if (c->table)
             queue(c, c->table, VIDEO_FRAME, 1);
     }
@@ -506,30 +528,30 @@ static int start_pool(const char *path, int listen_fd, uint32_t size)
     snprintf(dir, sizeof dir, "%s", path);
     struct statvfs vfs;
     if (!statvfs(dirname(dir), &vfs) && (unsigned long long)vfs.f_bavail * vfs.f_frsize < size)
-        say("pool: warning: %s has %llu MiB free, less than the pool's %u MiB", dir,
+        say(-1, "pool: warning: %s has %llu MiB free, less than the pool's %u MiB", dir,
             (unsigned long long)vfs.f_bavail * vfs.f_frsize >> 20, size >> 20);
     int fd = open(path, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
     if (fd < 0 || ftruncate(fd, size) < 0) {
         /* QEMU waits for a server whatever happens: a memfd rather than no VM */
-        say("pool: %s: %s: a memfd instead", path, strerror(errno));
+        say(-1, "pool: %s: %s: a memfd instead", path, strerror(errno));
         if (fd >= 0)
             close(fd);
         fd = memfd_create("media-pool", MFD_CLOEXEC);
         if (fd < 0 || ftruncate(fd, size) < 0) {
-            say("pool: memfd: %s: pictures inline", strerror(errno));
+            say(-1, "pool: memfd: %s: pictures inline", strerror(errno));
             if (fd >= 0)
                 close(fd);
             return -1;
         }
     }
     if (ivserver_init(&server, listen_fd, fd) < 0 || pool_init(&pool, fd, size, 0) < 0) {
-        say("pool: %s: %s: pictures inline", path, strerror(errno));
+        say(-1, "pool: %s: %s: pictures inline", path, strerror(errno));
         close(fd);
         return -1;
     }
     fcntl(listen_fd, F_SETFL, fcntl(listen_fd, F_GETFL) | O_NONBLOCK);
     have_pool = 1;
-    say("pool: %s, %u KiB, serving the doorbell", path, size >> 10);
+    say(-1, "pool: %s, %u KiB, serving the doorbell", path, size >> 10);
     return 0;
 }
 
@@ -538,7 +560,7 @@ int main(int argc, char **argv)
     pid_t pid = 0;
     int ports = WEBOS_MEDIA_PORTS;
     char vq[108] = "", vv[108] = "", mq[108] = "", mv[108] = "";
-    const char *logpath = NULL, *pool_path = NULL;
+    const char *logpath = NULL, *decode_log = NULL, *pool_path = NULL;
     int pool_listen = -1;
     uint32_t pool_size = WEBOS_MEDIA_POOL_SIZE;
     const char *hwdec = getenv("MEDIA_HWDEC");
@@ -547,6 +569,8 @@ int main(int argc, char **argv)
             pid = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--log"))
             logpath = argv[i + 1];
+        else if (!strcmp(argv[i], "--decode-log"))
+            decode_log = argv[i + 1];
         else if (!strcmp(argv[i], "--hwdec"))
             hwdec = argv[i + 1];
         else if (!strcmp(argv[i], "--ports"))
@@ -560,8 +584,9 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--video") && !split(argv[i + 1], vq, vv)) {
         } else if (!strcmp(argv[i], "--media") && !split(argv[i + 1], mq, mv)) {
         } else {
-            fprintf(stderr, "usage: media-helper --pid PID --log FILE --video Q:V --media "
-                            "QPREFIX:VPREFIX [--ports N] [--pool FILE --pool-fd FD]\n");
+            fprintf(stderr,
+                    "usage: media-helper --pid PID [--log FILE] [--decode-log FILE] --video "
+                    "Q:V --media QPREFIX:VPREFIX [--ports N] [--pool FILE --pool-fd FD]\n");
             return 2;
         }
     }
@@ -575,9 +600,13 @@ int main(int argc, char **argv)
      * frame.c's malloc_trim rather than staying spread over many arenas (two 1080p sessions at once
      * left 28 MB with the default, 13 MB with 2). */
     mallopt(M_ARENA_MAX, 2);
-    logf = logpath ? fopen(logpath, "a") : stderr;
-    if (!logf)
-        logf = stderr;
+    /* Without --log and --decode-log the lines go to stderr, as limited (the tests, ad-hoc runs);
+     * with them stderr keeps only what comes before and the helper's fatal errors. */
+    if (logpath && hm_log_open(&sessions, logpath) < 0)
+        fprintf(stderr, "media-helper: %s: %s\n", logpath, strerror(errno));
+    if (decode_log && hm_log_open(&hm_engine_log, decode_log) < 0)
+        fprintf(stderr, "media-helper: %s: %s\n", decode_log, strerror(errno));
+    av_log_set_callback(ffmpeg_log);
     signal(SIGPIPE, SIG_IGN);
     for (int i = 0; i < MAX_PORTS; i++)
         pthread_mutex_init(&replies[i].lock, NULL);
@@ -613,8 +642,8 @@ int main(int argc, char **argv)
         c->gfd = c->vfd = -1;
         c->lfd = unix_listen(c->viewer, c->media);
     }
-    say("hub: %d media ports, QEMU %s / %s-<n>.sock, viewers %s / %s-<n>.sock", ports, vq, mq, vv,
-        mv);
+    say(-1, "hub: %d media ports, QEMU %s / %s-<n>.sock, viewers %s / %s-<n>.sock", ports, vq, mq,
+        vv, mv);
     struct timespec last_try = {0};
     for (;;) {
         struct timespec now;
@@ -623,19 +652,21 @@ int main(int argc, char **argv)
             last_try = now;
             if (kill(pid, 0) < 0 && errno == ESRCH)
                 break;
+            hm_log_tick(&sessions);
+            hm_log_tick(&hm_engine_log);
             static uint64_t last_used = 0, last_file = 0;
             if (have_pool) {
                 uint64_t used = pool_used_bytes(&pool), file = pool_file_bytes(&pool);
                 if (used != last_used || file != last_file)
-                    say("pool: %llu KiB allocated, %llu KiB in the file",
+                    say(-1, "pool: %llu KiB allocated, %llu KiB in the file",
                         (unsigned long long)used >> 10, (unsigned long long)file >> 10);
                 last_used = used;
                 last_file = file;
             }
             for (int i = 0; i < n; i++)
                 if (ch[i].gfd < 0 && (ch[i].gfd = unix_connect(ch[i].qemu)) >= 0)
-                    say("%s %d: QEMU's socket connected", ch[i].media ? "media" : "video",
-                        ch[i].index);
+                    say(ch[i].media ? ch[i].index : -1, "%s %d: QEMU's socket connected",
+                        ch[i].media ? "media" : "video", ch[i].index);
         }
         struct pollfd pf[3 * (MAX_PORTS + 1) + 4];
         int map[3 * (MAX_PORTS + 1) + 4][2], k = 0;
@@ -680,9 +711,9 @@ int main(int argc, char **argv)
             if (map[j][1] == 4) {
                 int64_t id = ivserver_accept(&server);
                 if (id >= 0)
-                    say("pool: QEMU connected as peer %lld", (long long)id);
+                    say(-1, "pool: QEMU connected as peer %lld", (long long)id);
                 else
-                    say("pool: a connection refused (QEMU's is the only one)");
+                    say(-1, "pool: a connection refused (QEMU's is the only one)");
                 continue;
             }
             if (map[j][1] == 5) {
@@ -692,7 +723,7 @@ int main(int argc, char **argv)
             }
             if (map[j][1] == 6) {
                 if (ivserver_client_event(&server))
-                    say("pool: QEMU's connection closed");
+                    say(-1, "pool: QEMU's connection closed");
                 continue;
             }
             if (map[j][1] == 3) {
@@ -740,7 +771,7 @@ int main(int argc, char **argv)
             if (decoder_tick(decode, ch[i].index) < 0)
                 viewer_close(&ch[i], "left");
     }
-    say("hub: the VM ended");
+    say(-1, "hub: the VM ended");
     for (int i = 0; i < n; i++) {
         viewer_close(&ch[i], "VM ended");
         if (ch[i].gfd >= 0)
@@ -759,7 +790,9 @@ int main(int argc, char **argv)
         ivserver_fini(&server);
         pool_fini(&pool);
     }
-    if (logf != stderr)
-        fclose(logf);
+    hm_log_tick(&sessions);
+    hm_log_tick(&hm_engine_log);
+    hm_log_close(&sessions);
+    hm_log_close(&hm_engine_log);
     return 0;
 }

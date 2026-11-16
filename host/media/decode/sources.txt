@@ -1,1 +1,1 @@
-caps.c session.c codec.c frame.c export.c decoder.c ../pool.c
+caps.c session.c codec.c frame.c export.c decoder.c ../pool.c ../log.c
