@@ -350,7 +350,8 @@ viewer (the helper goes on decoding) and draws such windows as the diagnostic ch
 launch's `vm-info.toml`, which the viewer core reads beside the D-Bus socket and takes as
 `--no-media`; there is no second decoder in the viewer.
 
-Decoder diagnostics and counters are in the VM's `media-helper.out` (`decode` reports).
+Decoder diagnostics and counters are in the VM's `media-helper.log` (`decode` reports; rotated
+to `media-helper.log.1` at 4 MiB).
 Presentation counts, shown PTS span, audio timing and viewer CPU belong to `viewer.log`
 (`present` reports). Tests retain both sources. VIDEO/BLENDED capture still reads the active
 viewer's composed surfaces and fails when no viewer is available.

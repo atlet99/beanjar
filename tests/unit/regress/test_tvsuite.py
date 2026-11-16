@@ -1695,6 +1695,19 @@ class DecodeTest(unittest.TestCase):
             self.assertEqual((data[:4], data[44:]), (b"RIFF", b"B" * 80))  # whole 8-byte frames
             tvsuite.slice_file(os.path.join(d, "missing.log"), 0, os.path.join(d, "x.log"))
             self.assertEqual(os.path.getsize(os.path.join(d, "x.log")), 0)
+            # the helper's log, rotated since the mark: the rest of .1, then the new file
+            log = os.path.join(d, "media-helper.log")
+            with open(log, "w") as f:
+                f.write("before\nmarked\n")
+            tvsuite.slice_file(log, 7, os.path.join(d, "same.log"))
+            with open(os.path.join(d, "same.log")) as f:
+                self.assertEqual(f.read(), "marked\n")
+            os.rename(log, log + ".1")
+            with open(log, "w") as f:
+                f.write("after\n")
+            tvsuite.slice_file(log, 7, os.path.join(d, "rotated.log"))
+            with open(os.path.join(d, "rotated.log")) as f:
+                self.assertEqual(f.read(), "marked\nafter\n")
             case = os.path.join(d, "h13-afro", "decode", "file.h264")
             decode_dir(case if os.makedirs(case) is None else case)
             tvsuite.prune_captures(case, at_ms=2000)

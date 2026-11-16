@@ -34,12 +34,22 @@ the separate stream socket.
 One viewer can own each helper socket; a second connection is refused. Viewer backpressure
 uses a bounded lease budget and discards complete decoded outputs. A genuine compressed-ingress
 overload explicitly resets/reconnects the guest port for session replay and a new keyframe.
-`media-sessions.log` records guest lifecycle, `media-helper.out` records decoder work, and the
-viewer records presentation. `MEDIAHUB=0` omits the helper: decoding is off, and the launch's
-`vm-info.toml` says `media = "off"` so that every viewer core of the VM runs as with `--no-media`;
-there is no compressed decoder in the viewer. The helper decodes with the private FFmpeg
-(beanjar-vendor's, with the V4L2 Request API hwaccels; docs/dev/guides/build.md, "The prebuilt
-programs").
+`media-sessions.log` records guest lifecycle, `media-helper.log` records decoder work (the
+engine's lines and FFmpeg's own messages), and the viewer records presentation. The helper owns
+both logs (`host/media/log.h`): each line is made printable (a guest's element name or caps with a
+newline or a terminal escape shows it as `\xNN`) and cut to 1 KiB, each call site and port may
+write a burst of 50 lines and then 5 a second (a `log: N lines of port P suppressed: ...` line
+counts the rest), and a file past 4 MiB is renamed to `<name>.1`, replacing the one before.
+`media-helper.out` keeps only the helper's stdout and stderr: fatal errors and what comes before
+its logs open. RLIMIT_FSIZE (the pool's size and 64 MiB) backs these limits up, with SIGXFSZ
+ignored so that a write past it fails rather than ending the helper. The launcher starts the
+helper with a minimal environment (`launch.media_helper_environment`): the locale, PATH, HOME
+and the XDG directories, LD_LIBRARY_PATH and the GPU stacks' own variables (`LIBVA_`, `MESA_`,
+`GALLIUM_`, `VK_`, `CUDA_`), not the session's sockets and secrets. `MEDIAHUB=0` omits the
+helper: decoding is off, and the launch's `vm-info.toml` says `media = "off"` so that every
+viewer core of the VM runs as with `--no-media`; there is no compressed decoder in the viewer.
+The helper decodes with the private FFmpeg (beanjar-vendor's, with the V4L2 Request API hwaccels;
+docs/dev/guides/build.md, "The prebuilt programs").
 
 A guest decoder whose output goes to a consumer that needs pixels (media-standins.md, "Decoding
 for the guest") opens a DECODE session instead. The helper decodes it (hardware first) and

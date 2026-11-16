@@ -908,6 +908,8 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
             "PID",
             "--log",
             os.path.join(p.run_dir, "media-sessions.log"),
+            "--decode-log",
+            os.path.join(p.run_dir, "media-helper.log"),
             "--video",
             f"{guest_video}:{socks['VIDEO_SOCK']}",
             "--media",

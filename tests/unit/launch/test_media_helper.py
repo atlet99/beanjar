@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""The media helper's spawn (launch.start_media_helper: a minimal environment, the pool's socket,
-stdout and stderr to RUN_DIR/media-helper.out)."""
+"""The media helper's start: its command line (qemu.plan's hub_argv: the two logs it owns) and its
+spawn (launch.start_media_helper: a minimal environment, the pool's socket, stdout and stderr to
+RUN_DIR/media-helper.out)."""
 
 import os
 import shutil
@@ -12,7 +13,9 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from beanjar import launch
+from beanjar import launch, paths, qemu
+
+from launchkit import fake_tree
 
 # what a desktop session hands its programs, the launcher among them
 SESSION = {
@@ -136,6 +139,43 @@ class SpawnTest(unittest.TestCase):
         seen = self.spawn(self.plan(pool=False))
         self.assertNotIn("--pool-fd", seen["argv"])
         self.assertEqual(seen["kw"]["pass_fds"], ())
+
+
+class ArgvTest(unittest.TestCase):
+    def test_owned_logs(self):
+        """The helper is given its two logs in RUN_DIR: the sessions' and the decoder's."""
+        tmp = tempfile.mkdtemp(prefix="beanjar-launch-")
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        top, fw, state = fake_tree(tmp)
+        helper = os.path.join(top, "build/media-helper/media-helper")
+        os.makedirs(os.path.dirname(helper))
+        with open(helper, "w") as f:
+            f.write("#!/bin/sh\nexit 1\n")
+        os.chmod(helper, 0o755)
+        run = os.path.join(top, "build")
+        env = {
+            "FW": fw,
+            "STATE": state,
+            "RUN_DIR": run,
+            "LOG_DIR": run,
+            "IDENTITY_DIR": os.path.join(top, "local"),
+            "SLOT": "1",
+        }
+        with (
+            mock.patch.object(qemu, "first_rendernode", return_value=None),
+            mock.patch.object(qemu, "is_char", side_effect=lambda p: p == "/dev/dxg"),
+            mock.patch.object(qemu, "is_vgem", return_value=False),
+            mock.patch.object(qemu, "render_driver", return_value=""),
+            mock.patch.object(qemu.platform, "machine", return_value="x86_64"),
+            mock.patch.object(qemu, "host_aarch32_el0", return_value=None),
+        ):
+            p = qemu.plan(env, [], accel="tcg", tree=paths.Tree(top), say=lambda m: None, dry=True)
+        argv = p.hub_argv
+        self.assertEqual(argv[0], helper)
+        self.assertEqual(argv[argv.index("--log") + 1], os.path.join(run, "media-sessions.log"))
+        self.assertEqual(
+            argv[argv.index("--decode-log") + 1], os.path.join(run, "media-helper.log")
+        )
 
 
 if __name__ == "__main__":

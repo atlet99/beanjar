@@ -2291,14 +2291,25 @@ def beacon_lines(served, token, case):
 
 
 def slice_file(src, start, dst):
-    """The part of src (the run's viewer log, or its media WAV, both only appended to) from byte start
-    on, into dst; a WAV gets a header of its own (48 kHz float stereo) and whole frames."""
+    """The part of src (the run's viewer log, the media helper's, or its media WAV, all only appended
+    to) from byte start on, into dst; a WAV gets a header of its own (48 kHz float stereo) and whole
+    frames. A log the helper rotated since (src shorter than start: the marked one is src.1 now) is
+    src.1's part from start, then all of src."""
     try:
         with open(src, "rb") as f:
-            f.seek(max(int(start), 44 if src.endswith(".wav") else 0))
+            f.seek(0, os.SEEK_END)
+            rotated = not src.endswith(".wav") and f.tell() < int(start)
+            f.seek(0 if rotated else max(int(start), 44 if src.endswith(".wav") else 0))
             data = f.read()
     except (OSError, ValueError):
-        data = b""
+        data, rotated = b"", False
+    if rotated:
+        try:
+            with open(src + ".1", "rb") as f:
+                f.seek(int(start))
+                data = f.read() + data
+        except OSError:
+            pass
     if dst.endswith(".wav"):
         import struct
 
