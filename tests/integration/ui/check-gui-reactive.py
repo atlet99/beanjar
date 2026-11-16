@@ -40,7 +40,7 @@ if not os.environ.get("DISPLAY"):
     print("SKIP: no X display (run under xvfb-run -a)")
     sys.exit(77)
 
-from beanjar import core  # noqa: E402
+from beanjar import core, unit  # noqa: E402
 from beanjar_ui.manager import gui  # noqa: E402
 import testunits  # noqa: E402
 
@@ -99,6 +99,8 @@ def main():
         shutil.rmtree(tmp, ignore_errors=True)
 
     testunits.install(cleanup)
+    # what reads the VMs' units (max_running, VMs of other libraries) needs a user systemd
+    user_systemd = unit.available()
     app = Adw.Application(application_id=None)
     result = {"rc": 1}
     m = None
@@ -214,50 +216,56 @@ def main():
         yield lambda: phase("c") in (core.STARTING, core.RUNNING)
         check(True, "the CLI's start shows through the monitors alone")
         m.timer = GLib.timeout_add(1000, m._tick)
+        armed = m.tick
         cli("stop", "c")
         yield lambda: phase("c") == core.OFF
 
-        # another library's VM, started by its CLI: listed elsewhere, read-only, with Shut Down
-        cli("create", "o", "--import", "--firmware", fw, library=other_dir)
-        cli("start", "o", library=other_dir)
+        # another library's VM, started by its CLI: listed elsewhere, read-only, with Shut Down. It is
+        # found by its unit, so this needs a user systemd
+        if user_systemd:
+            cli("create", "o", "--import", "--firmware", fw, library=other_dir)
+            cli("start", "o", library=other_dir)
 
-        def elsewhere(name):
-            return next((r for r in m.elsewhere if r["name"] == name), None)
+            def elsewhere(name):
+                return next((r for r in m.elsewhere if r["name"] == name), None)
 
-        yield lambda: elsewhere("o") is not None and "Running" in elsewhere("o")["state"]
-        r = elsewhere("o")
-        row = m.win.elsewhere_list.get_first_child()
-        while row is not None and row.elsewhere["name"] != "o":
-            row = row.get_next_sibling()
-        check(
-            r["library"] is not None
-            and r["library"].root == other_dir
-            and "o" not in rows()
-            and m.win.elsewhere_group.get_visible()
-            and r["address"],
-            f"another library's VM is listed elsewhere, not in the library's list ({r['state']}, {r['address']}, {r['where']})",
-        )
-        check(
-            row is not None
-            and getattr(row, "stop_button", None) is not None
-            and not row.get_activatable(),
-            "its row is read-only but for Shut Down",
-        )
-        m.stop_elsewhere(r)
-        m.dialog.submit()
-        yield (lambda: elsewhere("o") is None and r["key"] not in m.ops), 30
-        # (the group itself may stay: another test's VMs, run at the same time, are elsewhere too)
-        check(
-            core.Library(other_dir, repo).vm("o").pid() is None
-            and m.win.elsewhere_group.get_visible() == bool(m.elsewhere),
-            "Shut Down stops it through its library; its row goes",
-        )
+            yield lambda: elsewhere("o") is not None and "Running" in elsewhere("o")["state"]
+            r = elsewhere("o")
+            row = m.win.elsewhere_list.get_first_child()
+            while row is not None and row.elsewhere["name"] != "o":
+                row = row.get_next_sibling()
+            check(
+                r["library"] is not None
+                and r["library"].root == other_dir
+                and "o" not in rows()
+                and m.win.elsewhere_group.get_visible()
+                and r["address"],
+                f"another library's VM is listed elsewhere, not in the library's list ({r['state']}, {r['address']}, {r['where']})",
+            )
+            check(
+                row is not None
+                and getattr(row, "stop_button", None) is not None
+                and not row.get_activatable(),
+                "its row is read-only but for Shut Down",
+            )
+            m.stop_elsewhere(r)
+            m.dialog.submit()
+            yield (lambda: elsewhere("o") is None and r["key"] not in m.ops), 30
+            # (the group itself may stay: another test's VMs, run at the same time, are elsewhere too)
+            check(
+                core.Library(other_dir, repo).vm("o").pid() is None
+                and m.win.elsewhere_group.get_visible() == bool(m.elsewhere),
+                "Shut Down stops it through its library; its row goes",
+            )
+        else:
+            print("skip: no user systemd: another library's VM")
 
         cli("delete", "a")
-        yield lambda: "a" not in rows()
+        # the timer ticks again once armed anew, however quickly the steps above went
+        yield lambda: "a" not in rows() and m.tick > armed
         check(
-            timer_alive() and m.tick > 5,
-            f"the CLI's delete shows; the timer ran throughout ({m.tick} ticks)",
+            timer_alive(),
+            f"the CLI's delete shows; the timer runs on ({m.tick - armed} ticks since armed anew)",
         )
         result["rc"] = 0
 

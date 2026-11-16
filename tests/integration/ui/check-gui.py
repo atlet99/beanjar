@@ -67,7 +67,7 @@ if not os.environ.get("DISPLAY"):
     print("SKIP: no X display (run under xvfb-run -a)")
     sys.exit(77)
 
-from beanjar import core, hostconfig, targets, vmsettings  # noqa: E402
+from beanjar import core, hostconfig, targets, unit, vmsettings  # noqa: E402
 from beanjar_ui.manager import gui, ui  # noqa: E402
 import testunits  # noqa: E402
 
@@ -197,6 +197,8 @@ def main():
         shutil.rmtree(tmp, ignore_errors=True)
 
     testunits.install(cleanup)
+    # what reads the VMs' units (max_running, VMs of other libraries) needs a user systemd
+    user_systemd = unit.available()
     app = Adw.Application(application_id=None)
     result = {"rc": 1}
     m_holder = {}
@@ -1284,30 +1286,34 @@ def main():
         yield lambda: m.enabled("start")
         check(m.enabled("start"), "and enabled again with it")
         del os.environ["BEANJAR_MEMINFO"]
-        # the machine's max_running (the test's own XDG_CONFIG_HOME: testunits.isolate), tv1 running
-        hostconfig.set_global_option("max_running", "1")
-        yield lambda: not m.enabled("start")
-        tip = m.win.state_button.get_tooltip_text() or ""
-        check(
-            not m.enabled("start")
-            and "cannot start VM tv2: 1 VM already running and the limit is 1 (max_running): tv1 of"
-            in tip
-            and "beanjar host config set max_running=2" in tip,
-            f"Start disabled at max_running, and says why ({tip})",
-        )
-        check(
-            banner.get_revealed()
-            and banner.get_title().startswith("Cannot start VM tv2: 1 VM already running")
-            and "raise the limit" not in banner.get_title()
-            and banner.get_tooltip_text() == tip,
-            f"the banner names max_running ({banner.get_title()})",
-        )
-        hostconfig.set_global_option("max_running", "")
-        yield lambda: m.enabled("start")
-        check(
-            m.enabled("start") and not banner.get_revealed(),
-            "and enabled again without the limit, the banner gone",
-        )
+        # the machine's max_running (the test's own XDG_CONFIG_HOME: testunits.isolate), tv1 running;
+        # the running VMs are counted by their units, so it needs a user systemd
+        if user_systemd:
+            hostconfig.set_global_option("max_running", "1")
+            yield lambda: not m.enabled("start")
+            tip = m.win.state_button.get_tooltip_text() or ""
+            check(
+                not m.enabled("start")
+                and "cannot start VM tv2: 1 VM already running and the limit is 1 (max_running): tv1 of"
+                in tip
+                and "beanjar host config set max_running=2" in tip,
+                f"Start disabled at max_running, and says why ({tip})",
+            )
+            check(
+                banner.get_revealed()
+                and banner.get_title().startswith("Cannot start VM tv2: 1 VM already running")
+                and "raise the limit" not in banner.get_title()
+                and banner.get_tooltip_text() == tip,
+                f"the banner names max_running ({banner.get_title()})",
+            )
+            hostconfig.set_global_option("max_running", "")
+            yield lambda: m.enabled("start")
+            check(
+                m.enabled("start") and not banner.get_revealed(),
+                "and enabled again without the limit, the banner gone",
+            )
+        else:
+            print("skip: no user systemd: max_running")
         m.select("tv1")
         yield 0.1
 
@@ -1373,13 +1379,16 @@ def main():
             and "debug shell" not in text,
             f"the tail keeps its last {gui.TAIL_BYTES} bytes in whole lines ({len(text)} chars)",
         )
-        os.unlink(vm.console_log)  # a log made anew (the VM started again) replaces the tail
+        # a log made anew (the VM started again) replaces the tail; it is at its debug shell again,
+        # or the next whole refresh would read the VM as Starting
+        new_log = "a new console log\nStarting the initramfs debug shell\n"
+        os.unlink(vm.console_log)
         with open(vm.console_log, "w") as f:
-            f.write("a new console log\n")
-        yield lambda: console_text() == "a new console log\n"
+            f.write(new_log)
+        yield lambda: console_text() == new_log
         check(True, "a console log made anew replaces the tail")
         m.details.set_visible_child_name("summary")
-        yield 1.2
+        yield lambda: "State: Running" in m.summary_text() and "viewer pid" in m.summary_text()
         check(
             "State: Running" in m.summary_text()
             and "viewer pid" in m.summary_text()
@@ -1887,29 +1896,31 @@ def main():
         lib.delete("tv2c")
         yield lambda: item("tv2c") is None
 
-        # 7d. Start with Reason…: the reason on the Summary's state line
-        m.select("tv2")
-        yield lambda: m.enabled("start-reason")
-        form = m.start_reason()
-        check(not form.get_response_enabled("ok"), "Start with Reason needs a reason")
-        form.fields["reason"].set_text("gui check")
-        form.submit()
-        yield lambda: state("tv2") == core.RUNNING and "tv2" not in m.ops
-        reason = lib.vm("tv2").reason()
-        if reason:  # a reason needs the VM's systemd unit
+        # 7d. Start with Reason…: the reason on the Summary's state line. The VM's unit holds it, so
+        # it needs a user systemd (without one, beanjar start --reason refuses)
+        if user_systemd:
+            m.select("tv2")
+            yield lambda: m.enabled("start-reason")
+            form = m.start_reason()
+            check(not form.get_response_enabled("ok"), "Start with Reason needs a reason")
+            form.fields["reason"].set_text("gui check")
+            form.submit()
+            yield lambda: state("tv2") == core.RUNNING and "tv2" not in m.ops
+            reason = lib.vm("tv2").reason()
             m.refresh()
             check(
-                reason["text"] == "gui check"
+                reason is not None
+                and reason["text"] == "gui check"
                 and m.summary_view.reason.get_visible()
                 and m.summary_view.reason_text.get_text() == "gui check",
                 "the reason shows on the Summary's state line",
             )
+            form = m.unplug()
+            form.submit()
+            yield lambda: state("tv2") == core.OFF and "tv2" not in m.ops
+            check(not m.summary_view.reason.get_visible(), "and goes when the VM stops")
         else:
-            print("skip: no systemd unit: no reason")
-        form = m.unplug()
-        form.submit()
-        yield lambda: state("tv2") == core.OFF and "tv2" not in m.ops
-        check(not m.summary_view.reason.get_visible(), "and goes when the VM stops")
+            print("skip: no user systemd: Start with Reason")
 
         # 8. the context menu, then Delete through its confirmation
         m.select("tv1")
