@@ -47,7 +47,7 @@ Each [release](https://github.com/webosbrew/beanjar/releases) has the Debian pac
 
 ```sh
 mkdir beanjar-debs && cd beanjar-debs
-version=0.4.0
+version=0.5.0
 arch=$(dpkg --print-architecture)
 url=https://github.com/webosbrew/beanjar/releases/download/v$version
 wget $url/beanjar_${version}_$arch.deb $url/beanjar-qemu_${version}_$arch.deb $url/beanjar-ui_${version}_all.deb $url/beanjar-guest_${version}_all.deb
