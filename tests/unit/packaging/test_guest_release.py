@@ -22,10 +22,17 @@ spec.loader.exec_module(guest_release)
 H = "0123456789ab"
 
 
-GUEST = ["beanjar-guest_all.deb", "beanjar-guest-x86-64_amd64.deb", "SHA256SUMS"]
+def guest(version):
+    return [
+        f"beanjar-guest_{version}_all.deb",
+        f"beanjar-guest-x86-64_{version}_amd64.deb",
+        "SHA256SUMS",
+    ]
 
 
-def release(tag, draft=False, assets=GUEST):
+def release(tag, draft=False, assets=None):
+    if assets is None:
+        assets = guest(tag.removeprefix("v"))
     return {
         "tag_name": tag,
         "draft": draft,
@@ -40,7 +47,9 @@ RELEASES = [
     release(f"v0.4.0+git3.g{H}"),
     release("v0.4.2", draft=True),
     # the host's half only: the Guest workflow has not finished
-    release("v0.4.3", assets=["beanjar_amd64.deb", "SHA256SUMS"]),
+    release("v0.4.3", assets=["beanjar_0.4.3_amd64.deb", "SHA256SUMS"]),
+    # another version's guest under this tag
+    release("v0.4.4", assets=guest("0.4.0")),
     release("v0.5.0"),
     release("v1.0.0"),
     release("guest-0.4.9"),
@@ -97,23 +106,20 @@ def fake_api(releases, files):
 def test_fetch_checks_the_sum(tmp_path):
     deb = b"a guest"
     x86 = b"an x86-64 kernel"
-    sums = (
-        f"{hashlib.sha256(deb).hexdigest()}  beanjar-guest_all.deb\n"
-        f"{hashlib.sha256(x86).hexdigest()}  beanjar-guest-x86-64_amd64.deb\n"
-        f"{hashlib.sha256(b'host').hexdigest()}  beanjar_amd64.deb\n"
-    ).encode()
-    releases = [release("v0.4.0", assets=[*GUEST, "beanjar_amd64.deb"])]
-    files = {
-        "beanjar-guest_all.deb": deb,
-        "beanjar-guest-x86-64_amd64.deb": x86,
-        "SHA256SUMS": sums,
-    }
     name = "beanjar-guest_0.4.0_all.deb"
+    x86_name = "beanjar-guest-x86-64_0.4.0_amd64.deb"
+    sums = (
+        f"{hashlib.sha256(deb).hexdigest()}  {name}\n"
+        f"{hashlib.sha256(x86).hexdigest()}  {x86_name}\n"
+        f"{hashlib.sha256(b'host').hexdigest()}  beanjar_0.4.0_amd64.deb\n"
+    ).encode()
+    releases = [release("v0.4.0", assets=[*guest("0.4.0"), "beanjar_0.4.0_amd64.deb"])]
+    files = {name: deb, x86_name: x86, "SHA256SUMS": sums}
     with fake_api(releases, files):
         assert guest_release.fetch("o/r", "0.4.1", tmp_path) == tmp_path / name
     assert (tmp_path / name).read_bytes() == deb
-    assert (tmp_path / "beanjar-guest-x86-64_0.4.0_amd64.deb").read_bytes() == x86
-    tampered = fake_api(releases, {**files, "beanjar-guest-x86-64_amd64.deb": b"tampered"})
+    assert (tmp_path / x86_name).read_bytes() == x86
+    tampered = fake_api(releases, {**files, x86_name: b"tampered"})
     with tampered, pytest.raises(guest_release.Error, match="SHA-256"):
         guest_release.fetch("o/r", "0.4.1", tmp_path / "bad")
     assert not (tmp_path / "bad").exists()

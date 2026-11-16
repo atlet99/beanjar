@@ -8,12 +8,11 @@
 
 beanjar-guest is built only by the Guest workflow (.github/workflows/guest.yml), which puts it into
 the release of a tag v<version> of the public repository, beside the host packages, as
-beanjar-guest_all.deb and beanjar-guest-x86-64_amd64.deb (scripts/release-debs.sh). This picks,
-among that repository's releases that have both, the newest whose version has the host-guest
-contract of TOP's packaging/VERSION (the range beanjar's Depends names: >= 0.Y, << 0.(Y+1)),
-downloads them, checks them against the release's SHA256SUMS and writes them to DIR under the
-names the build gives them (beanjar-guest_<version>_all.deb ...). No matching release is an error
-naming the tag to push. GH_TOKEN, when set, authenticates the GitHub API requests; a public
+beanjar-guest_<version>_all.deb and beanjar-guest-x86-64_<version>_amd64.deb
+(scripts/release-debs.sh). This picks, among that repository's releases that have both, the newest
+whose version has the host-guest contract of TOP's packaging/VERSION (the range beanjar's Depends
+names: >= 0.Y, << 0.(Y+1)), downloads them, checks them against the release's SHA256SUMS and
+writes them to DIR. No matching release is an error naming the tag to push. GH_TOKEN, when set, authenticates the GitHub API requests; a public
 repository needs none.
 """
 
@@ -32,7 +31,6 @@ TOP = Path(__file__).resolve().parents[1]
 REPOSITORY = "webosbrew/beanjar"
 API = "https://api.github.com"
 TAG_PREFIX = "v"
-ASSETS = ("beanjar-guest_all.deb", "beanjar-guest-x86-64_amd64.deb")
 SUMS = "SHA256SUMS"
 
 
@@ -76,7 +74,8 @@ def select(releases, contract):
             release.get("draft")
             or not tag.startswith(TAG_PREFIX)
             or not identity.semver.valid(version)
-            or not set(ASSETS) <= {a.get("name") for a in release.get("assets", [])}
+            or not {deb_name(version), x86_64_deb_name(version)}
+            <= {a.get("name") for a in release.get("assets", [])}
         ):
             continue
         if identity.contract(version) == contract:
@@ -156,11 +155,11 @@ def pick(repository, host_version):
 
 def fetch(repository, host_version, out):
     """Download and check the newest beanjar-guest of host_version's contract, and its optional
-    x86-64 kernel package, into out under the build's names; the path of beanjar-guest."""
+    x86-64 kernel package, into out; the path of beanjar-guest."""
     version, release = pick(repository, host_version)
     sums = parse_sums(asset(release, SUMS).decode())
     debs = {}
-    for name, local in zip(ASSETS, (deb_name(version), x86_64_deb_name(version)), strict=True):
+    for name in (deb_name(version), x86_64_deb_name(version)):
         if name not in sums:
             raise Error(f"release {release['tag_name']}: {SUMS} does not list {name}")
         data = asset(release, name)
@@ -170,7 +169,7 @@ def fetch(repository, host_version, out):
                 f"release {release['tag_name']}: {name} has SHA-256 {digest}, "
                 f"{SUMS} says {sums[name]}"
             )
-        debs[local] = data
+        debs[name] = data
     out.mkdir(parents=True, exist_ok=True)
     for name, data in debs.items():
         path = out / name
