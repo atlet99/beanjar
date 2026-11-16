@@ -29,14 +29,29 @@ import time
 from pathlib import Path
 
 TOP = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(TOP / "host/core"))
+from beanjar import share
+
 SWEEP = None
 args = sys.argv[1:]
 if args[:1] == ["--keys"]:
     SWEEP, args = ("service", args[2:]) if args[1:2] == ["service"] else ("normal", args[1:])
 RUN = Path(args[0]) if args else TOP / "build"
 LOGS = Path(args[1]) if len(args) > 1 else RUN
-capture = RUN / "share/out/ir-input-test.bin"  # the guest's /host/out (beanjar/share.py)
+OUT = str(RUN / "share/out")  # the guest's /host/out (beanjar/share.py)
+capture = RUN / "share/out/ir-input-test.bin"
 capture.unlink(missing_ok=True)
+
+
+def captured():
+    """The guest's capture: a regular file of its share, read without following a link it made
+    there (share.read); a FIFO or a link is an error, not a hang or another file's bytes."""
+    try:
+        return share.read(OUT, capture.name)
+    except share.Error as e:
+        sys.exit(f"guest capture: {e}")
+
+
 KEY_UP, KEY_HOME_LG = 103, 0x305
 # LG IR data code -> the Linux key tvservice injects (its _gKeyTable), normal remote keys
 LINUX = {
@@ -103,7 +118,6 @@ LINUX = {
 }
 TAP_S, GAP_S = 0.15, 0.45
 if SWEEP:
-    sys.path.insert(0, str(TOP / "host/core"))
     from beanjar.remote_layouts import LAYOUTS
 
     skip = {"POWER", "P_ONLY", "IN_STOP"}
@@ -147,7 +161,7 @@ if SWEEP:
             sock.sendall(record(False, code))
             time.sleep(GAP_S)
     time.sleep(7)  # the capture's timeout
-    keys = [e[2:] for e in struct.iter_unpack("<qqHHi", capture.read_bytes()) if e[2] == 1]
+    keys = [e[2:] for e in struct.iter_unpack("<qqHHi", captured()) if e[2] == 1]
     want = [(1, LINUX[code], v) for _name, code in sweep for v in (1, 0)]
     wrong = [f"{name} 0x{code:02x}" for name, code in sweep if (1, LINUX[code], 1) not in keys]
     print(f"LGE RCU: {len(keys)} key events for {len(sweep)} taps; missing: {wrong or 'none'}")
@@ -170,7 +184,7 @@ with socket.socket(socket.AF_UNIX) as sock:
     sock.sendall(record(False, 0x40))
     time.sleep(0.5)
 time.sleep(5)  # the capture's timeout
-events = [e[2:] for e in struct.iter_unpack("<qqHHi", capture.read_bytes())]
+events = [e[2:] for e in struct.iter_unpack("<qqHHi", captured())]
 keys = [e for e in events if e[0] == 1]
 home = [e for e in keys if e[1] == KEY_HOME_LG]
 up = [e for e in keys if e[1] == KEY_UP]

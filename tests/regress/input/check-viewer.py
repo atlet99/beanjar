@@ -21,6 +21,9 @@ import sys
 import time
 
 TOP = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(TOP / "host/core"))
+from beanjar import share
+
 BUILD = TOP / "build"
 RUN = Path(sys.argv[1]) if len(sys.argv) > 1 else BUILD
 LOGS = Path(sys.argv[2]) if len(sys.argv) > 2 else RUN
@@ -90,8 +93,17 @@ assert images and int(images[1]) > 1, "missing libim animation frames"
 time.sleep(0.5)
 
 
+def guest_file(name):
+    """A file the guest wrote to its share: a regular one only, read without following a link it
+    made there (share.read); anything else is an error, not a hang or another file's bytes."""
+    try:
+        return share.read(str(OUT), name)
+    except share.Error as e:
+        sys.exit(f"guest output: {e}")
+
+
 def events(kind):
-    data = (OUT / f"viewer-{kind}.bin").read_bytes()
+    data = guest_file(f"viewer-{kind}.bin")
     return [e[2:] for e in struct.iter_unpack("<qqHHi", data)]
 
 
@@ -136,7 +148,7 @@ console(
 await_file(log)
 # Wait for console redirection and grep to finish writing.
 time.sleep(1)
-text = log.read_text()
+text = guest_file(log.name).decode(errors="replace")
 assert text.count("POINTER_CLICK") == 3, text
 assert "POINTER_MOVE" in text, text
 wheel = [int(v) for v in re.findall(r"POINTER_WHEEL (-?\d+)", text)]

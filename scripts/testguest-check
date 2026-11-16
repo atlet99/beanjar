@@ -28,6 +28,8 @@ import sys
 import time
 
 TOP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(TOP, "host", "core"))
+from beanjar import share
 
 
 def beanjar(args, library, check=True, timeout=600):
@@ -86,15 +88,18 @@ def qmp_keys(path, keys=("a",)):
         s.close()
 
 
-def read_results(path):
-    out = []
-    with open(path) as f:
-        for line in f:
-            line = line.rstrip("\n")
-            if "=" in line:
-                k, v = line.split("=", 1)
-                out.append((k, v))
-    return out
+RESULTS = "testguest/results.txt"  # in the out share
+
+
+def read_results(out):
+    """The guest's key=value results from its out share (out: RUN_DIR/share/out): a regular file
+    only, read without following a link the guest made there (share.read); share.Error otherwise."""
+    pairs = []
+    for line in share.read(out, RESULTS).decode(errors="replace").split("\n"):
+        if "=" in line:
+            k, v = line.split("=", 1)
+            pairs.append((k, v))
+    return pairs
 
 
 def main():
@@ -137,8 +142,9 @@ def main():
     _, info = beanjar(["info", a.name, "--json"], a.library)
     vm_dir = json.loads(info)["dir"]
     run = os.path.join(vm_dir, "run")
-    out = os.path.join(run, "share", "out", "testguest")
-    results = os.path.join(out, "results.txt")
+    share_out = os.path.join(run, "share", "out")
+    out = os.path.join(share_out, "testguest")
+    results = os.path.join(share_out, RESULTS)
     host = []
     rc = 2
     try:
@@ -166,7 +172,11 @@ def main():
                 time.sleep(0.2)
         host.append(("host.results_s", f"{time.monotonic() - t0:.1f}"))
         host.append(("host.keys_sent", str(keys_sent)))
-        guest = read_results(results)
+        try:
+            guest = read_results(share_out)
+        except share.Error as e:
+            print(f"result=fail\nhost.error=results: {e}")
+            return 2
         # the micom port (webos.micom), the initramfs's IR pump's other direction: a status line
         try:
             with open(os.path.join(run, "micom-status")) as f:

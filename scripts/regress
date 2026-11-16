@@ -241,6 +241,11 @@ SMP_IPK = "build/regress/{run}/smpcheck.ipk"  # the SMP check app (tests/regress
 # A host file into the VM's out share (out-relative), never through the guest's links: the share is
 # the guest's, its links real host ones (host/core/beanjar/share.py)
 PUT_OUT = "host/scripts/vm-launcher put-out"
+# ... and the guest's files out of it: a regular file only, never through a link (the guest's
+# links would hand over any file the user can read, its FIFOs hang the read), and a removal never
+# through a linked directory
+GET_OUT = "host/scripts/vm-launcher get-out"
+RM_OUT = "host/scripts/vm-launcher rm-out"
 TV_IPK = (
     "build/regress/{run}/tvsuite.ipk"  # the test app (tests/regress/tvapp), packed by ares-package
 )
@@ -896,13 +901,13 @@ def now():
 def guest_step(h, a, r, step, arg, out):
     """Type tests/regress/guest.sh STEP on the console (in the background), wait for its .rc, copy
     its output into the target's directory; the step's exit status (124: timed out)."""
-    gout = h.inst.guest_out
+    gout, rel = h.inst.guest_out, f"regress/{step}"  # rel: in the out share
     line = f"TIME_SCALE={a.scale} sh /host/tests/regress/guest.sh {step} {arg} </dev/null >/dev/null 2>&1 &".replace(
         "  ", " "
     )
     # a step that runs twice (home-idle, before each screenshot) must not find its last .rc
     rc, text = h.run(
-        f"rm -f {gout}/{step}.rc && host/scripts/vm-launcher console {shlex.quote(line)} 1 >/dev/null",
+        f"{RM_OUT} {rel}.rc && host/scripts/vm-launcher console {shlex.quote(line)} 1 >/dev/null",
         60,
     )
     if rc:
@@ -911,11 +916,14 @@ def guest_step(h, a, r, step, arg, out):
     wait = a.timeout + 20 * a.scale  # the boot step's own limit is TIMEOUT
     rc, _ = h.run(f"timeout {wait} sh -c 'until [ -f {f} ]; do sleep 2; done'", wait + 30)
     if rc:
-        h.run(f"cp {gout}/{step}.txt {out}/ 2>/dev/null; true", 30)
+        h.run(f"{GET_OUT} {rel}.txt {out}/{step}.txt 2>/dev/null; true", 30)
         return 124
     r.text = ""
+    # the copies are read, not the share's files (only stat'ed above)
     rc, text = h.run(
-        f"cp {gout}/{step}.txt {gout}/{step}.rc {out}/ && cat {f} {gout}/{step}.txt", 30
+        f"{GET_OUT} {rel}.txt {out}/{step}.txt && {GET_OUT} {rel}.rc {out}/{step}.rc && "
+        f"cat {out}/{step}.rc {out}/{step}.txt",
+        30,
     )
     if a.dry_run:
         return 0

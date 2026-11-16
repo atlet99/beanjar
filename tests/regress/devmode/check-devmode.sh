@@ -35,9 +35,11 @@ VM_DIR=${1:-}
 if [ -n "$VM_DIR" ]; then
 	IDENT=$VM_DIR/identity RUN=$VM_DIR/run
 	console() { "$TOP/host/scripts/vm-launcher" console --dir "$VM_DIR" "$@"; }
+	get_out() { "$TOP/host/scripts/vm-launcher" get-out --dir "$VM_DIR" "$@"; }
 else
 	IDENT=$TOP/local RUN=$TOP/build
 	console() { "$TOP/host/scripts/vm-launcher" console "$@"; }
+	get_out() { RUN_DIR=$RUN "$TOP/host/scripts/vm-launcher" get-out "$@"; }
 fi
 KEY=$IDENT/devmode_rsa SOCK=$RUN/console.sock
 if [ -z "${HOST:-}" ]; then
@@ -77,10 +79,11 @@ if [ "$curl_status" = 0 ] && [ "$code" = 404 ] && [ "$(wc -c < "$T/not-found")" 
 else fail "key server: /other -> $code, curl exit $curl_status"; fi
 PASS=
 if [ -S "$SOCK" ]; then
-	# through the VM's output share (/mnt/host/out, RUN/share/out here)
+	# through the VM's output share (/mnt/host/out, RUN/share/out here), read with get-out: the
+	# guest's file, a regular one only and never through a link it made there
 	rm -f "$RUN/share/out/devmode-passphrase.json"
 	console "webos-enter sh -c 'luna-send -n 1 -a com.palmdts.devmode luna://com.palm.service.devmode/getPassphrase {} </dev/null >/mnt/host/out/devmode-passphrase.json'" "$CONSOLE_WAIT" >/dev/null
-	PASS=$(sed -n 's/.*"passphrase" *: *"\([^"]*\)".*/\1/p' "$RUN/share/out/devmode-passphrase.json" 2>/dev/null)
+	PASS=$(get_out devmode-passphrase.json 2>/dev/null | sed -n 's/.*"passphrase" *: *"\([^"]*\)".*/\1/p')
 	rm -f "$RUN/share/out/devmode-passphrase.json"
 	[ -n "$PASS" ] && pass "getPassphrase answers $PASS" || fail "getPassphrase: no passphrase"
 else fail "no $SOCK: cannot ask the guest's getPassphrase"; fi

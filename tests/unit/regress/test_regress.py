@@ -1494,6 +1494,133 @@ class ReadyLineTest(unittest.TestCase):
         self.assertEqual((r.steps["ready"], r.boot_done, r.tvservice), ("PASS", "79.9 s", "229"))
 
 
+class GuestStepTest(unittest.TestCase):
+    """guest_step on a local VM host, the guest's side planted: STEP.txt and STEP.rc are copied
+    out of its out share (RUN_DIR/share/out/regress) as regular files only, never through a link
+    the guest made there (the user's files would go into the results) or from its FIFO (a hang),
+    and the last .rc is never removed through a linked directory."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+        self.run_dir = os.path.join(self.tmp, "run")
+        self.gout = os.path.join(self.run_dir, "share", "out", "regress")
+        os.makedirs(self.gout)
+        self.results = os.path.join(self.tmp, "results")
+        os.mkdir(self.results)
+        # what the guest must never get the host to read or remove: a user's secret key, a directory
+        os.makedirs(os.path.join(self.tmp, "home", ".ssh"))
+        self.secret = os.path.join(self.tmp, "home", ".ssh", "id_ed25519")
+        with open(self.secret, "w") as f:
+            f.write("SECRET-KEY\n")
+        self.elsewhere = os.path.join(self.tmp, "elsewhere")
+        os.mkdir(self.elsewhere)
+        for n, text in (("boot.rc", "0\n"), ("boot.txt", "the user's\n")):
+            with open(os.path.join(self.elsewhere, n), "w") as f:
+                f.write(text)
+
+    def step(self, guest):
+        """guest_step("boot") with guest() as the guest's answer to the console line; (its status,
+        r.text, the results' files and their contents, every command's output), or None if it does
+        not return within 15 s."""
+        inst = object.__new__(regress.Instance)
+        inst.iid, inst.run_dir, inst.guest_out = None, self.run_dir, self.gout
+        inst.env = {"RUN_DIR": self.run_dir}
+        said = []
+
+        class H(regress.Host):
+            def run(self, cmd, timeout):
+                console = " && host/scripts/vm-launcher console "
+                if console in cmd:
+                    rc, text = super().run(cmd.split(console)[0], timeout)
+                    if not rc:
+                        guest()
+                else:
+                    rc, text = super().run(cmd, timeout)
+                said.append(text)
+                return rc, text
+
+        a = argparse.Namespace(scale=0.1, timeout=1, dry_run=False)  # waits 3 s for the .rc
+        r = argparse.Namespace(text=None)
+        done = []
+        t = threading.Thread(
+            target=lambda: done.append(
+                regress.guest_step(H(None, TOP, False, inst), a, r, "boot", "", self.results)
+            ),
+            daemon=True,
+        )
+        t.start()
+        t.join(15)
+        if t.is_alive():
+            # let a reader stuck on the guest's FIFO go
+            fifo = os.path.join(self.gout, "boot.txt")
+            with contextlib.suppress(OSError):
+                os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+            t.join(30)
+            return None
+        files = {}
+        for n in sorted(os.listdir(self.results)):
+            with open(os.path.join(self.results, n), "rb") as f:
+                files[n] = f.read()
+        return done[0], r.text, files, "".join(said)
+
+    def plant(self, txt=None, rc="0\n"):
+        def guest():
+            if txt is not None:
+                txt(os.path.join(self.gout, "boot.txt"))
+            if rc is not None:
+                with open(os.path.join(self.gout, "boot.rc"), "w") as f:
+                    f.write(rc)
+
+        return guest
+
+    def write(self, text):
+        def make(path):
+            with open(path, "w") as f:
+                f.write(text)
+
+        return make
+
+    def assertNoSecret(self, got):
+        self.assertIsNotNone(got, "guest_step hung")
+        self.assertNotIn("SECRET", repr(got))
+
+    def test_regular_files(self):
+        status, text, files, _ = self.step(self.plant(self.write("hello\n"), "3\n"))
+        self.assertEqual((status, text), (3, "hello"))
+        self.assertEqual(files, {"boot.rc": b"3\n", "boot.txt": b"hello\n"})
+
+    def test_link_to_a_user_file(self):
+        got = self.step(self.plant(lambda p: os.symlink(self.secret, p)))
+        self.assertNoSecret(got)
+        self.assertNotEqual(got[0], 0)
+        self.assertNotIn("boot.txt", got[2])
+
+    def test_rc_link_to_a_user_file(self):
+        def guest():
+            self.write("hello\n")(os.path.join(self.gout, "boot.txt"))
+            os.symlink(self.secret, os.path.join(self.gout, "boot.rc"))
+
+        got = self.step(guest)
+        self.assertNoSecret(got)
+        self.assertNotEqual(got[0], 0)
+
+    def test_fifo_does_not_hang(self):
+        got = self.step(self.plant(os.mkfifo))
+        self.assertIsNotNone(got, "guest_step hung on the guest's FIFO")
+        self.assertNotEqual(got[0], 0)
+
+    def test_linked_directory_not_removed_through(self):
+        os.rmdir(self.gout)
+        os.symlink(self.elsewhere, self.gout)
+        got = self.step(lambda: None)
+        self.assertNoSecret(got)
+        self.assertNotEqual(got[0], 0)
+        self.assertEqual(sorted(os.listdir(self.elsewhere)), ["boot.rc", "boot.txt"])
+        self.assertNotIn("boot.txt", got[2])
+
+
 class LbStoppedItselfTest(unittest.TestCase):
     """guest.sh's lb_stopped_itself: a legacy-broadcast gone from the set passes only when systemd's
     legacy-broadcast.service finished with result success, status 0 and no restart."""
