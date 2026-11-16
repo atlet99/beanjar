@@ -2,7 +2,12 @@
 
 # Beanjar
 
-Beanjar runs LG TV firmware in virtual machines on your computer. Give it a firmware file you have, and it boots LG's own software to the TV's Home screen in a window, with an on-screen remote. Each virtual TV keeps its own firmware, settings, state and identity, and several can run side by side.
+Beanjar boots unmodified LG webOS TV firmware (webOS 1 to 26) in QEMU virtual machines.
+
+- LG's userland runs stock on Beanjar's arm64 kernel, under KVM where available
+- the TV's SoC is emulated by kernel modules and HAL shims
+- GPU-accelerated graphics through virgl; video decoded on the host
+- you supply the firmware; none of LG's files ship with Beanjar
 
 ![The Beanjar viewer playing Big Buck Bunny under the webOS 1 Home launcher, beside the on-screen remote](docs/assets/screenshots/beanjar-viewer.png)
 
