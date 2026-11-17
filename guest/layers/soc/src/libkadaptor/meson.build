@@ -5,8 +5,9 @@
 #   kadaptor-xc.c          M2 (bsppart's MStar KADP, libkadaptor.so, no SONAME): W16R's KADP runs the
 #                          XC scaler's window calls on a user-mode Utopia XC instance, so they are passed
 #                          on to a kernel-mode one as well, where mstar-utopia.ko reports the windows.
-#   kadaptor-pvrkey.c      M2, beside kadaptor-xc.c: the DVR's secure key (MAdp_Secure_GetSecureDataEMMC's
-#                          "/tmp/dvr_key"), which MStar's TEE would decrypt, from the VM's store.
+#   kadaptor-pvrkey.c      M2 (beside kadaptor-xc.c) and M3: the DVR's secure key (MAdp_Secure_GetSecureDataEMMC's
+#                          "/tmp/dvr_key", M3's "/tmp/96B14BF8"), which MStar's TEE decrypts on the TV, from the
+#                          VM's store.
 #   kadaptor-oemcrypto.c   O22 and its successors (libkadaptor.so.2): Widevine's OEMCrypto_Initialize, answered
 #                          INIT_FAILED where KADP's TEE client finds no TEE, as the CE CDM accepts.
 #   kadaptor-securetime.c  O22 with nyxDrm (queue, spacebuns), beside it: the secure clock's PlayReady TA call,

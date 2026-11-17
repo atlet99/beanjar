@@ -47,7 +47,7 @@ stop launch. Diagnostics identify an item and reason without printing its value.
 | `1D492999`, its `_a`, `_d`, `_r` variants, legacy `SDP_MODEL` | Exactly 44 canonical base64 characters encoding 32 bytes; no NUL or newline. |
 | `77D1DD90` | A usable private PEM key, at most 1999 bytes, without NUL. Launch generates its matching gateway certificate. |
 | `C1FFB834` | Nonempty printable ASCII `<part1>;<part2>` followed by one NUL or LF, at most 100 bytes including that terminator. No embedded control characters. |
-| `dvr_key` | Exactly 16 bytes: the DVR's secure key, which MStar's KADP reads for W16R's recording middleware (M2). Launch makes a random one when it is missing (not with `missing = "error"`); clone keeps it, `identity renew` makes a new one. |
+| `dvr_key` | Exactly 16 bytes: the DVR's secure key, which MStar's board HAL reads through KADP for the recording middleware (M2, M3 and LM21: W16R, W18R, W21A and their kin). Launch makes a random one when it is missing (not with `missing = "error"`); clone keeps it, `identity renew` makes a new one. |
 
 The observed native OLED C2 YouTube record ends in LF. Preserve that byte in an exact `hex`
 or `file` export; the stock DILE consumer replaces the final stored byte with NUL in its

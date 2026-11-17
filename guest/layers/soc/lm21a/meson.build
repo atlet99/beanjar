@@ -14,6 +14,11 @@ hal_stock = {
 # queue: halgal_stock_fails, guest/layers/soc/meson.build). LM21AN, LM21ANN and LM21U inherit it.
 halgal_stock_fails = true
 hal_stock += {'libhalgal': ['libhalgal.so', 'libhalgal.so.0.1.0', ['libhalgal.so.0'], 'bsppart']}
+# libhal_libs: the board HAL (bsppart's libhal_libs.so.0.1.0, SONAME libhal_libs.so) reads the DVR's key
+# through MStar's TEE (MAdp_Secure_GetSecureDataEMMC "/tmp/96B14BF8"), which the emulator does not have;
+# legacy-broadcast's DASY and ts-record read it at HAL_PVR_CRYPTO_GetSecureKey, which the shim answers
+# from the VM's store (src/libhal_libs/hal-pvrkey.c). LM21AN, LM21ANN and LM21U inherit it.
+hal_stock += {'libhal_libs': ['libhal_libs.so', 'libhal_libs.so.0.1.0', ['libhal_libs.so.0', 'libhal_msd96ebdw.so'], 'bsppart']}
 # The media elements under MStar's stock names, as on M3: the stock gst-omx decoders open the
 # MStar video device (/dev/video20) and fail, so nothing reached the host.
 gst_plugin_dir = 'usr/lib/gstreamer-1.0'

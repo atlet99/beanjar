@@ -25,7 +25,9 @@
 #   libhal_avd/      the analog decoder's no signal over MStar's board HAL (hal-avd.c)
 #   libkadaptor/     M2's XC window calls, passed to the kernel too (kadaptor-xc.c); O22's
 #                    Widevine OEMCrypto without a TEE (kadaptor-oemcrypto.c) and secure clock
-#                    through nyxDrm without a PlayReady TA (kadaptor-securetime.c)
+#                    through nyxDrm without a PlayReady TA (kadaptor-securetime.c); M2's and M3's
+#                    DVR key from the VM's store (kadaptor-pvrkey.c)
+#   libhal_libs/     LM21's board HAL: the DVR key from the VM's store (hal-pvrkey.c)
 #   libaibsp/        O22's AI picture BSP for nn-proxy, with no NPU (every entry a no-op)
 #   libaibspLib/     O22's AI tone and scene services for pqcontroller, likewise
 #   video/           the media elements under their stock names, in gst_plugin_dir (none if '')
@@ -104,7 +106,7 @@ hal_stock = shims
 hal_libs = {}                      # path under usr/lib -> shim
 hal_libs_stock = {}                # path under usr/lib -> the stock file it NEEDs
 hal_files = {}                     # path in the layer -> a shim's other file (its jobs)
-foreach name : ['libhal_lg115x', 'libdile_vt', 'libdile_gal', 'libhalgal', 'libhal_crypto', 'libdile_crypto', 'libsestore', 'libhal_avd', 'libkadaptor',
+foreach name : ['libhal_lg115x', 'libdile_vt', 'libdile_gal', 'libhalgal', 'libhal_crypto', 'libdile_crypto', 'libsestore', 'libhal_avd', 'libkadaptor', 'libhal_libs',
     'libaibsp', 'libaibspLib']
   if name in hal_stock
     subdir('src' / name)
