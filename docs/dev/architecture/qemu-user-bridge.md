@@ -259,7 +259,8 @@ start says it is experimental.
   alignment and ioctl encoding, so no bridge is needed: with `guest_base` 0, which qemu picks for a
   64-bit guest when the address is free, an ioctl qemu has no table entry for goes to the kernel
   unchanged (stock qemu answers ENOTTY). The generic fixes (`/proc/<pid>/cmdline`, guest-only
-  `/proc/self/status`, `SO_PEERGROUPS`, `kill()` of qemu's threads) apply to it as to qemu-arm. Its
+  `/proc/self/status`, `SO_PEERGROUPS`, `kill()` of qemu's threads, a `/proc/self/task` without
+  qemu's call_rcu thread) apply to it as to qemu-arm. Its
   guest lives in the x86-64 process's 47-bit address space, below where a 48-bit AArch64 kernel's
   `mmap` would put it; only a fixed mapping above 128 TiB would fail. The test guest's `tg-arm64`
   passes under it (`scripts/testguest-check --guest-kernel x86-64`, [test guest](test-guest.md)),
