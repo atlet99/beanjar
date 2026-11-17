@@ -1,1 +1,3 @@
 models = ["W16R"]
+# tv.capture's DIP (the libkadaptor shim) reads the viewer's video picture through video60
+v4l2_capture = true

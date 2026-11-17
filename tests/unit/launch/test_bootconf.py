@@ -64,14 +64,16 @@ class BootConfTest(unittest.TestCase):
 
     def test_v4l2_capture(self):
         """video60 (v4l2_capture=1) is the chip's vendor module's, on every captureservice target
-        whose libvtcapture opens it: LG-O's but spacebuns, Realtek's from K6LP, MStar's LM21; no
-        other module gets the parameter, and no other target."""
+        whose libvtcapture opens it: LG-O's but spacebuns, Realtek's from K6LP, MStar's LM21; and
+        W16R's, read by its libkadaptor shim's DIP; no other module gets the parameter, and no
+        other target."""
         for target in targets.all_targets():
             chip, release = target
             want = (
                 (chip.startswith("o2") and release != "spacebuns")
                 or (chip.startswith("k") and chip != "k5lp")
                 or chip.startswith("lm21")
+                or targets.name(target) == "m2-dreadlocks"
             )
             with self.subTest(target=targets.name(target)):
                 self.assertEqual(targets.v4l2_capture(target), want)
