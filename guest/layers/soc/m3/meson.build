@@ -26,6 +26,10 @@
 # bsppart's HAL, which reads through MStar's TEE; the emulator has neither, so SM_SA_GetNDUID failed
 # and nyx made a random NDUID at every open. sdx, securitymanager and libsecretagent all
 # read the model secret through DILE, so the shim answers there, as on K7LP.
+# libhal_vdec_direct, libhal_audio_direct: bsppart's direct decoder and audio output (SONAMEs
+# libhal_vdec_direct.so and libhal_audio_direct.so) under the rootfs's stock libdile_vdec_direct and
+# libdile_audio_direct, which NDL DirectMedia's first API (W18R's only one) opens; the shims send
+# both streams to the host, as on K5LP (src/libhal_direct).
 # libkadaptor: MStar's KADP (bsppart's libkadaptor.so.0.1.0, no SONAME: its users NEED libkadaptor.so).
 # The board HAL reads the DVR's key through it (MAdp_Secure_GetSecureDataEMMC("/tmp/96B14BF8")),
 # which MStar's TEE decrypts on the TV; the shim answers it from the VM's store, as on M2
@@ -35,6 +39,8 @@ hal_stock = {
   'libdile_crypto': ['libdile_crypto.so.0', 'libdile_crypto.so.0.1.1', []],
   'libhal_avd': ['libhal_msd94bcg.so', 'libhal_msd94bcg.so.0.1.0', ['libhal_msd94bcg.so.0', 'libhal_m2.so', 'libhal_m2.so.0', 'libhal_msd93xbg.so'], 'bsppart'],
   'libkadaptor': ['libkadaptor.so', 'libkadaptor.so.0.1.0', [], 'bsppart'],
+  'libhal_vdec_direct': ['libhal_vdec_direct.so', 'libhal_vdec_direct.so.0.1.0', ['libhal_vdec_direct.so.0'], 'bsppart'],
+  'libhal_audio_direct': ['libhal_audio_direct.so', 'libhal_audio_direct.so.0.1.0', ['libhal_audio_direct.so.0'], 'bsppart'],
 }
 kadaptor_source = ['kadaptor-pvrkey.c']
 # Where the media elements (guest/layers/soc/src/video) go: the stock plugins' directory, and which:

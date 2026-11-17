@@ -25,9 +25,16 @@
 # bsppart's libhal_crypto, which reads through the TEE's secure store; the emulator holds the model
 # secret in neither, so libsecretagent's SM_SA_GetNDUID failed and nyx's DeviceInfo made a new random
 # NDUID at every open. The shim answers that read, as on K7LP and M3.
+# libhal_vdec_direct, libhal_audio_direct: bsppart's direct decoder and audio output (no SONAME; their
+# users NEED libhal_vdec_direct.so and libhal_audio_direct.so), under the rootfs's stock
+# libdile_vdec_direct and libdile_audio_direct, which NDL DirectMedia's first API (W19P's only one)
+# opens. Stock, they feed the video CPU's decoder by RPC (a black picture here) and the audio
+# DSP, whose open crashes; the shims send both streams to the host (src/libhal_direct).
 hal_stock = {
   'libdile_gal': ['libdile_gal.so.1', 'libdile_gal.so.1.0.2', []],
   'libdile_crypto': ['libdile_crypto.so.0', 'libdile_crypto.so.0.1.1', []],
+  'libhal_vdec_direct': ['libhal_vdec_direct.so', 'libhal_vdec_direct.so.1.0.0', ['libhal_vdec_direct.so.1'], 'bsppart'],
+  'libhal_audio_direct': ['libhal_audio_direct.so', 'libhal_audio_direct.so.1.0.0', ['libhal_audio_direct.so.1'], 'bsppart'],
 }
 # Where the media elements (guest/layers/soc/src/video) go: the stock plugins' directory, and which:
 # Realtek's gst-omx decoders (libgstomx.so, by gstomx.conf's sections), dvovideosink and

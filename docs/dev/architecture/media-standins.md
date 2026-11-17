@@ -84,6 +84,36 @@ sits between the decoder and `rvscale` and changes the crop at run time for PTZ,
 have to take over the crop too. In the measured W22H runs the preview did not scale (640x480 in,
 640x480 asked for). It is built where the firmware has `libgstrvscale.so`.
 
+## The direct decoder and audio output
+
+NDL DirectMedia's first API (`NDL_DirectVideoOpen`, `PlayWithCallback`, `NDL_DirectAudioOpen`,
+`Play`), the only one on W17H, W18R and W19P, and LG's `libcgl` do not use GStreamer. They run
+over LG's `libdile_vdec_direct` and `libdile_audio_direct`, which stay stock: thin layers that keep
+the one handle of each HAL below them and pass every call to it. The stand-ins are those HALs,
+bsppart's `libhal_vdec_direct` and `libhal_audio_direct` (`src/libhal_direct`, on `m16p`, `m3` and
+`k5lp`), which take the stock library's place and NEED the stock file. Their streams go to the
+host on the same media ports as the sinks', through `mediaport.c` built without GStreamer
+(`MEDIAPORT_CORE`), on the guest's monotonic clock.
+
+- **Video.** The stock decoder runs free: no timestamp reaches it, and it shows each picture as
+  it is decoded. The stand-in sends each access unit untimed, which the host shows at once, on the
+  channel DILE gives `HAL_VDEC_DIRECT_SetDEId` (the VDEC port the resource manager handed NDL), so
+  it reaches the scaler window of that port. The fourcc picks H.264, HEVC or MPEG-2 (NDL's first API
+  opens H.264 only). A buffer's ID given to `PlayWithCallback` comes back through the callback from
+  the stand-in's own thread once the buffer has been sent, as the stock HAL's thread calls it per
+  decoded picture. One stream at a time, as the stock HAL.
+- **Audio.** DILE turns its sampling-frequency enum into Hz for `Start`. The stand-in stamps each
+  buffer after the one before; a buffer that finds nothing queued starts the low-delay window's
+  lower bound after its arrival (`SetNoDelayParam`, NDL's default 100 ms), where LG's DSP starts
+  playing. `Write` always answers OK, as the stock HAL does on a decoder index, and sends everything.
+  `GetBufferInfo` reports a 256 KiB ring holding what is still to play by those stamps, so it
+  empties in real time. A mixer index (4 to 11) takes PCM only, as the stock one.
+
+`NDL_DirectVideoSetArea` takes coordinates in the app's resolution (its `appinfo.json`
+`resolution`, 1920x1080 by default), which NDL scales by the board's graphic resolution over that,
+and tvservice by the panel over the graphic resolution: on a UHD K5LP set (graphic plane
+1920x1080) panel pixels come out twice as large.
+
 ## Validation
 
 The [TV feature suite](../guides/build.md#tv-feature-suite) exercises the actual

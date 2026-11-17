@@ -9,6 +9,8 @@ The [media stand-in contract](media-standins.md) describes that boundary.
 The SoC layer provides GStreamer elements under the vendor factory names. LG's `libpf`,
 `lpsink`, `decproxy` and umediaserver select and control them through the expected caps,
 properties, signals and bus messages. Front ends share the `mediaport`/`streaminfo` transport.
+NDL DirectMedia's first API, which has no GStreamer pipeline, reaches the same transport through
+stand-ins for LG's direct decoder and audio HALs ([media stand-ins](media-standins.md)).
 The cut is before vendor media kernel interfaces such as liblxv, MStar Utopia and Realtek RPC.
 
 

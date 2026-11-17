@@ -23,6 +23,10 @@
 # libdile_gal.so.1, the rootfs's pass-through to bsppart's libhalgal.so.2 (W17H's has 39
 # HAL_GAL_*; the surface is still 1056 bytes, the capability 76, whose last word, FBC support,
 # gm leaves 0 when the shim fills the 72 it knows: no frame-buffer compression).
+# libhal_vdec_direct.so.2 and libhal_audio_direct.so.2 (bsppart's, over liblxv and KADP; the
+# rootfs's libdile_vdec_direct and libdile_audio_direct NEED them, with bsppart's other names linked
+# to them): NDL DirectMedia's first API (W17H's only one) runs over them; the shims send both
+# streams to the host, as on K5LP (src/libhal_direct).
 #
 # Not built for M16P: libdile_vt. W17H's libdile_vt.so.0.1.0 is DILE_VT's newer interface (as
 # M14's), which the shim does not implement.
@@ -30,6 +34,10 @@ hal_stock = {
   'libhal_lg115x': ['libhal_lg115x.so.2', 'libhal_lg115x.so.2.0.1', [], 'bsppart'],
   'libdile_gal': ['libdile_gal.so.1', 'libdile_gal.so.1.0.2', []],
   'libhal_crypto': ['libhal_crypto.so.2', 'libhal_crypto.so.2.0.1', [], 'bsppart'],
+  'libhal_vdec_direct': ['libhal_vdec_direct.so.2', 'libhal_vdec_direct.so.2.0.1',
+                         ['libhal_vdec_direct.so', 'libhal_vdec_direct.so.0', 'libhal_vdec_direct.so.0.1.0'], 'bsppart'],
+  'libhal_audio_direct': ['libhal_audio_direct.so.2', 'libhal_audio_direct.so.2.0.1',
+                          ['libhal_audio_direct.so', 'libhal_audio_direct.so.0', 'libhal_audio_direct.so.0.1.0'], 'bsppart'],
 }
 # Where the media elements (guest/layers/soc/src/video) go: the stock plugins' directory, and which:
 # W17H's GStreamer is 1.8, and its LG elements are a decoder and a sink each (omx_lxvideodec and

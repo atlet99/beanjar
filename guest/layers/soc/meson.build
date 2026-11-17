@@ -30,6 +30,8 @@
 #   libhal_libs/     LM21's board HAL: the DVR key from the VM's store (hal-pvrkey.c)
 #   libaibsp/        O22's AI picture BSP for nn-proxy, with no NPU (every entry a no-op)
 #   libaibspLib/     O22's AI tone and scene services for pqcontroller, likewise
+#   libhal_direct/   the direct video decoder and audio output under DILE's direct libraries
+#                    (NDL DirectMedia's first API), to the host's media ports
 #   video/           the media elements under their stock names, in gst_plugin_dir (none if '')
 #
 # The board's I2C devices (the micom, the NVM EEPROM, the amplifier) are not here: they are in
@@ -115,6 +117,9 @@ endforeach
 video_layer_args = []
 if gst_plugin_dir != ''            # a chip without media elements has ''
   subdir('src/video')              # the chip's gst_elements
+endif
+if gst_plugin_dir != '' and ('libhal_vdec_direct' in hal_stock or 'libhal_audio_direct' in hal_stock)
+  subdir('src/libhal_direct')      # with the media elements' GLib
 endif
 
 soc_layer_args = []
