@@ -237,22 +237,59 @@ static long de_set_vtm(void __user *uarg)
     return copy_to_user(uarg, &r, sizeof(r)) ? -EFAULT : 0;
 }
 
+/* M17's DE firmware (chip_id > 4) answers what KADP writes into a window's request slot (2w)
+ * in its reply (2w + 1). Two writes reach the request alone, without an ioctl: HAL_VT's
+ * SetVideoFrameOutputDeviceOutputRegion (KADP_DE_CmdVTM 3) writes the new output size and location
+ * there, then waits for the reply's w_out_size and ext_location to match, and tvservice's capture
+ * refuses a frame whose property (the reply's) is not the region it set
+ * (_CAPTURE_VT_IsValidVfodRegion); KADP_DE_VTMFrameControl writes the freeze and the rate there.
+ * Both are applied here at the next DE call, as the firmware would at its next vsync: the region
+ * within what the frame buffers hold, the freeze as it is. M14's slot is request and reply in
+ * one. */
+static void de_apply_request(unsigned int w)
+{
+    struct lx_de_vtm *req = &de_vtm[2 * w], *reply = req + 1;
+    struct lx_de_rect out = READ_ONCE(req->w_out_size);
+
+    reply->frz = READ_ONCE(req->frz);
+    reply->ext_frz = READ_ONCE(req->ext_frz);
+    reply->rate = READ_ONCE(req->rate);
+    reply->ext_rate = READ_ONCE(req->ext_rate);
+    if (!out.w || !out.h)
+        return;
+    out.w = clamp_t(u16, out.w, de_capa.down_w, de_capa.vtm_max.w);
+    out.h = clamp_t(u16, out.h, de_capa.down_h, de_capa.vtm_max.h);
+    if (!memcmp(&out, &reply->w_out_size, sizeof(out)) &&
+        reply->ext_location == READ_ONCE(req->ext_location))
+        return;
+    reply->ext_location = READ_ONCE(req->ext_location);
+    reply->stride = ALIGN(out.w, 16);
+    reply->w_out_size = out;
+    reply->win_size = out;
+}
+
 /* The VT's capture of the video plane: on the TV the DE writes the scaled video into the frame
- * buffers until KADP freezes one (KADP_DE_VTMFrameControl sets the slot's frz in the mapped page,
- * no ioctl). The emulator has no video plane of its own, so a window's frozen frame is the
- * viewer's picture of the video (lgemu_capture_frame VIDEO, the same source as video60's), taken
- * at the first DE call after the freeze: HAL_VT reads the frozen frame's property through
- * KADP_DE_GetVTMStatus, whose GET_CAPACITY comes before tvservice maps the planes. Once a
- * freeze; no viewer, or no video in it, leaves the frame black. */
+ * buffers until KADP freezes one (KADP_DE_VTMFrameControl sets frz in the mapped page, no ioctl:
+ * M14's slot, M17's request slot). The emulator has no video plane of its own, so a window's
+ * frozen frame is the viewer's picture of the video (lgemu_capture_frame VIDEO, the same source
+ * as video60's), taken at the first DE call after the freeze: HAL_VT reads the frozen frame's
+ * property through KADP_DE_GetVTMStatus, whose GET_CAPACITY comes before tvservice maps the planes
+ * (M14), or waits a vsync with GET_VTM (M17). Once a freeze; no viewer, or no video in it, leaves
+ * the frame black. */
 static void de_fill_frozen(void)
 {
     for (unsigned int w = 0; w < DE_WINS; w++) {
         struct lx_de_vtm *slot = &de_vtm[de_capa.chip_id > 4 ? 2 * w + 1 : w];
-        u32 i = READ_ONCE(slot->r_idx), width = slot->w_out_size.w & ~1u,
-            height = slot->w_out_size.h & ~1u, stride = slot->stride;
+        u32 i, width, height, stride;
         u8 *y;
         int err;
 
+        if (de_capa.chip_id > 4 && slot->enable)
+            de_apply_request(w);
+        i = READ_ONCE(slot->r_idx);
+        width = slot->w_out_size.w & ~1u;
+        height = slot->w_out_size.h & ~1u;
+        stride = slot->stride;
         if (!READ_ONCE(slot->frz) || !slot->enable) {
             de_filled[w] = false;
             continue;
@@ -355,7 +392,8 @@ static long de_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 /* KADP maps the VTM page at the address SET_VTM returned (the stock driver's DE_Mmap takes the
  * firmware windows of de_cfg_get_fcmem): read and written, KADP_DE_VTMFrameControl writes the
- * freeze and rate into the reply. tvservice's capture maps the frame buffers' planes after it. */
+ * freeze and rate into it (M17: the request slot). tvservice's capture maps the frame buffers'
+ * planes after it. */
 static int de_mmap(struct file *file, struct vm_area_struct *vma)
 {
     unsigned long frames = (de_base >> PAGE_SHIFT) + 1, size = vma->vm_end - vma->vm_start;
