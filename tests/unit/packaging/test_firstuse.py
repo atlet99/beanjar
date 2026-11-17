@@ -233,38 +233,112 @@ def test_subscription_matching_reply():
     process.wait.assert_called_once_with()
 
 
+HUB = "luna://com.webos.service.bus/signal/registerServiceCategory"
+
+
+def migrator_env(root, hub_replies, step=1, readiness=True):
+    """Stubs for emulator-data-migrator under EMULATOR_ROOT ROOT: a data-migrator binary with (or,
+    READINESS false, without) its surfacemanager readiness item; luna-send answers the hub's
+    method-list call with HUB_REPLIES in turn (the last one repeated) and logs every other call;
+    date advances STEP seconds per call; sleep returns at once."""
+    bin_dir, calls = root / "bin", root / "calls"
+    bin_dir.mkdir()
+    binary = root / "usr/sbin/data-migrator"
+    binary.parent.mkdir(parents=True)
+    item = b"/signal/registerServiceCategory\0" if readiness else b""
+    binary.write_bytes(b"\x7fELF\0" + item + b"showSpinner\0")
+    replies = root / "replies"
+    replies.write_text("\n".join(hub_replies) + "\n")
+    stubs = {
+        "luna-send": f"""case "$*" in
+*{HUB}*)
+\techo hub >> "{calls}"
+\thead -n 1 "{replies}"
+\t[ "$(wc -l < "{replies}")" -gt 1 ] && sed -i 1d "{replies}"
+\texit 0 ;;
+esac
+echo "luna-send $*" >> "{calls}"
+""",
+        "logger": f'echo "logger $*" >> "{calls}"\n',
+        "sleep": "exit 0\n",
+        "date": f'n=$(cat "{root}/now" 2>/dev/null || echo 1000)\necho $((n + {step})) > "{root}/now"\necho "$n"\n',
+    }
+    for name, body in stubs.items():
+        stub = bin_dir / name
+        stub.write_text("#!/bin/sh\n" + body)
+        stub.chmod(0o755)
+    stock = root / "etc/systemd/system/scripts/data-migrator.sh"
+    stock.parent.mkdir(parents=True)
+    stock.write_text(f'#!/bin/sh\necho "stock" >> "{calls}"\n')
+    stock.chmod(0o755)
+    return {"PATH": f"{bin_dir}:/usr/bin:/bin", "EMULATOR_ROOT": str(root)}, calls
+
+
 def test_data_migrator_first_boot(tmp_path):
     """Without platform_upgrade/version (a blank state), data-migrator.service records the
     version (writeVersion) and runs no /run, as FirstUse's boot does on a set; with it, the stock
-    script runs, untouched (a VM that keeps its state)."""
+    script runs, untouched (a VM that keeps its state). Both start only once the hub lists
+    surfacemanager's showSpinner and the list has stopped changing."""
     dropin = (
         LAYER / "etc/systemd/system/data-migrator.service.d/emulator-firstuse.conf"
     ).read_text()
     starts = [ln.partition("=")[2] for ln in dropin.splitlines() if ln.startswith("ExecStart=")]
     assert starts == ["", "/usr/sbin/emulator-data-migrator"]
     script = LAYER / "usr/sbin/emulator-data-migrator"
-    root = tmp_path
-    bin_dir, calls = root / "bin", root / "calls"
-    bin_dir.mkdir()
-    for name in ("luna-send", "logger"):
-        stub = bin_dir / name
-        stub.write_text(f'#!/bin/sh\necho "{name} $*" >> "{calls}"\n')
-        stub.chmod(0o755)
-    stock = root / "etc/systemd/system/scripts/data-migrator.sh"
-    stock.parent.mkdir(parents=True)
-    stock.write_text(f'#!/bin/sh\necho "stock" >> "{calls}"\n')
-    stock.chmod(0o755)
-    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "EMULATOR_ROOT": str(root)}
+    replies = ["{}", '{"/":["a"]}', '{"/":["a","showSpinner"]}', '{"/":["a","showSpinner","b"]}']
+    env, calls = migrator_env(tmp_path, replies)
 
     subprocess.run(["sh", str(script)], env=env, check=True)
     lines = calls.read_text().splitlines()
-    assert lines[0] == "luna-send -n 1 -f luna://com.webos.service.datamigrator/writeVersion {}"
-    assert lines[1].startswith("logger ")
+    # the list changes three times, then stays the same for two more polls
+    assert lines[:6] == ["hub"] * 6
+    assert lines[6].startswith("logger ") and "settled after" in lines[6]
+    assert lines[7] == "luna-send -n 1 -f luna://com.webos.service.datamigrator/writeVersion {}"
+    assert lines[8].startswith("logger ")
     assert "stock" not in lines
 
     calls.unlink()
-    version = root / "mnt/lg/cmn_data/platform_upgrade/version"
+    version = tmp_path / "mnt/lg/cmn_data/platform_upgrade/version"
     version.parent.mkdir(parents=True)
     version.write_text('{"previous_version":"11","current_version":"11"}')
     subprocess.run(["sh", str(script)], env=env, check=True)
-    assert calls.read_text().splitlines() == ["stock"]
+    lines = calls.read_text().splitlines()
+    assert lines[-1] == "stock"
+    assert "hub" in lines and "settled after" in lines[-2]
+
+
+def test_data_migrator_wait_times_out(tmp_path):
+    """A surfacemanager that never lists showSpinner (or a hub that answers {}) delays
+    data-migrator by the bounded wait only; then it starts as before."""
+    script = LAYER / "usr/sbin/emulator-data-migrator"
+    env, calls = migrator_env(tmp_path, ["{}"], step=10)
+    subprocess.run(["sh", str(script)], env=env, check=True)
+    lines = calls.read_text().splitlines()
+    polls = lines.count("hub")
+    assert 5 < polls <= 13
+    assert "not settled after 120 s" in lines[polls]
+    assert lines[polls + 1].endswith("/writeVersion {}")
+
+
+@pytest.mark.parametrize(
+    "readiness, replies, logged",
+    [
+        (False, ['{"/":["showSpinner"]}'], None),
+        (
+            True,
+            ['{"returnValue": false, "errorCode": 1, "errorText": "Invalid method"}'],
+            "refused",
+        ),
+    ],
+)
+def test_data_migrator_no_wait(tmp_path, readiness, replies, logged):
+    """A data-migrator without the readiness item, or a hub that refuses the method list, starts at
+    once: no polling beyond that one answer."""
+    script = LAYER / "usr/sbin/emulator-data-migrator"
+    env, calls = migrator_env(tmp_path, replies, readiness=readiness)
+    subprocess.run(["sh", str(script)], env=env, check=True)
+    lines = calls.read_text().splitlines()
+    assert lines.count("hub") == (1 if logged else 0)
+    if logged:
+        assert logged in lines[1]
+    assert any(ln.endswith("/writeVersion {}") for ln in lines)

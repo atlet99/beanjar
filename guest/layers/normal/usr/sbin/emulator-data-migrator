@@ -10,7 +10,49 @@
 # this, data-migrator took a blank state for an upgrade into the firmware's release (no_file for
 # both versions, case 4-3) and ran its migrations; webOS 11's familycare one resets the locks and
 # raises the Parental Controls alert.
+#
+# Either way, it first waits for surface-manager. data-migrator subscribes to the hub's list of
+# surfacemanager's methods, counts it ready once showSpinner is listed and never cancels that
+# subscription: each method registered after that frees its readiness monitor again, which crashes
+# it (SIGSEGV, and faultmanager's alert). Our VMs' slow surface-manager start made that common.
+# Wait until the list has showSpinner and stays the same for 2 s. A data-migrator without that
+# item, or a hub that refuses the call, skips the wait; after 2 minutes, go on anyway.
 ROOT=${EMULATOR_ROOT:-}
+WAIT=120
+
+surfacemanager_settled() {
+	deadline=$(($(date +%s) + WAIT))
+	last=
+	same=0
+	while [ "$(date +%s)" -lt "$deadline" ]; do
+		list=$(luna-send -n 1 -w 2000 luna://com.webos.service.bus/signal/registerServiceCategory \
+			'{"serviceName":"com.webos.surfacemanager","category":"/"}' 2>/dev/null)
+		case $list in
+		*'"returnValue": false'* | *'"returnValue":false'*) return 2 ;;
+		*'"showSpinner"'*)
+			if [ "$list" = "$last" ]; then
+				same=$((same + 1))
+				[ "$same" -ge 2 ] && return 0
+			else
+				same=0
+			fi
+			;;
+		esac
+		last=$list
+		sleep 1
+	done
+	return 1
+}
+
+if grep -q registerServiceCategory "$ROOT/usr/sbin/data-migrator" 2>/dev/null; then
+	start=$(date +%s)
+	surfacemanager_settled
+	case $? in
+	0) logger -s "[data-migrator] surfacemanager's methods settled after $(($(date +%s) - start)) s" ;;
+	2) logger -s "[data-migrator] the hub refused the method list of surfacemanager; not waiting" ;;
+	*) logger -s "[data-migrator] surfacemanager's methods not settled after ${WAIT} s; starting anyway" ;;
+	esac
+fi
 if [ -e "$ROOT/mnt/lg/cmn_data/platform_upgrade/version" ]; then
 	exec "$ROOT/etc/systemd/system/scripts/data-migrator.sh"
 fi
