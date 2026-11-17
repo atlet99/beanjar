@@ -1,1 +1,3 @@
 models = ["W17H"]
+# tv.capture's video frames: lg115x.ko's de0 fills the frozen VT frame from the viewer
+viewer_capture = true
