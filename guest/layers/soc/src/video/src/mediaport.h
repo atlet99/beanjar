@@ -1,14 +1,22 @@
 // SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 // SPDX-License-Identifier: GPL-2.0-or-later
 /* The sinks' end of a webos.media.<n> port (include/webos-media.h): one per sink pad, open from
- * READY->PAUSED to PAUSED->READY. See mediaport.c. */
+ * READY->PAUSED to PAUSED->READY. See mediaport.c. With MEDIAPORT_CORE only the part without
+ * GStreamer: the session on a clock of the writer's own. */
 #ifndef MEDIAPORT_H
 #define MEDIAPORT_H
+#include <glib.h>
+#ifndef MEDIAPORT_CORE
 #include <gst/gst.h>
 #include <gst/base/gstbasesink.h>
+#endif
 #include "../../../../../../include/webos-media.h"
 
 #define MEDIAPORT_API __attribute__((visibility("hidden")))
+
+/* The session's clock (webos_media_header.clock), in ns, at clk (the argument every call takes):
+ * a sink's pipeline clock; WEBOS_MEDIA_NONE without one. */
+typedef gint64 (*media_clock_fn)(gpointer clk);
 
 struct media_port {
     GMutex lock; /* one message at a time: streaming and state-change threads */
@@ -32,29 +40,46 @@ struct media_port {
     guint64 sent, dropped, bytes;
     gint64 bytes_per_second; /* raw audio's, from its caps; 0 otherwise */
     gint64 untimed_next;     /* sync off: where the next audio buffer starts, or NONE */
+    media_clock_fn clock;
 };
 
 MEDIAPORT_API void media_port_init(struct media_port *p);
 MEDIAPORT_API void media_port_clear(struct media_port *p);
-/* Takes a free port and sends OPEN. FALSE if none is free (the sink then plays as before,
- * dropping in real time). */
-MEDIAPORT_API gboolean media_port_start(struct media_port *p, GstElement *element, guint32 kind,
-                                        gint32 channel, guint32 pad);
-MEDIAPORT_API void media_port_stop(struct media_port *p, GstElement *element);
-MEDIAPORT_API void media_port_caps(struct media_port *p, GstElement *element, GstCaps *caps);
+/* Takes a free port and sends OPEN for the writer name, on clock. FALSE if none is free. */
+MEDIAPORT_API gboolean media_port_open(struct media_port *p, const char *name, guint32 kind,
+                                       gint32 channel, guint32 pad, media_clock_fn clock,
+                                       gpointer clk);
+MEDIAPORT_API void media_port_stop(struct media_port *p, gpointer clk);
+/* The stream's caps as a string (WEBOS_MEDIA_CAPS); raw audio's bytes a second, else 0. */
+MEDIAPORT_API void media_port_caps_string(struct media_port *p, gpointer clk, const char *caps,
+                                          gint64 bytes_per_second);
+/* One BUFFER, b and its bytes as they are; a video session that resynchronised waits for a
+ * keyframe. FALSE: dropped. */
+MEDIAPORT_API gboolean media_port_send(struct media_port *p, gpointer clk,
+                                       const struct webos_media_buffer *b, const void *data,
+                                       gsize size);
+MEDIAPORT_API void media_port_send_state(struct media_port *p, gpointer clk,
+                                         const struct webos_media_state *s);
+MEDIAPORT_API void media_port_event(struct media_port *p, gpointer clk, guint16 type);
+MEDIAPORT_API void media_port_set_flushing(struct media_port *p, gboolean flushing);
 /* Where the pictures go (webos_media_open.output); a change sends the session again. */
 MEDIAPORT_API void media_port_set_output(struct media_port *p, guint32 output);
 /* The channel (webos_media_open.channel) learnt after the start; a change sends the session again.
  */
 MEDIAPORT_API void media_port_set_channel(struct media_port *p, gint32 channel);
+
+#ifndef MEDIAPORT_CORE
+/* Takes a free port and sends OPEN. FALSE if none is free (the sink then plays as before,
+ * dropping in real time). */
+MEDIAPORT_API gboolean media_port_start(struct media_port *p, GstElement *element, guint32 kind,
+                                        gint32 channel, guint32 pad);
+MEDIAPORT_API void media_port_caps(struct media_port *p, GstElement *element, GstCaps *caps);
 /* A buffer, with its times turned into running time with the sink's segment. A sink whose sync
  * is off presents on arrival, as the stock sinks do then: video goes untimed, audio is stamped
  * from its arrival on, one buffer after the other. */
 MEDIAPORT_API void media_port_buffer(struct media_port *p, GstBaseSink *sink, GstBuffer *buf,
                                      guint32 flags);
 MEDIAPORT_API void media_port_state(struct media_port *p, GstElement *element, gboolean playing);
-MEDIAPORT_API void media_port_event(struct media_port *p, GstElement *element, guint16 type);
-MEDIAPORT_API void media_port_set_flushing(struct media_port *p, gboolean flushing);
 
 /* Decoding for the guest (include/webos-media.h): the session's pictures come back on the
  * port in format (WEBOS_MEDIA_NV12, WEBOS_MEDIA_YUY2). After media_port_start; drops whatever the
@@ -74,5 +99,6 @@ MEDIAPORT_API gboolean media_port_answers(struct media_port *p, guint32 input, g
                                           media_picture_fn fn, gpointer data);
 /* Signed running time of ts in segment (TIME format), WEBOS_MEDIA_NONE if not computable. */
 MEDIAPORT_API gint64 media_running_time(const GstSegment *segment, GstClockTime ts);
+#endif
 
 #endif

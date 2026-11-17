@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /* The sinks' end of the webos.media.<n> virtio-serial ports (include/webos-media.h).
  *
+ * Built with MEDIAPORT_CORE, it is the part without GStreamer (open, send, close: mediaport.h),
+ * for a writer that is not a sink: the HAL's direct decoders (guest/layers/soc/src/libhal_direct).
+ *
  * A sink pad takes the first free port when it starts. The port is nonblocking. Whether the
  * host end is connected is the port's POLLHUP (virtio_console reports the host's
  * VIRTIO_CONSOLE_PORT_OPEN; QEMU clears it while no viewer is on the chardev socket): without
@@ -50,11 +53,13 @@ static void control_unmap(struct media_shared *s)
     s->control_size = 0;
 }
 
+#ifndef MEDIAPORT_CORE
 static struct media_shared *shared_ref(struct media_shared *s)
 {
     g_atomic_int_inc(&s->ref);
     return s;
 }
+#endif
 
 static void shared_unref(struct media_shared *s)
 {
@@ -117,6 +122,7 @@ static int open_port(int *index)
     return -1;
 }
 
+#ifndef MEDIAPORT_CORE
 static gint64 pipeline_clock(GstElement *element)
 {
     GstClock *clock;
@@ -137,6 +143,18 @@ static gint64 pipeline_clock(GstElement *element)
     return now;
 }
 
+static gint64 element_clock(gpointer element)
+{
+    return pipeline_clock(element);
+}
+#endif
+
+/* The session's clock (webos_media_header.clock) at clk, the caller's: the pipeline's for a sink */
+static gint64 port_clock(struct media_port *p, gpointer clk)
+{
+    return p->clock ? p->clock(clk) : WEBOS_MEDIA_NONE;
+}
+
 static int host_gone(int fd)
 {
     struct pollfd pfd = {.fd = fd, .events = POLLOUT};
@@ -145,7 +163,7 @@ static int host_gone(int fd)
 
 /* Writes one message whole; with p->lock held. FALSE: dropped (no host, flushing before the
  * start of an abortable one, i.e. a buffer, or the host went away or stalled in the middle). */
-static gboolean send_locked(struct media_port *p, GstElement *element, guint16 type, const void *a,
+static gboolean send_locked(struct media_port *p, gpointer clk, guint16 type, const void *a,
                             size_t alen, const void *b, size_t blen, gboolean abortable)
 {
     struct webos_media_header h = {
@@ -157,7 +175,7 @@ static gboolean send_locked(struct media_port *p, GstElement *element, guint16 t
     struct iovec iov[3] = {{&h, sizeof h}, {(void *)a, alen}, {(void *)b, blen}};
     size_t total = sizeof h + alen + blen, done = 0;
     gint64 stalled_since = 0;
-    h.clock = pipeline_clock(element);
+    h.clock = port_clock(p, clk);
     h.mono = g_get_monotonic_time() * 1000;
     h.check = webos_media_check(&h);
     while (done < total) {
@@ -219,7 +237,7 @@ static gboolean send_locked(struct media_port *p, GstElement *element, guint16 t
 
 /* With p->lock held: is a host there to send to? Sends the session preamble first when it has
  * just (re)appeared. */
-static gboolean ready_locked(struct media_port *p, GstElement *element)
+static gboolean ready_locked(struct media_port *p, gpointer clk)
 {
     if (p->fd < 0)
         return FALSE;
@@ -234,19 +252,19 @@ static gboolean ready_locked(struct media_port *p, GstElement *element)
         gboolean again = p->sent > 0 || p->dropped > 0;
         p->host = TRUE;
         p->resync = FALSE;
-        if (!send_locked(p, element, WEBOS_MEDIA_OPEN, &p->open, sizeof p->open, NULL, 0, FALSE)) {
+        if (!send_locked(p, clk, WEBOS_MEDIA_OPEN, &p->open, sizeof p->open, NULL, 0, FALSE)) {
             p->resync = TRUE;
             return FALSE;
         }
         if (p->decode) {
             struct webos_media_decode d = {.format = p->decode,
                                            .flags = p->shared ? WEBOS_MEDIA_DECODE_SHARED : 0};
-            send_locked(p, element, WEBOS_MEDIA_DECODE, &d, sizeof d, NULL, 0, FALSE);
+            send_locked(p, clk, WEBOS_MEDIA_DECODE, &d, sizeof d, NULL, 0, FALSE);
         }
         if (p->caps)
-            send_locked(p, element, WEBOS_MEDIA_CAPS, p->caps, strlen(p->caps) + 1, NULL, 0, FALSE);
+            send_locked(p, clk, WEBOS_MEDIA_CAPS, p->caps, strlen(p->caps) + 1, NULL, 0, FALSE);
         if (p->have_state)
-            send_locked(p, element, WEBOS_MEDIA_STATE, &p->state, sizeof p->state, NULL, 0, FALSE);
+            send_locked(p, clk, WEBOS_MEDIA_STATE, &p->state, sizeof p->state, NULL, 0, FALSE);
         if (again && p->open.kind == WEBOS_MEDIA_VIDEO)
             p->need_keyframe = TRUE;
         syslog(LOG_INFO, "media-port %d: %s %s session to the host", p->index,
@@ -255,8 +273,8 @@ static gboolean ready_locked(struct media_port *p, GstElement *element)
     return TRUE;
 }
 
-gboolean media_port_start(struct media_port *p, GstElement *element, guint32 kind, gint32 channel,
-                          guint32 pad)
+gboolean media_port_open(struct media_port *p, const char *name, guint32 kind, gint32 channel,
+                         guint32 pad, media_clock_fn clock, gpointer clk)
 {
     shared_detach(p); /* before p->lock: a release takes the shared lock, then p->lock */
     g_mutex_lock(&p->lock);
@@ -265,7 +283,7 @@ gboolean media_port_start(struct media_port *p, GstElement *element, guint32 kin
     if (p->fd < 0) {
         g_mutex_unlock(&p->lock);
         syslog(LOG_WARNING, "media-port: no free %s<n> port for %s: its data is dropped",
-               WEBOS_MEDIA_PORT_NAME, GST_OBJECT_NAME(element));
+               WEBOS_MEDIA_PORT_NAME, name);
         return FALSE;
     }
     /* the pool, where the VM has it (include/webos-media.h, "The pool"): claimed for the port */
@@ -291,7 +309,8 @@ gboolean media_port_start(struct media_port *p, GstElement *element, guint32 kin
     p->open.pid = getpid();
     p->open.channel = channel;
     p->open.pad = pad;
-    g_strlcpy(p->open.element, GST_OBJECT_NAME(element), sizeof p->open.element);
+    g_strlcpy(p->open.element, name, sizeof p->open.element);
+    p->clock = clock;
     p->sequence = 0;
     p->host = FALSE;
     p->resync = TRUE;
@@ -301,20 +320,28 @@ gboolean media_port_start(struct media_port *p, GstElement *element, guint32 kin
     p->sent = p->dropped = p->bytes = 0;
     g_free(p->caps);
     p->caps = NULL;
-    ready_locked(p, element);
+    ready_locked(p, clk);
     g_mutex_unlock(&p->lock);
     syslog(LOG_INFO, "media-port %d: %s (%s, channel %d, pid %d)", p->index, p->open.element,
            kind == WEBOS_MEDIA_VIDEO ? "video" : "audio", channel, (int)p->open.pid);
     return TRUE;
 }
 
-void media_port_stop(struct media_port *p, GstElement *element)
+#ifndef MEDIAPORT_CORE
+gboolean media_port_start(struct media_port *p, GstElement *element, guint32 kind, gint32 channel,
+                          guint32 pad)
+{
+    return media_port_open(p, GST_OBJECT_NAME(element), kind, channel, pad, element_clock, element);
+}
+#endif
+
+void media_port_stop(struct media_port *p, gpointer clk)
 {
     shared_detach(p); /* before p->lock: a release takes the shared lock, then p->lock */
     g_mutex_lock(&p->lock);
     if (p->fd >= 0) {
-        if (ready_locked(p, element))
-            send_locked(p, element, WEBOS_MEDIA_CLOSE, NULL, 0, NULL, 0, FALSE);
+        if (ready_locked(p, clk))
+            send_locked(p, clk, WEBOS_MEDIA_CLOSE, NULL, 0, NULL, 0, FALSE);
         syslog(LOG_INFO,
                "media-port %d: %s closed: %" G_GUINT64_FORMAT " messages, %" G_GUINT64_FORMAT
                " bytes sent, %" G_GUINT64_FORMAT " dropped",
@@ -355,6 +382,74 @@ void media_port_set_channel(struct media_port *p, gint32 channel)
     g_mutex_unlock(&p->lock);
 }
 
+void media_port_caps_string(struct media_port *p, gpointer clk, const char *caps,
+                            gint64 bytes_per_second)
+{
+    g_mutex_lock(&p->lock);
+    if (p->caps && !strcmp(p->caps, caps)) {
+        g_mutex_unlock(&p->lock);
+        return;
+    }
+    g_free(p->caps);
+    /* not g_strdup: the targets' GLib link sets (guest/targets/facts) have g_new0 and g_strlcpy */
+    gsize n = strlen(caps) + 1;
+    p->caps = g_new0(gchar, n);
+    g_strlcpy(p->caps, caps, n);
+    p->bytes_per_second = bytes_per_second;
+    if (ready_locked(p, clk))
+        send_locked(p, clk, WEBOS_MEDIA_CAPS, p->caps, strlen(p->caps) + 1, NULL, 0, FALSE);
+    g_mutex_unlock(&p->lock);
+}
+
+gboolean media_port_send(struct media_port *p, gpointer clk, const struct webos_media_buffer *b,
+                         const void *data, gsize size)
+{
+    gboolean sent;
+    g_mutex_lock(&p->lock);
+    if (!ready_locked(p, clk)) {
+        p->dropped++;
+        g_mutex_unlock(&p->lock);
+        return FALSE;
+    }
+    if (p->need_keyframe) {
+        if (!(b->flags & WEBOS_MEDIA_KEYFRAME) && p->dropped % KEYFRAME_WAIT != KEYFRAME_WAIT - 1) {
+            p->dropped++;
+            g_mutex_unlock(&p->lock);
+            return FALSE;
+        }
+        p->need_keyframe = FALSE;
+    }
+    sent = send_locked(p, clk, WEBOS_MEDIA_BUFFER, b, sizeof *b, data, size, TRUE);
+    g_mutex_unlock(&p->lock);
+    return sent;
+}
+
+void media_port_send_state(struct media_port *p, gpointer clk, const struct webos_media_state *s)
+{
+    g_mutex_lock(&p->lock);
+    p->state = *s;
+    p->have_state = TRUE;
+    if (ready_locked(p, clk))
+        send_locked(p, clk, WEBOS_MEDIA_STATE, s, sizeof *s, NULL, 0, FALSE);
+    g_mutex_unlock(&p->lock);
+}
+
+void media_port_event(struct media_port *p, gpointer clk, guint16 type)
+{
+    g_mutex_lock(&p->lock);
+    if (type == WEBOS_MEDIA_FLUSH)
+        p->untimed_next = WEBOS_MEDIA_NONE;
+    if (ready_locked(p, clk))
+        send_locked(p, clk, type, NULL, 0, NULL, 0, FALSE);
+    g_mutex_unlock(&p->lock);
+}
+
+void media_port_set_flushing(struct media_port *p, gboolean flushing)
+{
+    g_atomic_int_set(&p->flushing, flushing);
+}
+
+#ifndef MEDIAPORT_CORE
 /* Raw audio's bytes a second (its rate, channels and sample size), 0 for anything else. */
 static gint64 raw_audio_rate(GstCaps *caps)
 {
@@ -386,18 +481,8 @@ static gint64 raw_audio_rate(GstCaps *caps)
 void media_port_caps(struct media_port *p, GstElement *element, GstCaps *caps)
 {
     gchar *s = gst_caps_to_string(caps);
-    g_mutex_lock(&p->lock);
-    if (p->caps && !strcmp(p->caps, s)) {
-        g_mutex_unlock(&p->lock);
-        g_free(s);
-        return;
-    }
-    g_free(p->caps);
-    p->caps = s;
-    p->bytes_per_second = raw_audio_rate(caps);
-    if (ready_locked(p, element))
-        send_locked(p, element, WEBOS_MEDIA_CAPS, s, strlen(s) + 1, NULL, 0, FALSE);
-    g_mutex_unlock(&p->lock);
+    media_port_caps_string(p, element, s, raw_audio_rate(caps));
+    g_free(s);
 }
 
 gint64 media_running_time(const GstSegment *segment, GstClockTime ts)
@@ -479,25 +564,11 @@ void media_port_buffer(struct media_port *p, GstBaseSink *sink, GstBuffer *buf, 
         untimed_locked(p, sink, buf, &b);
     else
         p->untimed_next = WEBOS_MEDIA_NONE;
-    if (!ready_locked(p, GST_ELEMENT(sink))) {
-        p->dropped++;
-        g_mutex_unlock(&p->lock);
-        return;
-    }
-    if (p->need_keyframe) {
-        if (!(flags & WEBOS_MEDIA_KEYFRAME) && p->dropped % KEYFRAME_WAIT != KEYFRAME_WAIT - 1) {
-            p->dropped++;
-            g_mutex_unlock(&p->lock);
-            return;
-        }
-        p->need_keyframe = FALSE;
-    }
+    g_mutex_unlock(&p->lock);
     if (gst_buffer_map(buf, &map, GST_MAP_READ)) {
-        send_locked(p, GST_ELEMENT(sink), WEBOS_MEDIA_BUFFER, &b, sizeof b, map.data, map.size,
-                    TRUE);
+        media_port_send(p, sink, &b, map.data, map.size);
         gst_buffer_unmap(buf, &map);
     }
-    g_mutex_unlock(&p->lock);
 }
 
 void media_port_state(struct media_port *p, GstElement *element, gboolean playing)
@@ -520,21 +591,6 @@ void media_port_state(struct media_port *p, GstElement *element, gboolean playin
     if (ready_locked(p, element))
         send_locked(p, element, WEBOS_MEDIA_STATE, &s, sizeof s, NULL, 0, FALSE);
     g_mutex_unlock(&p->lock);
-}
-
-void media_port_event(struct media_port *p, GstElement *element, guint16 type)
-{
-    g_mutex_lock(&p->lock);
-    if (type == WEBOS_MEDIA_FLUSH)
-        p->untimed_next = WEBOS_MEDIA_NONE;
-    if (ready_locked(p, element))
-        send_locked(p, element, type, NULL, 0, NULL, 0, FALSE);
-    g_mutex_unlock(&p->lock);
-}
-
-void media_port_set_flushing(struct media_port *p, gboolean flushing)
-{
-    g_atomic_int_set(&p->flushing, flushing);
 }
 
 /* ---- decoding for the guest ---- */
@@ -909,3 +965,4 @@ gboolean media_port_answers(struct media_port *p, guint32 input, gint timeout_ms
             return TRUE;
     }
 }
+#endif
