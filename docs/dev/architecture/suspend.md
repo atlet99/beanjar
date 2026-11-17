@@ -89,7 +89,7 @@ restore. Decided instead:
   freezer and the devices' suspend follow, then `suspend_noirq`, where a latched key is delivered,
   and s2idle) and closes at its exit (`PM_POST_SUSPEND`). It used to open at the warm standby
   command, before the set's own pre-suspend work: on W18R's slow path regress then measured "CPU
-  in standby" over 9.3 s of that work at ~129 % (scratch/m3-flake-study.md), though the set did
+  in standby" over 9.3 s of that work at ~129 %, though the set did
   suspend and wake. `suspend_noirq` itself cannot open it: the pump is frozen by then.
 - **After resume, the micom model reports the wake reason** that tvservice reads (micom read `0x9A`,
   remote key).

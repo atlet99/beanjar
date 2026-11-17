@@ -2,15 +2,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /* libhal_libs.so for the emulator on MStar's LM21 family: the DVR's secure key.
  *
- * The recording middleware (DASY in legacy-broadcast, ts-record's aesInitKey) reads the DVR key
- * with the board HAL's HAL_PVR_CRYPTO_GetSecureKey(?, buf), which asks KADP for 16 bytes with
- * MAdp_Secure_GetSecureDataEMMC("/tmp/96B14BF8", buf, &len): factory data in the sedata and
- * sestore partitions that MStar's TEE decrypts on the TV. The VM has no MStar TEE, so the read
- * failed where a set's succeeds. On M2 and M3 the libkadaptor shim answers the KADP call
- * (src/libkadaptor/kadaptor-pvrkey.c); on LM21 KADP's file is libkadaptor.so itself, the name such
- * a shim would take, so the answer is given here, one level up: 0 and the 16 bytes of the VM's
- * store item "dvr_key" (host/core/beanjar/sestore.py), or -1, the stock failure, without it.
- * Every other symbol is the stock library's, which this one NEEDs by its full name. */
+ * The recording middleware reads the DVR's 16-byte key with HAL_PVR_CRYPTO_GetSecureKey(?, buf).
+ * On a set that read goes through MStar's TEE; the VM has no TEE, so the stock read fails. This
+ * definition answers it from the VM's secure-store item "dvr_key" (host/core/beanjar/sestore.py):
+ * 0 and the 16 bytes, or -1, the stock failure, without the item. Every other symbol is the stock
+ * library's, which this one NEEDs by its full name. On M2 and M3 the same key is given by
+ * src/libkadaptor/kadaptor-pvrkey.c. */
 #include <string.h>
 #include "../../../../../include/webos-sestore-items.h"
 #include "../sestore-item.h"

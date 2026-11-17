@@ -367,7 +367,7 @@ a step's `--timeout`, a standby CPU over `STANDBY_CPU`) gets a solo re-run (`--t
 before it counts; a failure that stays in the solo run counts.
 
 **bootd's timers under TCG.** bootd gives each boot signal a fixed wait and goes on without it
-when the wait ends (scratch/timed-gates-study.md, section 2): under TCG tvservice's `tv-ready`
+when the wait ends: under TCG tvservice's `tv-ready`
 came after the 30 s or 60 s wait only because the guest is slow. The launcher's
 `qemu.TIME_SCALE` (`kvm` 1, `tcg` 4) is the one factor for that. With `tcg`, the kernel cmdline
 gets `webos.time_scale=4`. /init then writes a `bootd.override` whose script exports
