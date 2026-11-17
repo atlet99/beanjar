@@ -61,6 +61,15 @@ WORDS = ["foo=1", "bar"]
 WRAP_ENV = ("GALLIUM_DRIVER", "NETNS_FWD", "NETNS_TAP", "NETSTUB_LOG", "NETSTUB_CA", "VM_ADDRESS")
 
 
+def without_dvr_key(snapshot):
+    """A secure-store snapshot minus its dvr_key item, which every webOS VM start adds (16 random
+    bytes, like ssg's), after checking its length."""
+    missing, items = snapshot
+    items = dict(items)
+    assert len(items.pop("dvr_key")) == 16
+    return missing, items
+
+
 def cases(top, fw):
     """(id, accel, environment) of each pinned command line."""
     bg = lambda r: {
@@ -648,7 +657,7 @@ class ArgvTest(unittest.TestCase):
     def test_capture_port(self):
         """webos.capture, the port the vendor module's video60 reads the viewer through, is on every
         target whose file sets v4l2_capture (the O22 family's, mullet to queue, not spacebuns;
-        Realtek's from K6LP; LM21's), and on W15M's for de0's VT frames (viewer_capture), on no
+        Realtek's from K6LP; LM21's), and on W15M's and W16R's for de0's VT frames (viewer_capture), on no
         other."""
         for target in (
             ("o22", "ombre"),
@@ -681,7 +690,7 @@ class ArgvTest(unittest.TestCase):
                 )
                 want = target[1] not in ("spacebuns", "goldilocks2", "dreadlocks2", "beehive")
                 self.assertEqual(targets.v4l2_capture(target), want)
-                port = want or target == ("m14", "beehive")
+                port = want or target in (("m14", "beehive"), ("m16p", "dreadlocks2"))
                 self.assertEqual(targets.viewer_capture(target), port)
                 self.assertEqual("name=webos.capture" in " ".join(p.argv), port)
 
@@ -1440,7 +1449,8 @@ class ArgvTest(unittest.TestCase):
         config.write_text('missing="fallback"\n[items]\n')
         p = launch()
         self.assertEqual(
-            store_snapshot(p.layer_dir), ("fallback", {"1D492999": sestore.DEFAULT_MODEL})
+            without_dvr_key(store_snapshot(p.layer_dir)),
+            ("fallback", {"1D492999": sestore.DEFAULT_MODEL}),
         )
 
         # A valid configured key supersedes even an invalid legacy source.
@@ -1452,7 +1462,7 @@ class ArgvTest(unittest.TestCase):
         )
         p = launch()
         self.assertEqual(
-            store_snapshot(p.layer_dir),
+            without_dvr_key(store_snapshot(p.layer_dir)),
             ("fallback", {"1D492999": value, "C1FFB834": b"dummy;key\0"}),
         )
         self.assertFalse((emulator / "youtube.key").exists())
@@ -1522,7 +1532,7 @@ class ArgvTest(unittest.TestCase):
         open(os.path.join(ident, "other"), "w").close()  # only what the layer is made of goes in
         launch()
         self.assertEqual(listing(), ["etc", "etc/emulator", "etc/emulator/sestore.bin"])
-        self.assertEqual(store_snapshot(layer), ("fallback", {"1D492999": KEY}))
+        self.assertEqual(without_dvr_key(store_snapshot(layer)), ("fallback", {"1D492999": KEY}))
         self.assertEqual(mode("etc/emulator/sestore.bin"), 0o600)
         for d in ("etc", "etc/emulator"):
             self.assertEqual(mode(d), 0o755)
