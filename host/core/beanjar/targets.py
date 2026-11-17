@@ -225,9 +225,14 @@ TVSERVICE = ("tvservice-dvb", "/mnt/lg/tvservice/lgapp/tvservice")
 # /dev/video60 (lgemu.ko's v4l2-capture.c, added by the chip's vendor module, CAPTURE_MODULES, with v4l2_capture=1),
 # which captureservice's BLENDED and VIDEO read: every LG-O target from mullet to queue, Realtek's from K6LP and
 # MStar's LM21 (libvtcapture's VtDriver, and queue's nyxScreenCapture.module, make the same calls as W24G ombre's client).
+# viewer_capture: the launcher's webos.capture port (the viewer's picture on demand, lgemu_capture_frame)
+# for a capture model other than video60, which has it anyway: M14's VT frame buffers (lg115x.ko's de0)
+# and W16R's DIP (the libkadaptor shim, through video60, so v4l2_capture there).
 # tested: False for a target that has never booted (its file's tested = false; absent: True).
 Target = namedtuple(
-    "Target", "models bring_up lg_scaler de_histogram v4l2_capture tested", defaults=(True,)
+    "Target",
+    "models bring_up lg_scaler de_histogram v4l2_capture viewer_capture tested",
+    defaults=(True,),
 )
 
 INIT_SYSTEMS = ("upstart", "systemd", "sysvinit")
@@ -618,6 +623,7 @@ TARGET_KEYS = {
     "lg_scaler": _ints(2),
     "de_histogram": _bool,
     "v4l2_capture": _bool,
+    "viewer_capture": _bool,
     "tested": _bool,
     "soc": lambda w, v: _table(w, v, SOC_KEYS),
     "release": lambda w, v: _table(w, v, RELEASE_KEYS),
@@ -733,6 +739,7 @@ def load(directory):
             t.get("lg_scaler"),
             t.get("de_histogram", False),
             t.get("v4l2_capture", False),
+            t.get("viewer_capture", False),
             t.get("tested", True),
         )
     for n in sorted(set(layouts) - used):
@@ -845,6 +852,14 @@ def v4l2_capture(target):
     """True for a target whose vendor module serves the V4L2 capture (its file's v4l2_capture):
     the module's video60 and the launcher's webos.capture port that feeds it."""
     return _target(target).v4l2_capture
+
+
+def viewer_capture(target):
+    """True for a target whose guest reads the viewer's picture on demand (the webos.capture port and
+    the guest's bridge to lgemu.ko): video60's (v4l2_capture) and the other capture models' (its file's
+    viewer_capture)."""
+    t = _target(target)
+    return t.v4l2_capture or t.viewer_capture
 
 
 def soc(target):
@@ -1306,7 +1321,7 @@ def validate_memory(target, derived=None, vm=None):
 
 def _target(target):
     """The target's Target (none of the flags for a target with no target file)."""
-    return TARGETS.get(tuple(target)) or Target((), (), None, False, False)
+    return TARGETS.get(tuple(target)) or Target((), (), None, False, False, False)
 
 
 def _lg_scaler(target):

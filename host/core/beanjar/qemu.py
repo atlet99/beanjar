@@ -941,9 +941,10 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
             "-device",
             "virtserialport,chardev=tuner,name=webos.tuner",
         ]
-    # the vendor module's video60 (targets.v4l2_capture) reads the active viewer's composed TV frame on
-    # demand over webos.capture; the guest's init starts its bridge (virtio-capture) where it is
-    if targets.v4l2_capture(p.target):
+    # the vendor module's video60 (targets.v4l2_capture) and the other capture models
+    # (targets.viewer_capture) read the active viewer's composed TV frame on demand over
+    # webos.capture; the guest's init starts its bridge (virtio-capture) where it is
+    if targets.viewer_capture(p.target):
         devices += [
             "-chardev",
             f"socket,id=capture,path={socks['CAPTURE_SOCK']},server=on,wait=off",

@@ -166,38 +166,11 @@ fail:
     return ret;
 }
 
-/* Limited-range BT.601, interleaved CbCr. Chroma is averaged over two
- * horizontal pixels (NV16) or a 2x2 block (NV12). No frame is invented when
- * the transport cannot provide RGBA. */
+/* No frame is invented when the transport cannot provide RGBA. */
 static void convert(struct capture_file *f, struct capture_buffer *b)
 {
-    u8 *y_plane = b->plane[0], *uv = b->plane[1];
-    unsigned int x, y, dy = f->format == CAP_NV12 ? 2 : 1;
-    for (y = 0; y < f->height; y++) {
-        const u8 *p = f->rgba + y * f->width * 4;
-        for (x = 0; x < f->width; x++, p += 4)
-            y_plane[y * f->width + x] = ((66 * p[0] + 129 * p[1] + 25 * p[2] + 128) >> 8) + 16;
-        if (!(y % dy)) {
-            for (x = 0; x < f->width; x += 2) {
-                unsigned int row, col;
-                int r = 0, g = 0, blue = 0;
-                for (row = 0; row < dy; row++) {
-                    p = f->rgba + ((y + row) * f->width + x) * 4;
-                    for (col = 0; col < 2; col++, p += 4) {
-                        r += p[0];
-                        g += p[1];
-                        blue += p[2];
-                    }
-                }
-                r /= 2 * dy;
-                g /= 2 * dy;
-                blue /= 2 * dy;
-                *uv++ = ((-38 * r - 74 * g + 112 * blue + 128) >> 8) + 128;
-                *uv++ = ((112 * r - 94 * g - 18 * blue + 128) >> 8) + 128;
-            }
-        }
-        cond_resched();
-    }
+    lgemu_capture_to_yc(f->rgba, f->width, f->height, b->plane[0], b->plane[1], f->width,
+                        f->format == CAP_NV12);
 }
 
 static int capture_frame(struct capture_file *f, unsigned int index)

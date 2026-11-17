@@ -214,6 +214,11 @@ void lgemu_video_window(unsigned int idx, const struct lgemu_video_window *w, u3
 /* Fresh host-rendered capture; only the active provider can satisfy it. */
 bool lgemu_capture_available(void);
 int lgemu_capture_frame(u32 mode, u32 width, u32 height, u8 *rgba);
+/* A capture's RGBA (width x height, packed) as semi-planar YCbCr, the luma at y_plane, the
+ * interleaved CbCr at uv_plane, both stride bytes a row: 4:2:0 (yc420) or 4:2:2. width and height
+ * even. */
+void lgemu_capture_to_yc(const u8 *rgba, u32 width, u32 height, u8 *y_plane, u8 *uv_plane,
+                         u32 stride, bool yc420);
 
 /* ---- the V4L2 capture node (v4l2-capture.c) ---- */
 

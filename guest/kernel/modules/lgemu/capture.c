@@ -8,6 +8,7 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/poll.h>
+#include <linux/sched.h>
 #include <linux/uaccess.h>
 #include <linux/wait.h>
 #include "lgemu.h"
@@ -68,6 +69,41 @@ int lgemu_capture_frame(u32 mode, u32 width, u32 height, u8 *rgba)
     return ret;
 }
 EXPORT_SYMBOL_GPL(lgemu_capture_frame);
+
+/* Limited-range BT.601, interleaved CbCr. Chroma is averaged over two horizontal pixels (4:2:2)
+ * or a 2x2 block (4:2:0). */
+void lgemu_capture_to_yc(const u8 *rgba, u32 width, u32 height, u8 *y_plane, u8 *uv_plane,
+                         u32 stride, bool yc420)
+{
+    unsigned int x, y, dy = yc420 ? 2 : 1;
+    for (y = 0; y < height; y++) {
+        const u8 *p = rgba + y * width * 4;
+        u8 *uv = uv_plane + y / dy * stride;
+        for (x = 0; x < width; x++, p += 4)
+            y_plane[y * stride + x] = ((66 * p[0] + 129 * p[1] + 25 * p[2] + 128) >> 8) + 16;
+        if (!(y % dy)) {
+            for (x = 0; x + 1 < width; x += 2) {
+                unsigned int row, col;
+                int r = 0, g = 0, blue = 0;
+                for (row = 0; row < dy; row++) {
+                    p = rgba + ((y + row) * width + x) * 4;
+                    for (col = 0; col < 2; col++, p += 4) {
+                        r += p[0];
+                        g += p[1];
+                        blue += p[2];
+                    }
+                }
+                r /= 2 * dy;
+                g /= 2 * dy;
+                blue /= 2 * dy;
+                *uv++ = ((-38 * r - 74 * g + 112 * blue + 128) >> 8) + 128;
+                *uv++ = ((112 * r - 94 * g - 18 * blue + 128) >> 8) + 128;
+            }
+        }
+        cond_resched();
+    }
+}
+EXPORT_SYMBOL_GPL(lgemu_capture_to_yc);
 
 static int capture_open(struct inode *inode, struct file *file)
 {

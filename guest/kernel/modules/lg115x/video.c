@@ -19,6 +19,7 @@
 #include <linux/timekeeping.h>
 #include "lgemu-drv.h"
 #include "lgemu-i2c.h"
+#include "../../../../include/webos-capture.h"
 
 #include "lg115x.h"
 
@@ -122,6 +123,9 @@ MODULE_PARM_DESC(de_panel, "LX_DE_PANEL_TYPE_T, the system status's display size
 static struct lx_de_capacity de_capa;
 static u32 de_base, de_size, de_frame_size;
 static struct lx_de_vtm *de_vtm; /* the VTM page: per window, the request and the reply */
+static u8 *de_frames;            /* the VT frame buffers, after the page */
+static u8 *de_rgba;              /* a viewer capture, converted into a frame buffer */
+static bool de_filled[DE_WINS];  /* the frozen frame was filled since the freeze */
 static u32 de_blocked[4];        /* SET_VTM_BLOCK_STATE, per window */
 /* what resource_mgr.c keeps and answers: the sub-window mode, each window's source size */
 static u32 de_sub_mode;
@@ -157,7 +161,7 @@ static unsigned int de_command(unsigned int cmd)
     return 0;
 }
 
-/* a frame buffer's planes: the luma at the buffer, the chroma (4:2:0, interleaved) after it */
+/* a frame buffer's planes: the luma at the buffer, the chroma (4:2:2, interleaved) after it */
 static u32 de_y_frame(unsigned int i)
 {
     return de_base + PAGE_SIZE + i * de_frame_size;
@@ -165,7 +169,7 @@ static u32 de_y_frame(unsigned int i)
 
 static u32 de_c_frame(unsigned int i)
 {
-    return de_y_frame(i) + de_frame_size * 2 / 3;
+    return de_y_frame(i) + de_frame_size / 2;
 }
 
 /* DE_IO_SetVTM: the stock driver keeps a copy of the request in its firmware's shared memory
@@ -174,9 +178,12 @@ static u32 de_c_frame(unsigned int i)
  * on M17, chip_id > 4, KADP reads window w's state from slot 2w + 1, the reply). M14's KADP
  * (chip_id 2) maps the page through /dev/mem and reads window w's state from slot w, one 112-byte
  * record a window (KADP_DE_SetVTM, KADP_DE_CmdVTM): the reply alone, no request copy. Here the
- * reply is written at once: the frame buffers' addresses (in de_mem, which nothing backs: tvservice
- * maps them through its own /dev/mem, guest/layers/common/tvservice), a 4:2:0 semi-planar frame at
- * the requested output size, read index 0, no mute. */
+ * reply is written at once: the frame buffers' addresses (in de_mem, after the page, backed by de0:
+ * tvservice maps them through its /dev/mem, which hands de_mem to de0, hal-common/physmem.c), a
+ * 4:2:2 semi-planar frame at the requested output size, read index 0, no mute. 4:2:2 is
+ * LX_DE_SCALER_CSAMPLE_T 1, which HAL_VT reports as YUV422 semi-planar: the one YUV layout
+ * tvservice's capture converts (CAPTURE_ColorConv_FromYUV422SemiPlanar); 4:2:0 (0) it refuses as
+ * an unsupported pixel format, CAPTURE_ERROR_01. */
 static long de_set_vtm(void __user *uarg)
 {
     struct lx_de_vtm r, *req, *reply;
@@ -204,7 +211,7 @@ static long de_set_vtm(void __user *uarg)
         *reply = r;
         reply->address = de_base;
         reply->stride = ALIGN(w, 16);
-        reply->sampling = 0; /* LX_DE_SCALER_CSAMPLE_T 4:2:0 */
+        reply->sampling = 1; /* LX_DE_SCALER_CSAMPLE_T 4:2:2 */
         for (unsigned int i = 0; i < DE_VTM_BUFFERS; i++) {
             reply->y_frame[i] = de_y_frame(i);
             reply->c_frame[i] = de_c_frame(i);
@@ -230,6 +237,42 @@ static long de_set_vtm(void __user *uarg)
     return copy_to_user(uarg, &r, sizeof(r)) ? -EFAULT : 0;
 }
 
+/* The VT's capture of the video plane: on the TV the DE writes the scaled video into the frame
+ * buffers until KADP freezes one (KADP_DE_VTMFrameControl sets the slot's frz in the mapped page,
+ * no ioctl). The emulator has no video plane of its own, so a window's frozen frame is the
+ * viewer's picture of the video (lgemu_capture_frame VIDEO, the same source as video60's), taken
+ * at the first DE call after the freeze: HAL_VT reads the frozen frame's property through
+ * KADP_DE_GetVTMStatus, whose GET_CAPACITY comes before tvservice maps the planes. Once a
+ * freeze; no viewer, or no video in it, leaves the frame black. */
+static void de_fill_frozen(void)
+{
+    for (unsigned int w = 0; w < DE_WINS; w++) {
+        struct lx_de_vtm *slot = &de_vtm[de_capa.chip_id > 4 ? 2 * w + 1 : w];
+        u32 i = READ_ONCE(slot->r_idx), width = slot->w_out_size.w & ~1u,
+            height = slot->w_out_size.h & ~1u, stride = slot->stride;
+        u8 *y;
+        int err;
+
+        if (!READ_ONCE(slot->frz) || !slot->enable) {
+            de_filled[w] = false;
+            continue;
+        }
+        if (de_filled[w] || i >= DE_VTM_BUFFERS || !width || !height || stride < width ||
+            stride * height > de_frame_size / 2)
+            continue;
+        de_filled[w] = true;
+        y = de_frames + i * de_frame_size;
+        err = lgemu_capture_frame(WEBOS_CAPTURE_VIDEO, width, height, de_rgba);
+        if (err) {
+            pr_info_ratelimited("de: window %u's frozen frame: no video picture (%d)\n", w, err);
+            memset(y, 16, de_frame_size / 2);
+            memset(y + de_frame_size / 2, 128, de_frame_size / 2);
+            continue;
+        }
+        lgemu_capture_to_yc(de_rgba, width, height, y, y + de_frame_size / 2, stride, false);
+    }
+}
+
 static long de_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
     void __user *uarg = compat_ptr(arg);
@@ -241,6 +284,7 @@ static long de_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
     unsigned int i;
 
     mutex_lock(&de_lock);
+    de_fill_frozen();
     switch (de_command(cmd)) {
     case DE_IOR_GET_CAPACITY:
         ret = copy_to_user(uarg, &de_capa, sizeof(de_capa)) ? -EFAULT : 0;
@@ -311,15 +355,19 @@ static long de_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 /* KADP maps the VTM page at the address SET_VTM returned (the stock driver's DE_Mmap takes the
  * firmware windows of de_cfg_get_fcmem): read and written, KADP_DE_VTMFrameControl writes the
- * freeze and rate into the reply. */
+ * freeze and rate into the reply. tvservice's capture maps the frame buffers' planes after it. */
 static int de_mmap(struct file *file, struct vm_area_struct *vma)
 {
-    if (vma->vm_pgoff != de_base >> PAGE_SHIFT || vma->vm_end - vma->vm_start > PAGE_SIZE) {
-        pr_info("de: mmap of %#lx+%#lx is not the VTM page (%s)\n", vma->vm_pgoff << PAGE_SHIFT,
-                vma->vm_end - vma->vm_start, current->comm);
-        return -EINVAL;
-    }
-    return remap_vmalloc_range(vma, de_vtm, 0);
+    unsigned long frames = (de_base >> PAGE_SHIFT) + 1, size = vma->vm_end - vma->vm_start;
+
+    if (vma->vm_pgoff == de_base >> PAGE_SHIFT && size <= PAGE_SIZE)
+        return remap_vmalloc_range(vma, de_vtm, 0);
+    if (vma->vm_pgoff >= frames &&
+        ((vma->vm_pgoff - frames) << PAGE_SHIFT) + size <= DE_VTM_BUFFERS * de_frame_size)
+        return remap_vmalloc_range(vma, de_frames, vma->vm_pgoff - frames);
+    pr_info("de: mmap of %#lx+%#lx is not the VTM page or a frame (%s)\n",
+            vma->vm_pgoff << PAGE_SHIFT, size, current->comm);
+    return -EINVAL;
 }
 
 static int de_open(struct inode *inode, struct file *file)
@@ -343,6 +391,8 @@ void lx_de_remove(void)
         return;
     lgemu_cdev_del(&de_cdev);
     vfree(de_vtm);
+    vfree(de_frames);
+    vfree(de_rgba);
 }
 
 int lx_de_add(void)
@@ -395,22 +445,29 @@ int lx_de_add(void)
     }
     de_base = mem[0];
     de_size = mem[1];
-    /* a frame at the VT's largest size, luma and 4:2:0 chroma, rounded to whole pages */
-    de_frame_size = PAGE_ALIGN(ALIGN(c[11], 16) * c[12] * 3 / 2);
-    de_frame_size = ALIGN(de_frame_size, 3 * PAGE_SIZE); /* the chroma at 2/3, page-aligned */
+    /* a frame at the VT's largest size, luma and 4:2:2 chroma, each whole pages */
+    de_frame_size = 2 * PAGE_ALIGN(ALIGN(c[11], 16) * c[12]);
     if (PAGE_SIZE + DE_VTM_BUFFERS * (u64)de_frame_size > de_size) {
         pr_err("de: de_mem's %#x bytes hold no %u frames of %ux%u\n", de_size, DE_VTM_BUFFERS,
                c[11], c[12]);
         return -EINVAL;
     }
     de_vtm = vmalloc_user(PAGE_SIZE);
-    if (!de_vtm)
-        return -ENOMEM;
-    err = lgemu_cdev_add(&de_cdev, DE_MAJOR, 0, DE_MINORS, "de", &de_fops);
+    de_frames = vmalloc_user(DE_VTM_BUFFERS * de_frame_size);
+    de_rgba = vmalloc(c[11] * c[12] * 4);
+    err = de_vtm && de_frames && de_rgba ? 0 : -ENOMEM;
+    if (!err)
+        err = lgemu_cdev_add(&de_cdev, DE_MAJOR, 0, DE_MINORS, "de", &de_fops);
     if (err) {
         vfree(de_vtm);
+        vfree(de_frames);
+        vfree(de_rgba);
         return err;
     }
+    for (unsigned int i = 0; i < DE_VTM_BUFFERS; i++) /* black */
+        memset(de_frames + i * de_frame_size + de_frame_size / 2, 128, de_frame_size / 2);
+    for (unsigned int i = 0; i < DE_VTM_BUFFERS; i++)
+        memset(de_frames + i * de_frame_size, 16, de_frame_size / 2);
     pr_info("de: de0-%u, chip %u, VTM page %#x, %u frames of %ux%u from %#x\n", DE_MINORS - 1,
             de_capa.chip_id, de_base, DE_VTM_BUFFERS, c[11], c[12], de_y_frame(0));
     return 0;

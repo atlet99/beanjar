@@ -23,6 +23,7 @@ int physmem_open(int flags);
  * memory and the range lies in the graphics memory's (include/webos-gfx.h), else -1. */
 int physmem_gfx_fd(int fd, unsigned long long offset, size_t length);
 /* The display engine's /dev/lg/de0 for a mapping of fd at [offset, offset + length) when fd is the
- * physical memory and the range lies in the DE's VTM page (lg115x.ko's de_mem base), else -1. */
+ * physical memory and the range lies in the DE's memory (lg115x.ko's de_mem: the VTM page and the
+ * VT frame buffers), else -1. */
 int physmem_de_fd(int fd, unsigned long long offset, size_t length);
 #endif

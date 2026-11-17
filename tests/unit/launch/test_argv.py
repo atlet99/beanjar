@@ -648,7 +648,8 @@ class ArgvTest(unittest.TestCase):
     def test_capture_port(self):
         """webos.capture, the port the vendor module's video60 reads the viewer through, is on every
         target whose file sets v4l2_capture (the O22 family's, mullet to queue, not spacebuns;
-        Realtek's from K6LP; LM21's), and on no other."""
+        Realtek's from K6LP; LM21's), and on W15M's for de0's VT frames (viewer_capture), on no
+        other."""
         for target in (
             ("o22", "ombre"),
             ("o22n", "ombre"),
@@ -662,6 +663,7 @@ class ArgvTest(unittest.TestCase):
             ("k8hp", "ombre"),
             ("k5lp", "goldilocks2"),
             ("m16p", "dreadlocks2"),
+            ("m14", "beehive"),
         ):
             with (
                 self.subTest(target=target),
@@ -677,9 +679,11 @@ class ArgvTest(unittest.TestCase):
                     say=lambda _: None,
                     dry=True,
                 )
-                want = target[1] not in ("spacebuns", "goldilocks2", "dreadlocks2")
+                want = target[1] not in ("spacebuns", "goldilocks2", "dreadlocks2", "beehive")
                 self.assertEqual(targets.v4l2_capture(target), want)
-                self.assertEqual("name=webos.capture" in " ".join(p.argv), want)
+                port = want or target == ("m14", "beehive")
+                self.assertEqual(targets.viewer_capture(target), port)
+                self.assertEqual("name=webos.capture" in " ".join(p.argv), port)
 
     def test_layer_kernel_words(self):
         """The kernel words a guest layer carries (share.kernel_args: the soc layer's Qt EGLFS
@@ -789,7 +793,7 @@ class ArgvTest(unittest.TestCase):
                     dry=True,
                 )
                 self.assertEqual(
-                    "name=webos.capture" in " ".join(p.argv), targets.v4l2_capture(target)
+                    "name=webos.capture" in " ".join(p.argv), targets.viewer_capture(target)
                 )
                 # kernel words come from the layers (share.kernel_args), none here: not the chip's
                 self.assertNotIn(

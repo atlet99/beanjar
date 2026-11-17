@@ -147,9 +147,10 @@ static int is_physmem(int fd)
  *
  * M14's KADP (KADP_DE_SetVTM) maps the page whose address DE_IOW_SET_VTM returns through
  * /dev/mem, the DE firmware's shared memory on the TV; lg115x.ko's de0 is what backs it here (its
- * mmap of that page; M16P's KADP maps it through de0 itself). */
+ * mmap of that page; M16P's KADP maps it through de0 itself). The VT frame buffers after the page,
+ * which tvservice's capture maps through /dev/mem too, are de0's as well: it fills a frozen one. */
 static int de_fd = -1;
-static unsigned long long de_page = ~0ULL;
+static unsigned long long de_page = ~0ULL, de_size;
 static pthread_once_t de_once = PTHREAD_ONCE_INIT;
 
 static void de_open(void)
@@ -162,8 +163,10 @@ static void de_open(void)
         de_fd = __open64("/dev/lg/de0", O_RDWR | O_CLOEXEC);
         if (de_fd < 0)
             hal_log("physical memory: /dev/lg/de0: %s", strerror(errno));
-        else
+        else {
             de_page = base;
+            de_size = size;
+        }
     }
     fclose(f);
 }
@@ -173,7 +176,8 @@ int physmem_de_fd(int fd, unsigned long long offset, size_t length)
     if (!is_physmem(fd))
         return -1;
     pthread_once(&de_once, de_open);
-    if (de_fd < 0 || offset != de_page || length > 4096)
+    if (de_fd < 0 || offset < de_page || offset - de_page > de_size ||
+        length > de_size - (offset - de_page))
         return -1;
     return de_fd;
 }
