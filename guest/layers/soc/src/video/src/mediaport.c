@@ -83,6 +83,7 @@ void media_port_init(struct media_port *p)
     g_mutex_init(&p->lock);
     p->fd = -1;
     p->pool_fd = -1;
+    p->untimed_next = WEBOS_MEDIA_NONE;
 }
 
 void media_port_clear(struct media_port *p)
@@ -354,6 +355,34 @@ void media_port_set_channel(struct media_port *p, gint32 channel)
     g_mutex_unlock(&p->lock);
 }
 
+/* Raw audio's bytes a second (its rate, channels and sample size), 0 for anything else. */
+static gint64 raw_audio_rate(GstCaps *caps)
+{
+    const GstStructure *st = gst_caps_get_size(caps) ? gst_caps_get_structure(caps, 0) : NULL;
+    const gchar *format;
+    gint rate = 0, channels = 0, width;
+    if (!st || strcmp(gst_structure_get_name(st), "audio/x-raw") ||
+        !(format = gst_structure_get_string(st, "format")) ||
+        !gst_structure_get_int(st, "rate", &rate) ||
+        !gst_structure_get_int(st, "channels", &channels) || rate <= 0 || channels <= 0)
+        return 0;
+    if (g_str_has_prefix(format, "S8") || g_str_has_prefix(format, "U8"))
+        width = 1;
+    else if (g_str_has_prefix(format, "S16") || g_str_has_prefix(format, "U16"))
+        width = 2;
+    else if (g_str_has_prefix(format, "S24_32") || g_str_has_prefix(format, "U24_32") ||
+             g_str_has_prefix(format, "S32") || g_str_has_prefix(format, "U32") ||
+             g_str_has_prefix(format, "F32"))
+        width = 4;
+    else if (g_str_has_prefix(format, "S24") || g_str_has_prefix(format, "U24"))
+        width = 3;
+    else if (g_str_has_prefix(format, "F64"))
+        width = 8;
+    else
+        return 0;
+    return (gint64)rate * channels * width;
+}
+
 void media_port_caps(struct media_port *p, GstElement *element, GstCaps *caps)
 {
     gchar *s = gst_caps_to_string(caps);
@@ -365,6 +394,7 @@ void media_port_caps(struct media_port *p, GstElement *element, GstCaps *caps)
     }
     g_free(p->caps);
     p->caps = s;
+    p->bytes_per_second = raw_audio_rate(caps);
     if (ready_locked(p, element))
         send_locked(p, element, WEBOS_MEDIA_CAPS, s, strlen(s) + 1, NULL, 0, FALSE);
     g_mutex_unlock(&p->lock);
@@ -387,11 +417,41 @@ gint64 media_running_time(const GstSegment *segment, GstClockTime ts)
     return d + (gint64)segment->base;
 }
 
+/* A sink with sync off (LG's player factory turns it off on both sinks of NDL DirectMedia, whose
+ * apps pass timestamps in units of their own): the stock sinks then show a frame and play a sample
+ * as it comes. Video goes without a time, which the host shows at once. Audio, which the host
+ * places by time, starts at its arrival in running time and each buffer follows the one before,
+ * unless it comes later than that (an underrun). */
+static void untimed_locked(struct media_port *p, GstBaseSink *sink, GstBuffer *buf,
+                           struct webos_media_buffer *b)
+{
+    gint64 now = pipeline_clock(GST_ELEMENT(sink)), base, duration = WEBOS_MEDIA_NONE;
+    b->pts = b->dts = WEBOS_MEDIA_NONE;
+    if (p->open.kind != WEBOS_MEDIA_AUDIO)
+        return;
+    GST_OBJECT_LOCK(sink);
+    base = (gint64)GST_ELEMENT_CAST(sink)->base_time;
+    GST_OBJECT_UNLOCK(sink);
+    if (now == WEBOS_MEDIA_NONE) {
+        p->untimed_next = WEBOS_MEDIA_NONE;
+        return;
+    }
+    now -= base;
+    b->pts = p->untimed_next != WEBOS_MEDIA_NONE && p->untimed_next > now ? p->untimed_next : now;
+    if (p->bytes_per_second > 0)
+        duration = (gint64)gst_buffer_get_size(buf) * GST_SECOND / p->bytes_per_second;
+    else if (GST_BUFFER_DURATION_IS_VALID(buf))
+        duration = (gint64)GST_BUFFER_DURATION(buf);
+    b->duration = duration;
+    p->untimed_next = duration != WEBOS_MEDIA_NONE ? b->pts + duration : WEBOS_MEDIA_NONE;
+}
+
 void media_port_buffer(struct media_port *p, GstBaseSink *sink, GstBuffer *buf, guint32 flags)
 {
     struct webos_media_buffer b = {0};
     GstSegment segment;
     GstMapInfo map;
+    gboolean sync;
     GST_OBJECT_LOCK(sink);
     segment = sink->segment;
     GST_OBJECT_UNLOCK(sink);
@@ -410,7 +470,15 @@ void media_port_buffer(struct media_port *p, GstBaseSink *sink, GstBuffer *buf, 
     if (GST_BUFFER_FLAG_IS_SET(buf, GST_BUFFER_FLAG_DISCONT))
         flags |= WEBOS_MEDIA_DISCONT;
     b.flags = flags;
+    /* the sink's "sync", as gst_base_sink_get_sync reads it (not every firmware exports that) */
+    GST_OBJECT_LOCK(sink);
+    sync = sink->sync;
+    GST_OBJECT_UNLOCK(sink);
     g_mutex_lock(&p->lock);
+    if (!sync && !(flags & WEBOS_MEDIA_DECODE_ONLY))
+        untimed_locked(p, sink, buf, &b);
+    else
+        p->untimed_next = WEBOS_MEDIA_NONE;
     if (!ready_locked(p, GST_ELEMENT(sink))) {
         p->dropped++;
         g_mutex_unlock(&p->lock);
@@ -457,6 +525,8 @@ void media_port_state(struct media_port *p, GstElement *element, gboolean playin
 void media_port_event(struct media_port *p, GstElement *element, guint16 type)
 {
     g_mutex_lock(&p->lock);
+    if (type == WEBOS_MEDIA_FLUSH)
+        p->untimed_next = WEBOS_MEDIA_NONE;
     if (ready_locked(p, element))
         send_locked(p, element, type, NULL, 0, NULL, 0, FALSE);
     g_mutex_unlock(&p->lock);

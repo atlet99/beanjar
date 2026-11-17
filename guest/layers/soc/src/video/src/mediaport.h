@@ -30,6 +30,8 @@ struct media_port {
     guint64 shared_pictures, inline_pictures;
     guint64 reads; /* read(2) calls for its answers */
     guint64 sent, dropped, bytes;
+    gint64 bytes_per_second; /* raw audio's, from its caps; 0 otherwise */
+    gint64 untimed_next;     /* sync off: where the next audio buffer starts, or NONE */
 };
 
 MEDIAPORT_API void media_port_init(struct media_port *p);
@@ -45,7 +47,9 @@ MEDIAPORT_API void media_port_set_output(struct media_port *p, guint32 output);
 /* The channel (webos_media_open.channel) learnt after the start; a change sends the session again.
  */
 MEDIAPORT_API void media_port_set_channel(struct media_port *p, gint32 channel);
-/* A buffer, with its times turned into running time with the sink's segment. */
+/* A buffer, with its times turned into running time with the sink's segment. A sink whose sync
+ * is off presents on arrival, as the stock sinks do then: video goes untimed, audio is stamped
+ * from its arrival on, one buffer after the other. */
 MEDIAPORT_API void media_port_buffer(struct media_port *p, GstBaseSink *sink, GstBuffer *buf,
                                      guint32 flags);
 MEDIAPORT_API void media_port_state(struct media_port *p, GstElement *element, gboolean playing);

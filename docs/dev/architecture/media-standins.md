@@ -29,6 +29,11 @@ plugin or secure variant is replaced.
   in the stock load/seek completion path; completing a method call alone is insufficient.
 - Preserve a single pipeline clock owner and the applicable audio context. Forward timestamps
   and state to the shared media transport rather than inventing an independent video clock.
+- Honour a sink's `sync` set to false. LG's player factory sets it on both sinks of NDL
+  DirectMedia (with the video sink's `low-delay`), whose apps pass timestamps in units of their
+  own, and the stock sinks then show a frame and play a sample as it comes. The stand-ins send
+  such video untimed, which the host shows at once, and stamp such audio from its arrival on,
+  each buffer after the one before (`mediaport.c`).
 - Underrun signals and frame counters must reflect their implemented semantics; exposing a
   property is not evidence that a hardware event was reproduced.
 
