@@ -63,6 +63,12 @@ gl_vendor_stubs = []
 # wrapper; the gl layer puts Mesa's under that name on every chip.
 gl_vendor_gl = 'mali'
 gl_vendor_gl_needs = ['EGL', 'GLESv2', 'GLESv1_CM']
+# Mali's window configs (guest/layers/gl/src/egl-window-formats.c): W17H 06.10.65's
+# libmali.so.0.1 makes a config window-capable only if its format is one its own wl_mali server
+# advertises, RGBA8888, RGB565 and RGBA5551; its 8-8-8-0 configs are pbuffer and pixmap only. So
+# SDL 2.0.4's request without alpha gets RGBA8888 on the set, and video shows under its clear.
+# (m16plite's libmali is the same file; other chips' Mali builds were not read.)
+gl_vendor_window_rgba = [[8, 8, 8, 8], [5, 6, 5, 0], [5, 5, 5, 1]]
 
 # this chip's part of the soc layer, after its base's (guest/layers/soc/meson.build)
 soc_layer_trees += ['--tree', meson.current_source_dir() / 'rootfs', '.']

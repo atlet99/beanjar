@@ -17,7 +17,10 @@
 #   libwayland-server-compat.so.0               newer server API on top of the stock 1.0.3/1.1
 #                                               (webOS 1 and 2 only)
 #   lib<gl_vendor_gl>.so{,.0,.0.1}              the vendor's one GL library (m2: libmali): empty,
-#                                               NEEDing the Mesa libraries gl_vendor_gl_needs names
+#                                               NEEDing the Mesa libraries gl_vendor_gl_needs names;
+#                                               with gl_vendor_window_rgba (m16p) the vendor's
+#                                               window-config rule, also as libEGL.so{,.1,.1.4},
+#                                               and Mesa's libEGL as libEGL-mesa.so.1
 #   libegl-kms.so                               compositor only (LD_PRELOAD): window 0 -> KMS
 #   libstarfishsurface.so.0.0.0                 QtWebKit's shared surfaces on gbm/dmabuf
 #   libIMGegl.so*, libsrv_um.so*, libglslcompiler.so*   empty stubs
@@ -40,6 +43,12 @@ if gl_vendor_stubs.length() == 0 and gl_vendor_gl == '' and not get_variable('gl
   subdir_done()
 endif
 gl_built = true
+# gl_vendor_window_rgba (soc table): the formats the vendor's driver makes window configs of, as
+# [r, g, b, a] sizes; set, the vendor library (gl_vendor_gl) applies that rule to Mesa's configs.
+gl_window_rgba = get_variable('gl_vendor_window_rgba', [])
+if gl_window_rgba.length() > 0 and gl_vendor_gl == ''
+  error('gl_vendor_window_rgba needs gl_vendor_gl')
+endif
 # Native compositors own their DRM/GBM windows and stock output policy. Existing
 # profiles retain their adapter and Weston compatibility setup by default.
 gl_compositor_integration = get_variable('gl_compositor_integration', 'adapted')
@@ -117,12 +126,41 @@ if gl_vendor_gl != ''
     vendor_needs += mesa_lib / 'lib' + n + '.so'
   endforeach
   vendor_soname = get_variable('gl_vendor_gl_soname', '')
-  if vendor_soname != ''
-    vendor_needs += '-Wl,-soname,' + vendor_soname
+  if gl_window_rgba.length() == 0
+    if vendor_soname != ''
+      vendor_needs += '-Wl,-soname,' + vendor_soname
+    endif
+    pvr_stubs += {gl_vendor_gl: shared_library(gl_vendor_gl, 'src/pvr-stub.c',
+      link_args: ['-nostdlib', '-L' + mesa_lib, '-Wl,--no-as-needed'] + vendor_needs,
+      link_depends: mesa)}
+  else
+    # With the chip's gl_vendor_window_rgba: the vendor driver's window-config rule
+    # (src/egl-window-formats.c), and the library stands in for the vendor's libEGL wrappers too.
+    # Mesa's libEGL is NEEDed as libEGL-mesa.so.1, the SONAME of an empty library linked for
+    # that only (the layer ships Mesa's file under that name), as libEGL.so.1 is this library.
+    if vendor_soname != '' or 'EGL' not in gl_vendor_gl_needs
+      error('gl_vendor_window_rgba: needs EGL in gl_vendor_gl_needs and no gl_vendor_gl_soname')
+    endif
+    mesa_egl_name = shared_library('EGL-mesa', 'src/pvr-stub.c', soversion: '1',
+      link_args: ['-nostdlib'], build_by_default: false)
+    other_needs = []
+    foreach n : gl_vendor_gl_needs
+      if n != 'EGL'
+        other_needs += mesa_lib / 'lib' + n + '.so'
+      endif
+    endforeach
+    rgba = []
+    foreach f : gl_window_rgba
+      rgba += '{@0@,@1@,@2@,@3@}'.format(f[0], f[1], f[2], f[3])
+    endforeach
+    pvr_stubs += {gl_vendor_gl: shared_library(gl_vendor_gl, 'src/egl-window-formats.c',
+      dependencies: mesa_dep,
+      c_args: ['-fvisibility=hidden', '-DWINDOW_RGBA=' + ','.join(rgba)],
+      link_with: mesa_egl_name,
+      link_args: ['-Wl,--hash-style=both', '-Wl,-soname,libEGL.so.1', '-ldl',
+                  '-L' + mesa_lib, '-Wl,--no-as-needed'] + other_needs,
+      link_depends: mesa)}
   endif
-  pvr_stubs += {gl_vendor_gl: shared_library(gl_vendor_gl, 'src/pvr-stub.c',
-    link_args: ['-nostdlib', '-L' + mesa_lib, '-Wl,--no-as-needed'] + vendor_needs,
-    link_depends: mesa)}
 endif
 
 # ---- the layer ----
@@ -205,9 +243,15 @@ endif
 if gl_adapt_compositor
   links += {'libstarfishsurface.so.0.0.0': ['libstarfishsurface.so.0']}
 endif
+if gl_window_rgba.length() > 0
+  # every libEGL name but Mesa's own file is the vendor library (above), as on the set
+  vendor_file = 'lib' + gl_vendor_gl + '.so.0.1'
+  links += {'libEGL.so.1.0.0': ['libEGL-mesa.so.1'],
+            vendor_file: ['libEGL.so', 'libEGL.so.1', 'libEGL.so.1.4']}
+endif
 foreach n, lib : pvr_stubs
   gl_layer_args += ['--file', lib, L + 'lib' + n + '.so.0.1', '755']
-  links += {'lib' + n + '.so.0.1': ['lib' + n + '.so', 'lib' + n + '.so.0']}
+  links += {'lib' + n + '.so.0.1': links.get('lib' + n + '.so.0.1', []) + ['lib' + n + '.so', 'lib' + n + '.so.0']}
 endforeach
 foreach target, names : links
   foreach n : names

@@ -9,6 +9,7 @@ Spacebuns' stock Weston owns GBM and its output policy. The adapted samples
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -171,6 +172,19 @@ def check(layer, integration, build=None, target=None):
         dynamic = subprocess.check_output(["readelf", "-d", str(mali)], text=True)
         if "[libGLESv1_CM.so.1]" not in dynamic:
             raise ValueError("Mali stand-in lacks the GLES 1 provider libGLESv1_CM.so.1")
+    # With the vendor's window-config rule (gl_vendor_window_rgba) the vendor library is every
+    # libEGL name, and reaches Mesa's libEGL by its own name, never by libEGL.so.1 (itself).
+    egl = layer / "usr/lib/libEGL.so.1"
+    if egl.is_symlink() and not os.readlink(egl).startswith("libEGL."):
+        target = os.readlink(egl)
+        for name in ("libEGL.so", "libEGL.so.1.4"):
+            if os.readlink(layer / "usr/lib" / name) != target:
+                raise ValueError(f"{name} is not the vendor library {target}")
+        if not (layer / "usr/lib/libEGL-mesa.so.1").is_file():
+            raise ValueError("vendor libEGL without Mesa's libEGL-mesa.so.1")
+        dynamic = subprocess.check_output(["readelf", "-d", str(egl)], text=True)
+        if "[libEGL-mesa.so.1]" not in dynamic or "soname: [libEGL.so.1]" not in dynamic:
+            raise ValueError("vendor libEGL must be SONAME libEGL.so.1 NEEDing libEGL-mesa.so.1")
     print(f"{integration} compositor integration verified: {layer}")
 
 
