@@ -1524,6 +1524,7 @@ def guest_layer(p):
         try:
             if getattr(p, "target", None) and targets.release(p.target).ssg_key:
                 sestore.ensure_ssg(p.identity_dir)
+            sestore.ensure_dvr_key(p.identity_dir)  # read where the chip's KADP shim answers it
             store = sestore.effective(p.identity_dir)
             compiled = sestore.bundle(*store)
         except (sestore.Error, keys.Error) as error:

@@ -1326,8 +1326,9 @@ class Library:
     def renew_identity(self, name, out=None):
         """A new identity for a VM that is off: its state disks wiped (all of them, as wipe does,
         so no service keeps the old NDUID), then a new MAC (the library's prefix) and serial in
-        vm.toml, every key pair of identity/ and its VNC password made anew (beanjar/keys.py). The
-        model key, the user's authorized_keys and the library's CA are kept. Returns (vm, mac, serial)."""
+        vm.toml, every key pair of identity/ and its VNC password made anew (beanjar/keys.py), and its
+        DVR key (sestore.toml) dropped for the next start to make anew. The model key, the user's
+        authorized_keys and the library's CA are kept. Returns (vm, mac, serial)."""
         out = out or print
         vm = self.vm(name)
         if vm.alive():
@@ -1340,7 +1341,7 @@ class Library:
         vm.save_config(cfg)
         out(f"mac {mac}, serial {serial}")
         prepare_board_data(self, vm.dir, out)  # the new chip has the new serial
-        from . import keys
+        from . import keys, sestore
 
         try:
             made = vmidentity.renew_keys(
@@ -1349,7 +1350,8 @@ class Library:
             keys.ensure(
                 vm.identity_dir, address=vm.service_host()
             )  # an authorized_keys that was missing
-        except keys.Error as e:
+            sestore.drop_dvr_key(vm.identity_dir)  # the next start makes the new set's own
+        except (keys.Error, sestore.Error) as e:
             raise Error(str(e)) from None
         out(f"new keys in {vm.identity_dir}: {', '.join(made)}")
         pid = vm.vnc_pid()

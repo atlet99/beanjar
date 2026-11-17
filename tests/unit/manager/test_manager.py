@@ -992,6 +992,14 @@ class ManagerTest(unittest.TestCase):
             "another VM untouched",
         )
         self.assertIn("no VM named", self.cli("identity", "renew", "nope", ok=False))
+        # the DVR key is the set's own: a new identity drops it, its next start makes another
+        from beanjar import sestore
+
+        sestore.ensure_dvr_key(ident)
+        self.assertIn(sestore.DVR_KEY, sestore.load(ident)[1])
+        self.cli("identity", "renew", "tv1")
+        self.assertNotIn(sestore.DVR_KEY, sestore.load(ident)[1])
+        self.assertTrue(sestore.has_model(ident), "the model key kept")
 
     # ---------------------------------------------------------------- clone
     def clone_source(self, name="tv1"):
@@ -1005,6 +1013,9 @@ class ManagerTest(unittest.TestCase):
             f.write(model_key)
         self.cli("key", "model", name, "install", src)
         os.unlink(src)
+        from beanjar import sestore
+
+        sestore.ensure_dvr_key(os.path.join(vm_dir, "identity"))  # kept: the state's recordings
         state = os.path.join(vm_dir, "state")
         os.makedirs(state)
         for p in STATE_PARTS:

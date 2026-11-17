@@ -20,4 +20,9 @@
 
 /* YouTube (Cobalt) device authentication key, read by DILE_CRYPTO_YOUTUBE_ReadPrivKey. */
 #define SESTORE_ITEM_YOUTUBE "C1FFB834"
+
+/* The DVR's 16-byte secure key: an item of MStar's own secure data, which W16R's HAL reads with
+ * KADP's MAdp_Secure_GetSecureDataEMMC("/tmp/dvr_key"), not an LG store id; answered by the
+ * libkadaptor shim (guest/layers/soc/src/libkadaptor/kadaptor-pvrkey.c). */
+#define SESTORE_ITEM_DVR_KEY "dvr_key"
 #endif

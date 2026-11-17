@@ -295,6 +295,35 @@ class TestInputsTest:
         source.unlink()
         assert sestore.effective(self.identity) == ("error", {sestore.SSG: pem})
 
+    def test_dvr_key_made_once_kept_and_dropped_for_a_new_identity(self):
+        said = []
+        sestore.ensure_dvr_key(self.identity, warn=said.append)
+        assert len(said) == 1 and self.config.stat().st_mode & 0o777 == 0o600
+        key = sestore.load(self.identity)[1][sestore.DVR_KEY]
+        assert len(key) == sestore.DVR_KEY_BYTES
+        sestore.ensure_dvr_key(self.identity, warn=said.append)
+        assert sestore.load(self.identity)[1][sestore.DVR_KEY] == key and len(said) == 1
+        assert sestore.DVR_KEY in sestore.bundle(*sestore.effective(self.identity))[8:].decode(
+            "latin-1"
+        )
+        sestore.drop_dvr_key(self.identity)
+        assert sestore.DVR_KEY not in sestore.load(self.identity)[1]
+        sestore.ensure_dvr_key(self.identity)
+        assert sestore.load(self.identity)[1][sestore.DVR_KEY] != key
+
+    def test_dvr_key_leaves_explicit_inventories_and_checks_length(self):
+        self.write('missing="error"\n[items]\n')
+        sestore.ensure_dvr_key(self.identity)
+        assert sestore.load(self.identity) == ("error", {})
+        self.write('missing="error"\n[items]\n"dvr_key"={hex="00112233445566778899aabbccddeeff"}\n')
+        sestore.drop_dvr_key(self.identity)
+        assert sestore.load(self.identity)[1][sestore.DVR_KEY] == bytes.fromhex(
+            "00112233445566778899aabbccddeeff"
+        )
+        self.write('[items]\n"dvr_key"={hex="0011"}\n')
+        with pytest.raises(sestore.Error):
+            sestore.load(self.identity)
+
 
 class TestShimTest:
     @pytest.fixture(scope="class", autouse=True)

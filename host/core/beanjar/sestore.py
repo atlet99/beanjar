@@ -17,6 +17,9 @@ MODEL = "1D492999"
 MODELS = (MODEL, MODEL + "_a", MODEL + "_d", MODEL + "_r", "SDP_MODEL")
 SSG = "77D1DD90"
 YOUTUBE = "C1FFB834"
+# The DVR's secure key, MStar's sedata item (include/webos-sestore-items.h): 16 bytes.
+DVR_KEY = "dvr_key"
+DVR_KEY_BYTES = 16
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 MAX_BYTES = 65536
 MAX_ITEMS = 256
@@ -49,6 +52,30 @@ def ensure_ssg(identity, warn=None):
     _write(identity, data)
     if warn:
         warn("made a new second screen gateway key in sestore.toml")
+
+
+def ensure_dvr_key(identity, warn=None):
+    """The VM's own DVR key (DVR_KEY: 16 os.urandom bytes, hex in TOML), made when missing and kept;
+    an explicit inventory (missing = "error") is left as it is. On the TV it is factory data that
+    the TEE decrypts; without it, MStar's DVR middleware (tvservice's DASY) fails to start."""
+    missing, items = load(identity)
+    if missing == "error" or DVR_KEY in items:
+        return
+    data = document(identity) or {"missing": "fallback", "items": {}}
+    data.setdefault("items", {})[DVR_KEY] = {"hex": os.urandom(DVR_KEY_BYTES).hex()}
+    _write(identity, data)
+    if warn:
+        warn("made a new DVR key in sestore.toml")
+
+
+def drop_dvr_key(identity):
+    """A new identity's DVR key: the old one removed, so the next start makes another (an explicit
+    inventory, missing = "error", is left as it is)."""
+    data = document(identity)
+    if data is None or data.get("missing", "fallback") == "error":
+        return
+    if data.get("items", {}).pop(DVR_KEY, None) is not None:
+        _write(identity, data)
 
 
 def bundle(missing, items):
@@ -120,6 +147,9 @@ def validate_item(name, value):
     elif name == SSG:
         if not value or len(value) > 1999 or b"\0" in value:
             raise Error("expected nonempty PEM text, at most 1999 bytes, without NUL")
+    elif name == DVR_KEY:
+        if len(value) != DVR_KEY_BYTES:
+            raise Error(f"expected {DVR_KEY_BYTES} bytes")
     elif name == YOUTUBE:
         # Stock DILE replaces the last stored byte in its copied output with NUL.
         # The observed native OLED C2 record ends in LF; authored entries also use NUL.
