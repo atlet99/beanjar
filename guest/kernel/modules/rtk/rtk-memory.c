@@ -112,10 +112,59 @@ static int store_mmap(struct file *file, struct vm_area_struct *vma)
 static const struct file_operations store_fops = {.mmap = store_mmap};
 static struct file *store_file;
 
+/* A translated process (qemu-user, docs/dev/architecture/qemu-user-bridge.md, "Mappings a driver
+ * places itself"): qemu-arm reserves the whole 4 GiB guest space with PROT_NONE mappings, which
+ * MAP and ALLOC map over and an unmap puts back; natively nothing changes. */
+static bool translated(void)
+{
+    return current->mm->task_size > SZ_4G;
+}
+
+static bool reservation(struct vm_area_struct *vma)
+{
+    return vma_is_anonymous(vma) && !vma->anon_vma && (vma->vm_flags & VM_NORESERVE) &&
+           !(vma->vm_flags &
+             (VM_READ | VM_WRITE | VM_EXEC | VM_SHARED | VM_GROWSDOWN | VM_GROWSUP | VM_LOCKED));
+}
+
+/* whether nothing but (when translated) qemu's reservation is mapped in [start, end) */
+static bool range_free(unsigned long start, unsigned long end)
+{
+    struct mm_struct *mm = current->mm;
+    bool qemu = translated(), free = true;
+    struct vm_area_struct *vma;
+    VMA_ITERATOR(vmi, mm, start);
+
+    mmap_read_lock(mm);
+    for_each_vma_range(vmi, vma, end)
+    {
+        if (!qemu || !reservation(vma)) {
+            free = false;
+            break;
+        }
+    }
+    mmap_read_unlock(mm);
+    return free;
+}
+
 static unsigned long store_map(unsigned long va, unsigned long size, u64 pa)
 {
-    return vm_mmap(store_file, va, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED_NOREPLACE,
-                   pa);
+    unsigned long flags = MAP_SHARED | MAP_FIXED_NOREPLACE;
+
+    if (translated()) {
+        if (!range_free(va, va + size))
+            return -EEXIST;
+        flags = MAP_SHARED | MAP_FIXED;
+    }
+    return vm_mmap(store_file, va, size, PROT_READ | PROT_WRITE, flags, pa);
+}
+
+static void store_unmap(unsigned long va, unsigned long size)
+{
+    const unsigned long reserve = MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE;
+
+    if (!translated() || IS_ERR_VALUE(vm_mmap(NULL, va, size, PROT_NONE, reserve, 0)))
+        vm_munmap(va, size);
 }
 
 static u64 reg_pa(u32 addr)
@@ -342,24 +391,13 @@ static int auth_release(struct inode *inode, struct file *file)
 
     if (f->mm) {
         if (current->mm == f->mm)
-            vm_munmap(f->base + pli_rbus, rbus_size);
+            store_unmap(f->base + pli_rbus, rbus_size);
         mmdrop(f->mm);
     }
     blocks_release(file);
     bitmap_free(f->bitmap);
     kfree(f);
     return 0;
-}
-
-static bool range_free(unsigned long start, unsigned long end)
-{
-    struct mm_struct *mm = current->mm;
-    bool free;
-
-    mmap_read_lock(mm);
-    free = !find_vma_intersection(mm, start, end);
-    mmap_read_unlock(mm);
-    return free;
 }
 
 /* MAP: the first base whose PLI space (the two block windows and RBUS) is unused; RBUS mapped
@@ -386,7 +424,7 @@ static long auth_map(struct auth_file *f)
             break;
         }
         if (!IS_ERR_VALUE(got))
-            vm_munmap(got, rbus_size);
+            store_unmap(got, rbus_size);
     }
 out:
     mutex_unlock(&f->lock);
@@ -424,7 +462,7 @@ static long auth_alloc(struct file *file, struct auth_alloc32 *a)
                 bitmap_set(f->bitmap, at, pages);
                 va = cva;
             } else {
-                vm_munmap(cva, size);
+                store_unmap(cva, size);
             }
         }
     }
@@ -452,8 +490,8 @@ static long auth_free(struct file *file, unsigned long va)
 
     if (!b)
         return -EINVAL;
-    vm_munmap(va, b->size);
-    vm_munmap(va + pli_uncached, b->size);
+    store_unmap(va, b->size);
+    store_unmap(va + pli_uncached, b->size);
     mutex_lock(&f->lock);
     bitmap_clear(f->bitmap, (va - f->base) >> PAGE_SHIFT, (b->size + pli_pad) >> PAGE_SHIFT);
     mutex_unlock(&f->lock);

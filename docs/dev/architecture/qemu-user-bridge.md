@@ -182,6 +182,35 @@ launch, and `auto` fails the start where the host cannot run them natively:
 
 webOS and the test guest are allowed.
 
+## Mappings a driver places itself
+
+qemu-arm (64-bit host, 32-bit guest) reserves the whole 4 GiB guest address space at start with
+private, anonymous, `PROT_NONE`, `MAP_NORESERVE` mappings, and puts the guest's own mappings over
+them with `MAP_FIXED`; a guest unmap puts a reservation back. A mapping the guest makes with `mmap`
+on a device file goes through qemu, which tracks it. To the kernel, though, the whole space below
+4 GiB is taken, so a driver that picks an address and maps it from the kernel finds none free.
+
+Only rtk does that: Realtek's `/dev/auth` MAP looks for a free PLI base from `pli_base` up, maps
+the register window there and returns the base, and ALLOC maps blocks under it; KADP uses the
+addresses as returned and never calls `mmap` for them. Without room MAP returned 0 and KADP read
+its registers at `0 + pli_rbus` (W22H legacy-broadcast-arib in `pli_getPTS`, from about 50 s
+uptime). In a translated process (the mm's `task_size` is above 4 GiB, which a native 32-bit task's
+never is) rtk counts qemu's reservation as free: a mapping that is anonymous, private,
+`PROT_NONE`, `VM_NORESERVE` and never faulted (no anon_vma), so never one the guest has read or
+written. It maps over it with `MAP_FIXED` and unmaps by putting such a reservation back, so the
+next MAP finds the same base again, as natively.
+
+qemu does not learn of these mappings, which a guest `mmap` would need: KADP takes the address from
+the ioctl, so only a change to KADP or a preload duplicating the driver's placement could route it
+through qemu. What follows from that:
+- the windows are missing from the guest's emulated `/proc/self/maps` (another process reading
+  `/proc/<pid>/maps` sees them);
+- a system call that qemu checks itself (`lock_user`) fails with EFAULT on a buffer in them; ioctl,
+  read, write, readv and writev go to the kernel unchecked through the bridge;
+- qemu could map the guest's own over them only by placing a mapping there: its own `mmap`
+  placement starts at 0x40000000, above the bases MAP takes first, and its heap would have to grow
+  to `pli_base`; natively the kernel would refuse such a mapping instead.
+
 ## Tests
 
 `tests/integration/bridge` boots `build/Image` in qemu-system-aarch64 under full TCG, with a small
