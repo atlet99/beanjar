@@ -709,7 +709,8 @@ with `noMotionAutoOff` when its `addNoMotionAndNoOperationTimer` (5 minutes or l
 (`beanjar/tuner_stream.py`: RF 7, 14 and 33 with four virtual channels), which of them are mapped
 and what the set is tuned to; `beanjar io tuner NAME map RF...` and `unmap RF...|all` change the
 map, kept in the VM's state for its next starts. Only boards whose SoC data loads
-`dtv_soc` have the tuner (`targets.Soc.modules`; today `k7lp` and `k8lp`). Mapping a channel makes
+`dtv_soc` have the tuner (`targets.Soc.modules`; `k7lp`, `k8lp`, `k8lpn` but its number1, `k8lpn2`,
+`k24` ponytail and queue and `o22` ponytail and queue). Mapping a channel makes
 its transport stream with TSDuck and ffmpeg into the cache's `tuner/`: PAT, PMT, the ATSC PSIP
 tables (MGT, TVCT, RRT, STT, EIT-0 to 3 and their ETTs) and a test pattern with a tone, 5 Mbit/s,
 20 s, looped.
@@ -721,6 +722,14 @@ the `webos.tuner` virtio-serial port (`include/webos-tuner.h`). In the guest the
 `virtio-tuner` pump hands it to `dtv_soc.ko`, which makes `webos_tv`'s frontend lock on a mapped
 channel and feeds its four software demuxes; `/proc/dtv_soc` shows the map, the tune and the
 started section filters. The stock `legacy-broadcast` service runs unmodified above it.
+
+The picture and sound: `dtv_soc.ko` also has LG's video decoder node, `/dev/video20`, which reads
+the MPEG-2 headers of the demux's video decoder filter for the events that make legacy-broadcast
+lift its mute, and passes the decoder filters' packets and the PCRs to the same pump through
+`/dev/dtv-soc-av`. The pump sends each running decoder's stream as a session on a free
+`webos.media.<n>` port, timed on the PCR, and the media helper decodes it as it does an app's
+(`run/media-sessions.log` names them `tuner-vdec0` and `tuner-adec0`); the viewer shows the video in
+the scaler window connected to the decoder's VDEC port.
 
 The helper is a feeder that needs neither TSDuck nor ffmpeg when a feed serves it: a generator on
 another machine connected to `run/tuner-feed.sock`, which it tells the channels the map wants and
@@ -738,6 +747,7 @@ connection) and when `unmap` leaves nothing mapped; a VM started again is fed ag
 beanjar io tuner tv map 7 14 33
 beanjar io tuner tv --json
 tests/regress/tuner/run-scan.py tv        # an automatic scan by Luna: PASS or FAIL with numbers
+tests/regress/tuner/run-watch.py tv       # Live TV's picture and sound after it: PASS or FAIL
 beanjar io tuner rk-1/tv map 7 14 33   # made here, fed over ssh
 ```
 
