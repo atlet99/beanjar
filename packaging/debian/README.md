@@ -8,7 +8,9 @@ The native `beanjar` package contains the core, the viewer's native core (`libbe
 (`/usr/lib/beanjar/ffmpeg`, below), and recommends `beanjar-ui`.
 `beanjar-ui` (architecture all, `/usr/bin/beanjar-ui`) is the windows: `beanjar_ui`, its layouts
 (both GResource bundles), the desktop entry and the icon, over GTK 4 and libadwaita for Python.
-`beanjar-guest` contains the same ARM guest payload for arm64 and amd64 hosts.
+`beanjar-guest` contains the same ARM guest payload for arm64 and amd64 hosts, and the board
+definitions the host reads (`guest/targets`, in `/usr/share/beanjar/guest/targets`;
+[firmware targets](../../docs/dev/architecture/firmware-targets.md)).
 `beanjar-vnc` (`/usr/bin/beanjar-vnc`, `beanjar vnc start NAME`) serves a VM's TV picture
 over VNC with the viewer core of the same `beanjar` and neatvnc 1.0 with aml 1.0, which it carries
 in `/usr/lib/beanjar/neatvnc` (Debian trixie has only neatvnc 0.9.1), and its sound as Opus

@@ -409,9 +409,6 @@ class Tree:
                 return os.path.join(self.top, "helpers", *p[2:])
             if p == ("host", "scripts", "vm-launcher"):
                 return "/usr/libexec/beanjar/vm-launcher"
-            if p[:2] == ("guest", "targets"):
-                # the firmware target table (targets.py), the beanjar package's own
-                return os.path.join("/usr/share/beanjar/targets", *p[2:])
             if p[:2] == ("guest", "scripts"):
                 return os.path.join("/usr/share/beanjar/guest/scripts", *p[2:])
             if p[:3] == ("guest", "layers", "soc") and re.fullmatch(

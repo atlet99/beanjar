@@ -556,11 +556,6 @@ def stage_host(work, hp, arch, ident):
         copy(hp / relative, destination)
         if elf_arch(destination) != arch:
             raise SystemExit(f"wrong native artifact architecture: {relative}")
-    # the firmware target table targets.py loads at import (paths.Tree.src's guest/targets), without
-    # what only the guest build reads there (its meson.build, the targets' firmware facts)
-    copy(TOP / "guest/targets", host / "usr/share/beanjar/targets")
-    shutil.rmtree(host / "usr/share/beanjar/targets/facts", ignore_errors=True)
-    (host / "usr/share/beanjar/targets/meson.build").unlink(missing_ok=True)
     write(
         h / "installation.toml",
         installation_toml(version=ident["version"], commit=ident["commit"], architecture=arch),
@@ -726,6 +721,16 @@ def stage_x86_64(work, gp):
     return root
 
 
+def stage_targets(g):
+    """The board definitions, the target table targets.py loads at import (paths.Tree.src's
+    guest/targets), in g/targets: beanjar-guest's, so each guest build carries the definitions
+    that describe it. Without what only the guest build reads there (its meson.build, the
+    targets' firmware facts)."""
+    copy(TOP / "guest/targets", g / "targets")
+    shutil.rmtree(g / "targets/facts", ignore_errors=True)
+    (g / "targets/meson.build").unlink(missing_ok=True)
+
+
 def stage_guest(work, gp, stamp):
     """The beanjar-guest tree from the guest publish directory (and the guest's source-only files),
     with its installation.toml: the version its build lane stamped, never the host's."""
@@ -746,6 +751,7 @@ def stage_guest(work, gp, stamp):
     # each chip's board.cmdline and its boards for a broadcast standard (targets.Soc.broadcast_boards)
     for board in (TOP / "guest/layers/soc").glob("*/rootfs/etc/emulator/board*.cmdline"):
         copy(board, g / "boards" / board.parts[-5] / board.name)
+    stage_targets(g)
     write(
         g / "installation.toml",
         installation_toml(

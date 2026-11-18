@@ -34,8 +34,12 @@ wrong types, missing required keys, a `base` or partition map that does not exis
 
 The soc and release names are the layer directories' (`guest/layers/soc/<chip>`,
 `guest/layers/webos/<release>`). The table sits apart from `guest/layers/`: the host reads it,
-the guest never does, and the `beanjar` package ships it whole at `/usr/share/beanjar/targets`
-(`paths.Tree.src`), since every command needs it and a host-only install has no guest payload.
+the guest never does. It describes what the guest build produced for each board, so the
+`beanjar-guest` package ships it, at `/usr/share/beanjar/guest/targets` (`paths.Tree.src`), without
+`meson.build` and `facts/`, which only the guest build reads; a checkout reads `guest/targets`. A
+change the host must understand is a host-guest contract change (`packaging/identity.py`), like any
+other. Without the table `targets.py` still imports, and its first use is an error naming
+`beanjar-guest` (`targets.Missing`): no VM boots without the guest anyway.
 
 A row with `base` is the row it names with the keys it gives replaced whole: a list, a table such
 as `nvm` or `partitions`, or a module list is restated in full, never merged. A row without `base`
@@ -66,8 +70,8 @@ partmap = "o22-ponytail"
 
 A target that has never booted says `tested = false`; without the key a target is tested, and
 `tested = true` is refused as redundant. An untested target is built and shipped in
-`beanjar-guest` like any other, and the host learns of the flag from the target table the
-`beanjar` package ships, the same table that says the target exists. `scripts/regress` leaves an
+`beanjar-guest` like any other, and the host learns of the flag from the target table that
+package ships, the same table that says the target exists. `scripts/regress` leaves an
 untested target out of its default set and runs it only when named with `--target`, as it does a
 target whose models are all in `bring_up`. Creating or starting a VM of an untested target, from
 the CLI or the manager, prints `warning: <chip>-<release>: not tested yet: may not boot` and goes

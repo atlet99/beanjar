@@ -179,3 +179,59 @@ def test_tested_true_refused(malformed):
 def test_tested_wrong_type(malformed):
     path = malformed.edit("h13-afro.toml", "models = [", 'tested = "no"\nmodels = [')
     malformed.refused(path, "tested", "expected true or false")
+
+
+INSTALLED_TARGETS = "/usr/share/beanjar/guest/targets"
+
+
+def without_definitions(tmp_path, installed):
+    """A copy of the host core with no board definitions: a checkout without guest/targets, or an
+    installed beanjar (installation.toml beside core/) without beanjar-guest. Its PYTHONPATH."""
+    core = tmp_path / ("core" if installed else "host/core")
+    shutil.copytree(
+        TOP / "host/core/beanjar", core / "beanjar", ignore=shutil.ignore_patterns("__pycache__")
+    )
+    if installed:
+        (tmp_path / "installation.toml").write_text('version = "0.0.0"\n')
+    return str(core)
+
+
+@pytest.mark.parametrize("installed", [False, True])
+def test_missing_definitions(tmp_path, installed):
+    """Without board definitions the core still imports (beanjar --help runs), and the first use of
+    the table is an Error, a base.Error the CLI prints, saying what is missing: beanjar-guest for an
+    installed beanjar."""
+    import subprocess
+    import sys
+
+    if installed and os.path.exists(INSTALLED_TARGETS):
+        pytest.skip(f"{INSTALLED_TARGETS} is installed here")
+    env = dict(os.environ, PYTHONPATH=without_definitions(tmp_path, installed))
+    env.pop("PYTHONDONTWRITEBYTECODE", None)
+
+    def run(*args):
+        return subprocess.run(
+            [sys.executable, *args], env=env, cwd=tmp_path, capture_output=True, text=True
+        )
+
+    assert run("-m", "beanjar", "--help").returncode == 0
+    r = run(
+        "-c",
+        "from beanjar import base, targets\n"
+        "try:\n"
+        "    targets.of_firmware('W22O', 'queue')\n"
+        "except targets.Error as e:\n"
+        "    assert isinstance(e, base.Error)\n"
+        "    print(e)\n",
+    )
+    assert r.returncode == 0, r.stderr
+    where = INSTALLED_TARGETS if installed else str(tmp_path / "guest/targets")
+    what = (
+        "beanjar needs beanjar-guest of its host-guest contract installed"
+        if installed
+        else "the checkout has no guest/targets"
+    )
+    assert r.stdout == f"no board definitions at {where}: {what}\n"
+    r = run("-m", "beanjar.launch", "config", "TARGETS")
+    assert (r.returncode, r.stdout) == (1, "")
+    assert f"no board definitions at {where}: {what}" in r.stderr

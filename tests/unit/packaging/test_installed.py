@@ -38,10 +38,10 @@ def test_paths_and_prebuilt_probe(tmp_path):
         tree.src("guest/layers/soc/o22/rootfs/etc/emulator/board-arib.cmdline")
         == "/usr/share/beanjar/guest/boards/o22/board-arib.cmdline"
     )
-    # the target table, the beanjar package's (packaging/debian/build.py's stage_host)
+    # the board definitions, beanjar-guest's (packaging/debian/build.py's stage_targets)
     assert (
         tree.src("guest", "targets", "soc", "k8hp.toml")
-        == "/usr/share/beanjar/targets/soc/k8hp.toml"
+        == "/usr/share/beanjar/guest/targets/soc/k8hp.toml"
     )
     assert tree.src("host/helpers/network/tlsca.py") == str(root / "helpers/network/tlsca.py")
     assert tree.pkg_parent == str(root / "core")
@@ -416,3 +416,46 @@ def test_x86_64_kernel_refused_when_installed_without_its_package(tmp_path):
     assert vmsettings.guest_kernel_package_refusal("arm64", tree) is None
     with mock.patch("os.path.isfile", return_value=True):
         assert vmsettings.guest_kernel_package_refusal("x86-64", tree) is None
+
+
+def test_board_definitions_ship_with_the_guest(tmp_path):
+    """The board definitions are beanjar-guest's (/usr/share/beanjar/guest/targets, where
+    paths.Tree.src finds them), without what only the guest build reads (meson.build, facts/);
+    the beanjar package carries none."""
+    spec = importlib.util.spec_from_file_location("debian_build", TOP / "packaging/debian/build.py")
+    build = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build)
+    g = tmp_path / "beanjar-guest/usr/share/beanjar/guest"
+    build.stage_targets(g)
+    shipped = sorted(str(p.relative_to(g / "targets")) for p in (g / "targets").rglob("*.toml"))
+    source = TOP / "guest/targets"
+    assert shipped == sorted(
+        str(p.relative_to(source)) for p in source.rglob("*.toml") if p.parts[-2] != "facts"
+    )
+    assert "soc/k8hp.toml" in shipped
+    assert not (g / "targets/meson.build").exists()
+    assert not (g / "targets/facts").exists()
+
+    # the host package, staged from a stand-in publish directory (its native artifacts and prebuilt
+    # trees are not there, so only the source tree's files are copied): no board definitions
+    hp, arch = tmp_path / "publish", "amd64"
+    for program in ("ffmpeg", "neatvnc"):
+        (hp / program / "share/doc").mkdir(parents=True)
+    copy, sources = build.copy, []
+
+    def source_only(src, dst):
+        sources.append(src)
+        if not src.is_relative_to(hp):
+            copy(src, dst)
+
+    with (
+        mock.patch.object(build, "copy", side_effect=source_only),
+        mock.patch.object(build, "elf_arch", return_value=arch),
+        mock.patch.object(build, "vendor_tree", side_effect=lambda hp, p, a: (hp / p, {})),
+        mock.patch.object(build, "stage_libraries"),
+        mock.patch.object(build, "vendor_licence", return_value=""),
+    ):
+        host, _ = build.stage_host(tmp_path / "work", hp, arch, {"version": "1", "commit": "c"})
+    assert TOP / "host/core/beanjar" in sources
+    assert not any(src.is_relative_to(source) for src in sources)
+    assert not list(host.rglob("targets"))

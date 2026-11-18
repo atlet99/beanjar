@@ -28,7 +28,7 @@ import sys
 import tomllib
 from collections import namedtuple
 
-from . import memory, paths
+from . import base, memory, paths
 
 # The firmwares this tree boots, by the model code in their name (epk2extract's "..._DTV_<model>_...")
 # -> {release: chip}, from the target files' models. One board can ship several release families, so a firmware's target is
@@ -248,7 +248,8 @@ class Error(Exception):
 
 
 # ------------------------------------------------------------------------------------- the loader
-# Where the table is: guest/targets of the checkout, or the installed beanjar's copy.
+# Where the table is: guest/targets of the checkout, or beanjar-guest's copy
+# (/usr/share/beanjar/guest/targets: each guest build carries the definitions that describe it).
 TARGETS_DIR = paths.TREE.src("guest", "targets")
 
 
@@ -766,7 +767,57 @@ def name(target):
     return f"{target[0]}-{target[1]}"
 
 
-_table_now = load(TARGETS_DIR)
+class Missing(Error, base.Error):
+    """No board definitions: an installed beanjar has them from beanjar-guest, which it depends on
+    (no VM boots without it anyway), a checkout from its guest/targets. A targets.Error where one is
+    caught, and a base.Error, which the CLI prints as it is."""
+
+    def __init__(self, directory, installed):
+        if installed:
+            what = "beanjar needs beanjar-guest of its host-guest contract installed"
+        else:
+            what = "the checkout has no guest/targets"
+        super().__init__(f"no board definitions at {directory}: {what}")
+
+
+class _Absent:
+    """A table name where the definitions are missing: importing this module works, so what never
+    reads a board (--help, host management, the web and UI front pages) still runs; any use of the
+    table raises Missing."""
+
+    def __init__(self, directory, installed):
+        self._where = (directory, installed)
+
+    def _raise(self, *_):
+        raise Missing(*self._where)
+
+    __getitem__ = __iter__ = __contains__ = __len__ = __bool__ = _raise
+
+    def __getattr__(self, name):
+        self._raise()
+
+
+def _load_or_absent(directory, installed):
+    """load(directory), or, where it is not there, an _Absent for every name."""
+    if os.path.isdir(directory):
+        return load(directory)
+    absent = _Absent(directory, installed)
+    return dict.fromkeys(
+        (
+            "MODELS",
+            "BRING_UP",
+            "SOCS",
+            "RELEASES",
+            "TARGET_SOCS",
+            "TARGET_RELEASES",
+            "TARGETS",
+            "WEBOS_ORDER",
+        ),
+        absent,
+    )
+
+
+_table_now = _load_or_absent(TARGETS_DIR, paths.TREE.installed)
 MODELS = _table_now["MODELS"]
 BRING_UP = _table_now["BRING_UP"]
 SOCS = _table_now["SOCS"]
