@@ -149,7 +149,9 @@ def manifest_target(manifest):
     if not isinstance(chip, str) or not isinstance(release, str):
         raise ValueError("no chip and release")
     if not targets.supported((chip, release)):
-        raise ValueError(f"{chip}-{release} is not a target this tree boots")
+        raise ValueError(
+            f"{chip}-{release} firmware might be unsupported: no board definition covers it"
+        )
     return chip, release
 
 

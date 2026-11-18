@@ -1898,7 +1898,7 @@ class ArgvTest(unittest.TestCase):
             (f'name = "{FW_NAME}"\nchip = "WT1H"\n', "manifest.toml: no chip and release"),
             (
                 f'name = "{FW_NAME}"\nchip = "k6hp"\nrelease = "qilian"\n',
-                "k6hp-qilian is not a target this tree boots",
+                "k6hp-qilian firmware might be unsupported: no board definition covers it",
             ),
             (f'name = "{FW_NAME}"\nchip = "h13"\nrelease = 1\n', "no chip and release"),
             (f'name = "{FW_NAME}"\nchip = "h13"\nmajor = 1\n', "no chip and release"),
