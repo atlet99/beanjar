@@ -15,8 +15,18 @@
  * table on demux0 with DMX_SET_BUFFER_SIZE, DMX_SET_FILTER with DMX_CHECK_CRC |
  * DMX_IMMEDIATE_START, and epoll). Every demux gets frontend 0's stream.
  *
+ * The decoders' input: the demuxes' decoder filters (DMX_OUT_DECODER: the PCR, video and audio
+ * PES filters of the channel being watched) are the SoC's path to its decoders, which the DVB core
+ * hands to write_to_decoder. Here the video filter's packets go through the video decoder's node
+ * (vdec.c, /dev/video20), which reads their headers for its events, and on to the host, as do the
+ * audio filters' and the PCRs: all as records of /dev/dtv-soc-av (include/webos-tuner.h), which
+ * the initramfs's pump sends to the host's media decoder. A video filter's packets go while the
+ * video decoder streams; an audio filter's while it is started (the audio decoder, LG's ALSA
+ * "Adec" controls, is not ours: the stream says its codec).
+ *
  * /proc/dtv_soc says the map, the tune and what came: frames, packets fed, packets dropped (not
- * of the tuned frequency, or no signal there) and header resyncs. */
+ * of the tuned frequency, or no signal there) and header resyncs; the decoders' records. */
+#include <linux/kfifo.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
 #include <linux/poll.h>
@@ -26,12 +36,15 @@
 #include <linux/uaccess.h>
 #include <media/dmxdev.h>
 #include <media/dvb_demux.h>
+#include "../../../../include/webos-media.h"
 #include "../../../../include/webos-tuner.h"
+#include "dtv_soc.h"
 #include "webos_tv.h"
 
 #define DEMUX_MAX         4
 #define LOCK_TOLERANCE_HZ 1000000 /* channels are 6 MHz or more apart */
 #define FILTERS           32
+#define AV_FIFO           (2u << 20) /* about 8 s of the test channels' stream */
 
 static unsigned int demuxes = 4;
 module_param(demuxes, uint, 0444);
@@ -189,6 +202,12 @@ static unsigned long fed, dropped, frames, resyncs;
 static atomic_t feeds = ATOMIC_INIT(0);
 static unsigned long started; /* feeds (section filters, PES or TS) started */
 static u16 started_pids[8];   /* the PIDs of the last ones */
+/* the decoders' input, /dev/dtv-soc-av's records */
+static DEFINE_SPINLOCK(av_lock);
+static DECLARE_KFIFO_PTR(av_fifo, u8);
+static DECLARE_WAIT_QUEUE_HEAD(av_wait);
+static unsigned long av_records, av_lost, av_bytes;
+static bool av_made;
 
 static bool soc_signal(u32 freq, u32 delsys)
 {
@@ -366,10 +385,171 @@ static int stats_show(struct seq_file *m, void *v)
     seq_printf(m, "\n");
     spin_unlock_irqrestore(&state_lock, flags);
     seq_printf(m, "feeds %d\n", atomic_read(&feeds));
+    spin_lock_irqsave(&av_lock, flags);
+    seq_printf(m, "av records %lu bytes %lu lost %lu queued %u\n", av_records, av_bytes, av_lost,
+               kfifo_len(&av_fifo));
+    spin_unlock_irqrestore(&av_lock, flags);
+    vdec_show(m);
+    return 0;
+}
+
+/* ---- /dev/dtv-soc-av: the decoders' input ---- */
+
+void dtv_soc_av(u16 type, u8 kind, u8 decoder, u32 channel, u32 codec, const void *data, u32 len)
+{
+    struct webos_tuner_av h = {.magic = WEBOS_TUNER_AV_MAGIC,
+                               .type = type,
+                               .kind = kind,
+                               .decoder = decoder,
+                               .channel = channel,
+                               .codec = codec,
+                               .len = len};
+    unsigned long flags;
+
+    spin_lock_irqsave(&av_lock, flags);
+    if (kfifo_avail(&av_fifo) < sizeof(h) + len) {
+        av_lost++;
+    } else {
+        kfifo_in(&av_fifo, (const u8 *)&h, sizeof(h));
+        if (len)
+            kfifo_in(&av_fifo, (const u8 *)data, len);
+        av_records++;
+        av_bytes += len;
+    }
+    spin_unlock_irqrestore(&av_lock, flags);
+    wake_up_interruptible(&av_wait);
+}
+
+/* whole records, as many as fit */
+static ssize_t av_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
+{
+    static DEFINE_MUTEX(readers);
+    u8 *chunk;
+    size_t done = 0;
+    int err;
+
+    for (;;) {
+        if (!kfifo_is_empty(&av_fifo))
+            break;
+        if (file->f_flags & O_NONBLOCK)
+            return -EAGAIN;
+        err = wait_event_interruptible(av_wait, !kfifo_is_empty(&av_fifo));
+        if (err)
+            return err;
+    }
+    chunk = kmalloc(min_t(size_t, count, 256u << 10), GFP_KERNEL);
+    if (!chunk)
+        return -ENOMEM;
+    mutex_lock(&readers);
+    while (done < min_t(size_t, count, 256u << 10)) {
+        struct webos_tuner_av h;
+        unsigned long flags;
+        size_t need;
+
+        spin_lock_irqsave(&av_lock, flags);
+        if (kfifo_out_peek(&av_fifo, (u8 *)&h, sizeof(h)) != sizeof(h)) {
+            spin_unlock_irqrestore(&av_lock, flags);
+            break;
+        }
+        need = sizeof(h) + h.len;
+        if (done + need > min_t(size_t, count, 256u << 10)) {
+            spin_unlock_irqrestore(&av_lock, flags);
+            break;
+        }
+        if (kfifo_out(&av_fifo, chunk + done, need) != need) { /* cannot happen: written whole */
+            kfifo_reset_out(&av_fifo);
+            spin_unlock_irqrestore(&av_lock, flags);
+            break;
+        }
+        spin_unlock_irqrestore(&av_lock, flags);
+        done += need;
+    }
+    mutex_unlock(&readers);
+    if (!done)
+        err = count < sizeof(struct webos_tuner_av) ? -EINVAL : -EAGAIN;
+    else
+        err = copy_to_user(buf, chunk, done) ? -EFAULT : 0;
+    kfree(chunk);
+    return err ? err : done;
+}
+
+static __poll_t av_poll(struct file *file, poll_table *wait)
+{
+    poll_wait(file, &av_wait, wait);
+    return kfifo_is_empty(&av_fifo) ? 0 : EPOLLIN | EPOLLRDNORM;
+}
+
+static const struct file_operations av_fops = {
+    .owner = THIS_MODULE,
+    .read = av_read,
+    .poll = av_poll,
+    .llseek = noop_llseek,
+};
+
+static struct miscdevice av_misc = {
+    .minor = MISC_DYNAMIC_MINOR, .name = "dtv-soc-av", .fops = &av_fops, .mode = 0600};
+
+/* the audio decoders: index by the filter's pes_type (DMX_PES_AUDIO0..3) */
+static int audio_index(int pes_type)
+{
+    switch (pes_type) {
+    case DMX_PES_AUDIO0:
+        return 0;
+    case DMX_PES_AUDIO1:
+        return 1;
+    case DMX_PES_AUDIO2:
+        return 2;
+    case DMX_PES_AUDIO3:
+        return 3;
+    }
+    return -1;
+}
+
+static bool is_video(int pes_type)
+{
+    return pes_type == DMX_PES_VIDEO0;
+}
+
+static bool is_pcr(int pes_type)
+{
+    return pes_type == DMX_PES_PCR0;
+}
+
+static int write_to_decoder(struct dvb_demux_feed *feed, const u8 *pkt, size_t len)
+{
+    int a = audio_index(feed->pes_type);
+
+    if (len != 188)
+        return 0;
+    if (is_video(feed->pes_type)) {
+        int channel = vdec_packet(pkt);
+
+        if (channel >= 0)
+            dtv_soc_av(WEBOS_TUNER_AV_TS, WEBOS_MEDIA_VIDEO, 0, channel, 0, pkt, 188);
+    } else if (a >= 0) {
+        dtv_soc_av(WEBOS_TUNER_AV_TS, WEBOS_MEDIA_AUDIO, a, a, 0, pkt, 188);
+    } else if (is_pcr(feed->pes_type) && pkt[3] & 0x20 && pkt[4] >= 7 && pkt[5] & 0x10) {
+        const u8 *b = pkt + 6;
+        struct webos_tuner_pcr pcr = {
+            .pcr = ((u64)b[0] << 25 | b[1] << 17 | b[2] << 9 | b[3] << 1 | b[4] >> 7) * 300 +
+                   ((b[4] & 1) << 8 | b[5]),
+            .mono_ns = ktime_get_ns()};
+
+        dtv_soc_av(WEBOS_TUNER_AV_PCR, 0, 0, 0, 0, &pcr, sizeof(pcr));
+    }
     return 0;
 }
 
 /* ---- the demuxes ---- */
+
+/* an audio decoder filter starts or stops its decoder's stream */
+static void audio_feed(struct dvb_demux_feed *feed, u16 type)
+{
+    int a = audio_index(feed->pes_type);
+
+    if (feed->type == DMX_TYPE_TS && feed->ts_type & TS_DECODER && a >= 0)
+        dtv_soc_av(type, WEBOS_MEDIA_AUDIO, a, a, 0, NULL, 0);
+}
 
 static int start_feed(struct dvb_demux_feed *feed)
 {
@@ -379,12 +559,14 @@ static int start_feed(struct dvb_demux_feed *feed)
     spin_lock_irqsave(&state_lock, flags);
     started_pids[started++ % ARRAY_SIZE(started_pids)] = feed->pid;
     spin_unlock_irqrestore(&state_lock, flags);
+    audio_feed(feed, WEBOS_TUNER_AV_START);
     return 0;
 }
 
 static int stop_feed(struct dvb_demux_feed *feed)
 {
     atomic_dec(&feeds);
+    audio_feed(feed, WEBOS_TUNER_AV_STOP);
     return 0;
 }
 
@@ -393,6 +575,10 @@ static struct proc_dir_entry *proc;
 static void dtv_soc_cleanup(void)
 {
     proc_remove(proc);
+    vdec_exit();
+    if (av_made)
+        misc_deregister(&av_misc);
+    av_made = false;
     if (misc_made)
         misc_deregister(&soc_misc);
     if (adapter)
@@ -415,9 +601,13 @@ static int __init dtv_soc_init(void)
         pr_err("dtv_soc: demuxes=%u: 1 to %u\n", demuxes, DEMUX_MAX);
         return -EINVAL;
     }
+    err = kfifo_alloc(&av_fifo, AV_FIFO, GFP_KERNEL);
+    if (err)
+        return err;
     a = webos_tv_attach(&source);
     if (!a) {
         pr_err("dtv_soc: webos_tv has no adapter, or a source already\n");
+        kfifo_free(&av_fifo);
         return -ENODEV;
     }
     adapter = a;
@@ -429,6 +619,7 @@ static int __init dtv_soc_init(void)
         d->feednum = FILTERS;
         d->start_feed = start_feed;
         d->stop_feed = stop_feed;
+        d->write_to_decoder = write_to_decoder;
         d->dmx.capabilities = DMX_TS_FILTERING | DMX_SECTION_FILTERING;
         err = dvb_dmx_init(d);
         if (err)
@@ -447,18 +638,27 @@ static int __init dtv_soc_init(void)
     if (err)
         goto fail;
     misc_made = true;
+    err = misc_register(&av_misc);
+    if (err)
+        goto fail;
+    av_made = true;
+    err = vdec_init();
+    if (err)
+        goto fail;
     proc = proc_create_single("dtv_soc", 0444, NULL, stats_show);
     pr_info("dtv_soc: %u demux(es) on adapter %d, the signal from /dev/dtv-soc\n", demuxes,
             adapter->num);
     return 0;
 fail:
     dtv_soc_cleanup();
+    kfifo_free(&av_fifo);
     return err;
 }
 
 static void __exit dtv_soc_exit(void)
 {
     dtv_soc_cleanup();
+    kfifo_free(&av_fifo);
 }
 
 module_init(dtv_soc_init);

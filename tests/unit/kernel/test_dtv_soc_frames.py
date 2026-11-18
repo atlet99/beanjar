@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Compile dtv_soc.c's parser of the host's frames (include/webos-tuner.h) on the host and feed it
+"""Compile dtv_soc's (main.c) parser of the host's frames (include/webos-tuner.h) on the host and feed it
 what the host's tuner sends: a map, transport stream frames split at every byte boundary the
 pump may see, an empty map, and garbage before and between frames, which it skips a byte at a
 time. Packets come out whole, in order, with their frequency; the lock tolerance takes a tune
@@ -76,7 +76,7 @@ def packet(pid):
 
 @pytest.fixture(scope="module")
 def runner(tmp_path_factory):
-    source = (MODULE / "dtv_soc.c").read_text()
+    source = (MODULE / "main.c").read_text()
     start = source.index("/* ---- the host's frames ----")
     section = source[start : source.index("/* ---- end of the host's frames ---- */")]
     root = tmp_path_factory.mktemp("dtv_soc_frames")

@@ -4,8 +4,8 @@
 # built as webos_tv.ko is, against its exports, carried in the initramfs and loaded after it when
 # boot.conf's SOC_MODULES names it. Published as build/dtv_soc.ko too.
 dtv_soc_dir = kernel_root / 'dtv_soc'
-dtv_soc_inputs = kbuild + [files('Kbuild', 'dtv_soc.c'), webos_tv_h,
-                 files('../../../../include/webos-tuner.h')]
+dtv_soc_inputs = kbuild + [files('Kbuild', 'main.c', 'vdec.c', 'dtv_soc.h'), webos_tv_h,
+                 files('../../../../include/webos-tuner.h', '../../../../include/webos-media.h')]
 dtv_soc_ko = custom_target('dtv_soc',
   output: 'dtv_soc.ko',
   depfile: 'dtv_soc.ko.d',

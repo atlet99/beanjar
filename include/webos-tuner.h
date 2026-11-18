@@ -43,4 +43,37 @@ struct webos_tuner_channel {
 };
 _Static_assert(sizeof(struct webos_tuner_frame) == 16, "tuner wire header");
 _Static_assert(sizeof(struct webos_tuner_channel) == 8, "tuner wire channel");
+
+/* The decoders' input, inside the guest: what the demuxes hand the SoC's decoders (their
+ * DMX_OUT_DECODER PES filters), read from dtv_soc.ko's /dev/dtv-soc-av by the same pump, which
+ * sends each decoder's stream to the host's media decoder on a webos.media.<n> port
+ * (include/webos-media.h). Each read() returns whole records, a header and len bytes, in the
+ * guest's byte order:
+ *   WEBOS_TUNER_AV_START  a decoder starts: kind (WEBOS_MEDIA_VIDEO, WEBOS_MEDIA_AUDIO),
+ *                         decoder (its index of that kind), channel (video: the VDEC channel,
+ *                         the scaler's VDEC port; audio: the decoder's index), codec (video:
+ *                         the V4L2 fourcc the service set; audio: 0, the stream says)
+ *   WEBOS_TUNER_AV_TS     transport stream packets of that decoder's PID, len a multiple of 188
+ *   WEBOS_TUNER_AV_STOP   the decoder stops
+ *   WEBOS_TUNER_AV_PCR    a PCR of the PCR filter: struct webos_tuner_pcr; kind and decoder 0
+ * A record that does not fit is dropped (counted in /proc/dtv_soc), never a part of one. */
+#define WEBOS_TUNER_AV_MAGIC 0x56415457u /* "WTAV" */
+enum {
+    WEBOS_TUNER_AV_START = 1,
+    WEBOS_TUNER_AV_TS,
+    WEBOS_TUNER_AV_STOP,
+    WEBOS_TUNER_AV_PCR,
+};
+struct webos_tuner_av {
+    uint32_t magic;
+    uint16_t type;
+    uint8_t kind, decoder;
+    uint32_t channel, codec, len, reserved;
+};
+struct webos_tuner_pcr {
+    uint64_t pcr;     /* 27 MHz */
+    uint64_t mono_ns; /* CLOCK_MONOTONIC when its packet reached the demux */
+};
+_Static_assert(sizeof(struct webos_tuner_av) == 24, "tuner av record");
+_Static_assert(sizeof(struct webos_tuner_pcr) == 16, "tuner av pcr");
 #endif
