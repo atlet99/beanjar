@@ -1,0 +1,83 @@
+mesa: cap the OpenGL ES version at the emulated TV's.
+
+A guest app should find the OpenGL ES level of the TV model it runs on, not
+that of the host: an app asking a webOS 1 set (ES 3.0) or an M2 set (ES 2.0)
+for more must fail at context creation as it does on the set, though the
+host's GPU would give it more. The gl layer writes the TV's version to
+/usr/share/beanjar/gles-version ("2.0", "3.0", ...: its first line that is not
+a # comment; from the chip's firmware
+GL library); _mesa_get_version gives an ES 2+ context at most that version,
+and never more than the driver computes for this host, so a TV with a higher
+level than the host keeps the driver's own. Every process sees it, whatever
+its environment: a jailed or devmode app as well as the services.
+
+Everything follows ctx->Version: GL_VERSION and GL_SHADING_LANGUAGE_VERSION
+(GLSL ES 1.00 for ES 2.0, 3.00 for 3.0), the GLSL ES versions the compiler
+accepts, the screen's maximum ES version (EGL_OPENGL_ES3_BIT), and the
+version check of context creation, which refuses a higher client version
+(EGL_BAD_MATCH). Without the file nothing changes. MESA_GLES_VERSION_OVERRIDE
+still sets the version absolutely, as before.
+--- a/src/mesa/main/version.c
++++ b/src/mesa/main/version.c
+@@ -38,6 +38,47 @@
+ 
+ static simple_mtx_t override_lock = SIMPLE_MTX_INITIALIZER;
+ 
++/* The OpenGL ES version of the emulated TV's own GPU: its first line that is
++ * not a '#' comment, "X.Y" (Beanjar's gl layer). An ES context gets at most
++ * that, and never more than the driver computes itself. */
++#define GLES_CAP_FILE "/usr/share/beanjar/gles-version"
++
++static GLuint
++gles_cap(void)
++{
++   static int cap = -1;
++
++   simple_mtx_lock(&override_lock);
++   if (cap < 0) {
++      char text[1024];
++      size_t n = 0;
++      int major, minor;
++      FILE *f = fopen(GLES_CAP_FILE, "r");
++
++      if (f) {
++         n = fread(text, 1, sizeof(text) - 1, f);
++         fclose(f);
++      }
++      text[n] = '\0';
++      cap = 0;
++      for (const char *line = text; *line;) {
++         const char *next = strchr(line, '\n');
++
++         if (*line != '#' && *line != '\n') {
++            if (sscanf(line, "%d.%d", &major, &minor) == 2 && major >= 2 &&
++                minor >= 0 && minor <= 9)
++               cap = major * 10 + minor;
++            break;
++         }
++         if (!next)
++            break;
++         line = next + 1;
++      }
++   }
++   simple_mtx_unlock(&override_lock);
++   return cap;
++}
++
+ /**
+  * Scans 'string' to see if it ends with 'ending'.
+  */
+@@ -580,8 +621,11 @@
+       return compute_version(extensions, consts, api);
+    case API_OPENGLES:
+       return 11;
+-   case API_OPENGLES2:
+-      return compute_version_es2(extensions, consts);
++   case API_OPENGLES2: {
++      GLuint version = compute_version_es2(extensions, consts);
++      GLuint cap = gles_cap();
++      return cap && version > cap ? cap : version;
++   }
+    }
+    return 0;
+ }

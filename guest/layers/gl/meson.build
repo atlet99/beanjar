@@ -24,6 +24,8 @@
 #   libegl-kms.so                               compositor only (LD_PRELOAD): window 0 -> KMS
 #   libstarfishsurface.so.0.0.0                 QtWebKit's shared surfaces on gbm/dmabuf
 #   libIMGegl.so*, libsrv_um.so*, libglslcompiler.so*   empty stubs
+#   /usr/share/beanjar/gles-version             the TV's OpenGL ES version (gl_es_version), at most
+#                                               which Mesa gives a context (patches/mesa/0005-*)
 #   libjail-gpu.so                              the render node in native app jails, in sam's
 #                                               LD_PRELOAD by etc/init/sam.override or
 #                                               sam.service.d/zz-beanjar-jail.conf: the common
@@ -62,6 +64,12 @@ gl_adapt_compositor = gl_compositor_integration == 'adapted'
 gl_native_cursor_bridge = not gl_adapt_compositor and guest_target == 'o22n2-spacebuns'
 
 subdir('mesa')          # libffi, libdrm, Wayland and Mesa (mesa_dep, wl_compat, mesa_lib)
+# The OpenGL ES versions a TV's GPU may have, and the template of the file that states it
+gl_es_versions = ['2.0', '3.0', '3.1', '3.2']
+gl_es_version_in = files('gles-version.in')
+if get_variable('gl_es_version', '') not in [''] + gl_es_versions
+  error('gl_es_version: not one of ' + ', '.join(gl_es_versions))
+endif
 
 # ---- our own libraries ----
 # Callbacks and stubs keep the signatures of the APIs they implement.
@@ -206,6 +214,14 @@ if fw_wayland == ''
   gl_layer_args += ['--file', mesa_lib / 'webos/libwayland-client.so.0', L + wl_client_so, '755']
 endif
 gl_layer_args += ['--file', jail_gpu, L + 'libjail-gpu.so', '755']
+# usr/share/beanjar/gles-version: the OpenGL ES version of the TV's own GPU, the chip's
+# gl_es_version (soc table), at most which the guest's Mesa gives a context
+# (patches/mesa/0005-*); none where the chip states none
+gl_es_version = get_variable('gl_es_version', '')
+if gl_es_version != ''
+  gl_layer_args += ['--file', configure_file(input: gl_es_version_in, output: 'gles-version',
+    configuration: {'GLES': gl_es_version}), 'usr/share/beanjar/gles-version', '644']
+endif
 # sam's preload with libjail-gpu in front of the common layer's libjail-trust: the same path as the
 # common layer's file (guest/layers/common/meson.build, jail_sam_in), which this one replaces
 jail_sam_gl = configure_file(input: jail_sam_in, output: 'jail-sam-gl',

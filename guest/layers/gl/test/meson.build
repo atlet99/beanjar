@@ -8,6 +8,9 @@ guest_programs += {
   # MSAA cost/feasibility probe for the IMG render-to-texture question
   'tests/gl/msaa-probe': executable('msaa-probe', 'msaa-probe.c',
     dependencies: mesa_dep, link_args: ['-lEGL', '-lGLESv2']),
+  # the ES version contexts get, at most the TV's (gles-version)
+  'tests/gl/gles-version': executable('gles-version', 'gles-version.c',
+    dependencies: mesa_dep, link_args: ['-lEGL', '-lGLESv2']),
   'tests/gl/egl-pbuffer-shim.so': shared_module('egl-pbuffer-shim', 'egl-pbuffer-shim.c',
     dependencies: mesa_dep, name_prefix: '', link_args: ['-lEGL', '-lGLESv2', '-ldl']),
 }

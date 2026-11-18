@@ -6,3 +6,7 @@
 # omxaudiosink also takes the passthrough audio its stock decoders emit.
 gst_elements = 'mstar-lm21u'
 soc_layer_trees += ['--tree', meson.current_source_dir() / 'rootfs', '.']
+# The OpenGL ES version of the chip's GPU (gl_es_version), at most which the gl layer's Mesa
+# gives a context: N21D 03.60.55 and 04.44.16: libmali.so.0.1 prints "OpenGL ES 3.2 v1.r23p0-01rel0..."
+# and "OpenGL ES 3.2 v1.r15p0-01rel1..."; 23.22.86 "OpenGL ES 3.2"
+gl_es_version = '3.2'

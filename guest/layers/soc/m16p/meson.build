@@ -72,3 +72,7 @@ gl_vendor_window_rgba = [[8, 8, 8, 8], [5, 6, 5, 0], [5, 5, 5, 1]]
 
 # this chip's part of the soc layer, after its base's (guest/layers/soc/meson.build)
 soc_layer_trees += ['--tree', meson.current_source_dir() / 'rootfs', '.']
+# The OpenGL ES version of the chip's GPU (gl_es_version), at most which the gl layer's Mesa
+# gives a context: W17H 06.10.65: libmali.so.0.1 prints "OpenGL ES 3.2 v1.r12p0-04rel0" (the DDK's
+# level; the fitted Midgard part is not named)
+gl_es_version = '3.2'

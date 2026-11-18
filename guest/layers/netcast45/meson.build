@@ -18,6 +18,9 @@
 #   usr/lib/libEGLmesa.so.1             Mesa's libEGL, which libEGL loads; libgallium and libgbm,
 #                                       which Mesa NEEDs, in /usr/lib: found without any
 #                                       LD_LIBRARY_PATH (libdrm is linked into them, statically)
+#   usr/share/beanjar/gles-version      OpenGL ES 2.0, the set's own (guest/layers/gl/gles-version.in):
+#                                       LM14 ATSC 04.11.18 lgli.pak's libGLESv2.so.2.0 prints
+#                                       "OpenGL ES 2.0" (CORES=MALI450 Linux-r3p2-01rel3)
 gal = shared_library('gal', '../simplesmart/src/libhalgal/halgal.c', '../simplesmart/src/libhalgal/decode.c',
   '../soc/src/libdile_gal/gal-draw.c',
   include_directories: include_directories('../soc/src/libdile_gal'),
@@ -52,6 +55,8 @@ netcast45_args += [
   '--file', mesa_lib / 'libEGLmesa.so.1.0.0', L + 'libEGLmesa.so.1', '755',
   '--file', mesa_lib / ('libgallium-' + mesa_ver + '.so'), L + 'libgallium-' + mesa_ver + '.so', '755',
   '--file', mesa_lib / 'libgbm.so.1.0.0', L + 'libgbm.so.1', '755',
+  '--file', configure_file(input: '../gl/gles-version.in', output: 'gles-version',
+    configuration: {'GLES': '2.0'}), 'usr/share/beanjar/gles-version', '644',
 ]
 
 layers += {'netcast45': custom_target('netcast45-layer',

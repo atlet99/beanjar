@@ -32,3 +32,7 @@ gl_vendor_gl = ''
 
 # this chip's part of the soc layer, after its base's (guest/layers/soc/meson.build)
 soc_layer_trees += ['--tree', meson.current_source_dir() / 'rootfs', '.']
+# The OpenGL ES version of the chip's GPU (gl_es_version), at most which the gl layer's Mesa
+# gives a context: WT1H 05.06.10: usr/lib/libGLESv2.so.2.0 prints "OpenGL ES 3.0 build 1.3@2793094"
+# (PowerVR Rogue Han)
+gl_es_version = '3.0'

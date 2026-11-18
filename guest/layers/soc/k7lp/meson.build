@@ -22,3 +22,7 @@ gst_elements = 'rtk-k7lp'
 
 # this chip's part of the soc layer, after its base's (guest/layers/soc/meson.build)
 soc_layer_trees += ['--tree', meson.current_source_dir() / 'rootfs', '.']
+# The OpenGL ES version of the chip's GPU (gl_es_version), at most which the gl layer's Mesa
+# gives a context: W21P 03.70.25: libmali.so.0.17.0 prints "OpenGL ES 3.2 v1.r17p0-01rel0" (the DDK's
+# level; the fitted part is not named)
+gl_es_version = '3.2'

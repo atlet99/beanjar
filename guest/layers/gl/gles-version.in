@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The OpenGL ES version of this TV's own GPU (the gl layer: gl_es_version of the chip's soc table,
+# or the NetCast 4.5 layer's). The guest's Mesa gives an ES context at most this version, and never
+# more than its driver gives on the host (guest/layers/gl/patches/mesa/0005-*).
+@GLES@

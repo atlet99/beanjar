@@ -34,3 +34,7 @@ gst_plugin_dir = 'usr/lib/gstreamer-1.0'
 
 # this chip's part of the soc layer, after its base's (guest/layers/soc/meson.build)
 soc_layer_trees += ['--tree', meson.current_source_dir() / 'rootfs', '.']
+# The OpenGL ES version of the chip's GPU (gl_es_version), at most which the gl layer's Mesa
+# gives a context: W15M 04.06.75: libGLESv2.so.2.0 prints "OpenGL ES 2.0 build 1.10@2605106"
+# (PowerVR SGX 543MP)
+gl_es_version = '2.0'

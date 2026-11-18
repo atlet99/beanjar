@@ -103,6 +103,11 @@ The layers add to the stock firmware; the first listed wins where two have the s
 | `rootssh` | Root SSH with the VM's keys on port 6622 |
 | `hbchannel` | Homebrew Channel, as on a rooted TV; needs `devmode`, instead of `rootssh` |
 
+With `gl`, an app gets no higher an OpenGL ES version than the TV model's own GPU offers (ES 2.0
+on the M2, M3, M14 and LM14 sets, 3.0 on H13, 3.2 on the later chips), so asking for more fails at
+context creation as on the set. The host can still hold it lower: the guest never gets more than
+its driver gives on that host.
+
 A global firmware boots as a US model where one exists; to boot it as another region's model, see
 [Boot a global firmware as another region's model](board-profiles.md).
 

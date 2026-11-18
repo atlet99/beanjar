@@ -29,3 +29,6 @@ gl_vendor_gl = 'mali'
 gl_vendor_gl_soname = 'libmali.so.0'
 gl_vendor_gl_needs = ['EGL', 'GLESv2', 'GLESv1_CM']
 soc_layer_trees += ['--tree', meson.current_source_dir() / 'rootfs', '.']
+# The OpenGL ES version of the chip's GPU (gl_es_version), at most which the gl layer's Mesa
+# gives a context: W21A 03.53.25: libmali.so.0.1 prints "OpenGL ES 3.2 v1.r23p0-01rel0.Bifrost-20230720.87cbbce"
+gl_es_version = '3.2'

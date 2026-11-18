@@ -2,3 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # K8HPP inherits the initial Realtek/standard EGL boundary; its board is separate.
 soc_layer_trees += ['--tree', meson.current_source_dir() / 'rootfs', '.']
+# The OpenGL ES version of the chip's GPU (gl_es_version), at most which the gl layer's Mesa
+# gives a context: W23H 23.25.55: libGLESv2_PVR_MESA.so prints "OpenGL ES 3.2 build 1.15@5986747"; 33.31.61
+# and 43.22.73 "OpenGL ES 3.2 build 24.1@6525005" (PowerVR BXE-4-32)
+gl_es_version = '3.2'

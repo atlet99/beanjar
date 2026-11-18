@@ -66,3 +66,7 @@ gl_vendor_gl_needs = ['EGL', 'GLESv2', 'GLESv1_CM']
 
 # this chip's part of the soc layer, after its base's (guest/layers/soc/meson.build)
 soc_layer_trees += ['--tree', meson.current_source_dir() / 'rootfs', '.']
+# The OpenGL ES version of the chip's GPU (gl_es_version), at most which the gl layer's Mesa
+# gives a context: W16R 05.70.50: bsppart's libmali.so.0.1 prints "OpenGL ES 2.0", "OpenGL ES GLSL ES 1.00"
+# (Mali Utgard)
+gl_es_version = '2.0'
