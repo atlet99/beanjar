@@ -1891,7 +1891,7 @@ class ArgvTest(unittest.TestCase):
         self.assertEqual(paths.firmware_target(fw), H13_AFRO)
         own = os.path.join(self.tmp, "vm", "firmware")  # a manager VM's own copy: its manifest
         os.makedirs(own)
-        with self.assertRaisesRegex(ValueError, "unknown model"):
+        with self.assertRaisesRegex(ValueError, "unknown-model firmware might be unsupported"):
             paths.firmware_target(own)
         # the target import recorded, and nothing else: a manifest without it is refused, not guessed
         for text, error in (
@@ -1913,7 +1913,9 @@ class ArgvTest(unittest.TestCase):
         # Imported firmware retains the collection's LLS cache name even though
         # its managed directory is simply called "firmware".
         self.assertEqual(paths.Tree(self.tmp).firmware(own), (own, "renamed"))
-        with self.assertRaisesRegex(ValueError, "W99X is not one this tree boots"):
+        with self.assertRaisesRegex(
+            ValueError, "W99X firmware might be unsupported: no board definition covers it"
+        ):
             paths.firmware_target(os.path.join(self.tmp, "43.22.40.01-HE_DTV_W99X_AFABJAPU"))
         # without a manifest: the release its rootfs names, that release's chip for the model
         named = os.path.join(self.tmp, "renamed")
@@ -1924,8 +1926,7 @@ class ArgvTest(unittest.TestCase):
         self.assertEqual(paths.firmware_target(named, FW_NAME), H13_AFRO)
         with self.assertRaisesRegex(
             ValueError,
-            r"firmware W15M: its rootfs.pak's etc/starfish-release says afro, "
-            r"a release this tree does not boot on W15M \(known: m14-beehive\)",
+            r"W15M afro firmware might be unsupported: no board definition covers it",
         ):
             paths.firmware_target(named, "04.06.75.01-HE_DTV_W15M_AFAAABAA")
         self.assertEqual(
@@ -1947,7 +1948,7 @@ class ArgvTest(unittest.TestCase):
             env=dict(os.environ, FW=self.tmp),
         )
         self.assertEqual(r.returncode, 1)
-        with self.assertRaisesRegex(qemu.Error, "not one this tree boots"):
+        with self.assertRaisesRegex(qemu.Error, "firmware might be unsupported"):
             qemu.plan(
                 dict(FW=self.tmp, **net("direct"), SLOT="1"),
                 [],

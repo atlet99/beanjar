@@ -235,3 +235,25 @@ def test_missing_definitions(tmp_path, installed):
     r = run("-m", "beanjar.launch", "config", "TARGETS")
     assert (r.returncode, r.stdout) == (1, "")
     assert f"no board definitions at {where}: {what}" in r.stderr
+
+
+def test_empty_definitions_directory(tmp_path):
+    """A definitions directory with no target files in it is as missing as no directory."""
+    import subprocess
+    import sys
+
+    env = dict(os.environ, PYTHONPATH=without_definitions(tmp_path, False))
+    env.pop("PYTHONDONTWRITEBYTECODE", None)
+    (tmp_path / "guest/targets").mkdir(parents=True)
+    r = subprocess.run(
+        [sys.executable, "-c", "from beanjar import targets\ntargets.of_firmware('W22O', 'queue')"],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode != 0
+    assert (
+        f"no board definitions at {tmp_path / 'guest/targets'}: the checkout has no guest/targets"
+        in r.stderr
+    )

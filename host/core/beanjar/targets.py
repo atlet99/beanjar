@@ -798,8 +798,8 @@ class _Absent:
 
 
 def _load_or_absent(directory, installed):
-    """load(directory), or, where it is not there, an _Absent for every name."""
-    if os.path.isdir(directory):
+    """load(directory), or, where it is not there or has no target files, an _Absent for every name."""
+    if _files(directory):
         return load(directory)
     absent = _Absent(directory, installed)
     return dict.fromkeys(

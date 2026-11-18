@@ -57,7 +57,7 @@ def target_of(fw_dir, name=None):
     try:
         return paths.firmware_target(fw_dir, name)
     except ValueError as e:
-        raise Error(f"{e}: refused, its layers would be guessed", "fw") from None
+        raise Error(str(e), "fw") from None
 
 
 def paks_in(d, target):

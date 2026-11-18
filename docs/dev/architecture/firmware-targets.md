@@ -38,7 +38,7 @@ the guest never does. It describes what the guest build produced for each board,
 `beanjar-guest` package ships it, at `/usr/share/beanjar/guest/targets` (`paths.Tree.src`), without
 `meson.build` and `facts/`, which only the guest build reads; a checkout reads `guest/targets`. A
 change the host must understand is a host-guest contract change (`packaging/identity.py`), like any
-other. Without the table `targets.py` still imports, and its first use is an error naming
+other. Without the table (no directory, or no target files in it) `targets.py` still imports, and its first use is an error naming
 `beanjar-guest` (`targets.Missing`): no VM boots without the guest anyway.
 
 A row with `base` is the row it names with the keys it gives replaced whole: a list, a table such

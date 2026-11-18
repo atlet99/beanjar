@@ -308,7 +308,7 @@ class ManagerTest(unittest.TestCase):
         shutil.copytree(self.fw_src, other)
         out = self.cli("create", "tv9", "--import", "--firmware", other, ok=False)
         self.assertIn(
-            f"firmware XXXX is not one this tree boots (known: {', '.join(targets.MODELS)}): refused",
+            "XXXX afro firmware might be unsupported: no board definition covers it",
             out,
         )
         self.assertFalse(os.path.exists(os.path.join(self.lib_dir, "vms", "tv9")))
@@ -1531,7 +1531,7 @@ class ManagerTest(unittest.TestCase):
             env = dict(self.env, FAKE_EPK_NAME=f"04.06.75.01-HE_DTV_{model}_AFAAABAA")
             out = self.newvm("a", "--firmware", self.epk, env=env, ok=False)
             self.assertIn(
-                f"firmware {model} is not one this tree boots (known: {', '.join(targets.MODELS)})",
+                f"{model} afro firmware might be unsupported: no board definition covers it",
                 out.splitlines()[-2],
             )
             self.assertEqual(out.splitlines()[-1], "beanjar-key: fw")
@@ -1540,16 +1540,14 @@ class ManagerTest(unittest.TestCase):
         env = dict(self.env, FAKE_EPK_NAME="04.06.75.01-HE_DTV_W15M_AFAAABAA")
         out = self.newvm("a", "--firmware", self.epk, env=env, ok=False)
         self.assertIn(
-            "firmware W15M: its rootfs.pak's etc/starfish-release says afro, a release this tree does "
-            "not boot on W15M (known: m14-beehive): refused",
+            "W15M afro firmware might be unsupported: no board definition covers it",
             out.splitlines()[-2],
         )
         self.assertEqual(os.listdir(os.path.join(self.lib_dir, "vms")), [])
         env = dict(self.env, FAKE_EPK_NAME="05.70.50.01-HE_DTV_W16R_AFAAABAA")
         out = self.newvm("a", "--firmware", self.epk, env=env, ok=False)
         self.assertIn(
-            "firmware W16R: its rootfs.pak's etc/starfish-release says afro, a release this tree does "
-            "not boot on W16R (known: m2-dreadlocks): refused",
+            "W16R afro firmware might be unsupported: no board definition covers it",
             out.splitlines()[-2],
         )
         self.assertEqual(os.listdir(os.path.join(self.lib_dir, "vms")), [])
@@ -1559,9 +1557,7 @@ class ManagerTest(unittest.TestCase):
         with open(os.path.join(bare, "rootfs.pak"), "wb") as f:
             f.write(b"hsqs not a squashfs")
         out = self.cli("create", "b", "--import", "--firmware", bare, ok=False)
-        self.assertIn(
-            "no etc/starfish-release in rootfs.pak: its webOS release is unknown: refused", out
-        )
+        self.assertIn("no etc/starfish-release in rootfs.pak: its webOS release is unknown", out)
         self.newvm("a", "--firmware", self.epk)
         env = dict(self.env, FAKE_EPK_MISSING="smartkey fonts")
         other = os.path.join(self.src, "other.epk")
@@ -1777,7 +1773,8 @@ class ManagerTest(unittest.TestCase):
         # a directory of a firmware this tree does not boot is refused: its platform is not known
         unknown = self.fw_dir("unknown")
         self.assertIn(
-            "not one this tree boots", self.cli("settings", "a", "set", f"fw={unknown}", ok=False)
+            "firmware might be unsupported",
+            self.cli("settings", "a", "set", f"fw={unknown}", ok=False),
         )
         self.cli("start", "a")
         self.cli("stop", "a")

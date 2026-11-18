@@ -1203,17 +1203,17 @@ class BootConfTest(unittest.TestCase):
                 self.assertEqual(firmware.target_of(fw), H13_AFRO)
             with mock.patch.object(paths, "firmware_release", return_value=("jhericurl", where)):
                 with self.assertRaisesRegex(
-                    core.Error, "says jhericurl, a release this tree does not boot on WT1H"
+                    core.Error, "WT1H jhericurl firmware might be unsupported"
                 ):
                     firmware.target_of(fw)
             with mock.patch.object(paths, "firmware_release", return_value=("beehive", where)):
                 with self.assertRaisesRegex(
-                    core.Error, r"WT1H: its .* says beehive, .* \(known: h13-afro\): refused"
+                    core.Error, r"WT1H beehive firmware might be unsupported"
                 ):
                     firmware.target_of(fw)
             with mock.patch.object(paths, "firmware_release", return_value=(None, "no rootfs.pak")):
                 with self.assertRaisesRegex(
-                    core.Error, "no rootfs.pak: its webOS release is unknown: refused"
+                    core.Error, "no rootfs.pak: its webOS release is unknown"
                 ):
                     firmware.target_of(fw)
             # the release is read from the rootfs itself

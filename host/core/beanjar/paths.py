@@ -370,20 +370,18 @@ def firmware_target(fw_dir, name=None):
         except ValueError as e:
             raise ValueError(f"{path}: {e}") from None
     model = model_of(name or os.path.basename(fw_dir.rstrip("/")))
-    if model not in targets.MODELS:
-        raise ValueError(
-            f"{fw_dir}: firmware {model or 'of an unknown model'} is not one this tree boots "
-            f"(known: {', '.join(targets.MODELS)})"
-        )
     release, source = firmware_release(fw_dir)
+    if model not in targets.MODELS:
+        read = " ".join(x for x in (model, release) if x) or "unknown-model"
+        raise ValueError(
+            f"{fw_dir}: {read} firmware might be unsupported: no board definition covers it"
+        )
     if release is None:
         raise ValueError(f"{fw_dir}: {source}: its webOS release is unknown")
     target = targets.of_firmware(model, release)
     if target is None:
-        known = ", ".join(targets.name((c, r)) for r, c in targets.MODELS[model].items())
         raise ValueError(
-            f"{fw_dir}: firmware {model}: its {source} says {release}, a release this tree "
-            f"does not boot on {model} (known: {known})"
+            f"{fw_dir}: {model} {release} firmware might be unsupported: no board definition covers it"
         )
     # W24P also names NT25L firmware. Its model code alone cannot select K8LPN2.
     if model == "W24P":
