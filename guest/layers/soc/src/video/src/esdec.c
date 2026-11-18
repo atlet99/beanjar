@@ -208,7 +208,11 @@ static gboolean emulator_sink(GstElement *e)
  * elements in between (queues, LG's decproxy and decbridge, converters) to the sinks. SINK when
  * every sink reached is the emulator's; PIXELS when any other sink is (an appsink, a fakesink,
  * or an element without source pads); UNKNOWN when a link is still missing (decodebin, decproxy
- * before its switch), which leaves the pass-through as it was. */
+ * before its switch), which leaves the pass-through as it was. Through an element it follows the
+ * source pads the sink pad links to inside it (its internal links): one for an element that
+ * carries several streams side by side, such as playsink's streamsynchronizer or a multiqueue,
+ * whose other source pads are other streams (the subtitles' appsink in LG's tsinkbin), and all of
+ * them for a tee or an element without its own answer. */
 static gint consumer_of(GstPad *src, int depth)
 {
     GstPad *peer = gst_pad_get_peer(src);
@@ -230,9 +234,10 @@ static gint consumer_of(GstPad *src, int depth)
         return result;
     }
     GstElement *e = gst_pad_get_parent_element(peer);
-    gst_object_unref(peer);
-    if (!e)
+    if (!e) {
+        gst_object_unref(peer);
         return ES_CONSUMER_UNKNOWN;
+    }
     if (emulator_sink(e))
         result = ES_CONSUMER_SINK;
     else if (GST_OBJECT_FLAG_IS_SET(e, GST_ELEMENT_FLAG_SINK) || !e->numsrcpads) {
@@ -240,7 +245,12 @@ static gint consumer_of(GstPad *src, int depth)
         syslog(LOG_INFO, "a decoder's output reaches %s (%s), not an emulator sink",
                GST_OBJECT_NAME(e), G_OBJECT_TYPE_NAME(e));
     } else {
-        GstIterator *it = gst_element_iterate_src_pads(e);
+        /* the pad's own function, as gst_pad_iterate_internal_links calls it with the parent
+         * held (that function is not among the firmware symbols the build links against) */
+        GstPadIterIntLinkFunction links = GST_PAD_ITERINTLINKFUNC(peer);
+        GstIterator *it = links ? links(peer, GST_OBJECT(e)) : NULL;
+        if (!it)
+            it = gst_element_iterate_src_pads(e);
         GValue v = G_VALUE_INIT;
         gboolean all_sinks = TRUE, done = FALSE;
         while (!done) {
@@ -269,6 +279,7 @@ static gint consumer_of(GstPad *src, int depth)
             result = ES_CONSUMER_SINK;
     }
     gst_object_unref(e);
+    gst_object_unref(peer);
     return result;
 }
 

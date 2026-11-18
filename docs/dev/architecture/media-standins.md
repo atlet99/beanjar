@@ -54,7 +54,11 @@ and pushes the pictures it gets back (`include/webos-media.h`, "Decoding for the
   reached. If every one of them is ours (a type whose ancestry is `EsSink-*`, essink.c), the
   passthrough stays. If any other sink is reached (an element flagged as a sink, or one without
   src pads), the decoder decodes on the host. A missing link leaves the passthrough and asks
-  again on the next buffer. Only video decoders do this.
+  again on the next buffer. Only video decoders do this. Through an element the walk takes the
+  src pads its sink pad links to inside it (the pad's internal links), not all of them: playsink's
+  `streamsynchronizer` carries video, audio and text side by side, and on W18R an HLS stream with
+  WebVTT subtitles reached LG's text sink (`tsinkbin`, an appsink) through its text pad, so the
+  video went raw to `mvsink`, which cannot show it, and stayed on its first picture.
 - **The format.** The decoder takes the formats of its own src template (system memory first),
   keeps NV12 and YUY2, and picks the first that downstream accepts. N21D's camera player gets
   YUY2; W22H's capsfilter asks for NV12.
