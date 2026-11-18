@@ -88,6 +88,7 @@ static int write_all(int fd, const unsigned char *buf, size_t n)
 #define AV_LEAD_NS  300000000ll
 #define AV_DECODERS 5 /* video 0, audio 0 to 3 */
 #define AV_PES_MAX  (1u << 20)
+#define AV_HELD     16  /* PES held for the PCR after a discontinuity, per decoder */
 #define AV_STALL_MS 200 /* a host not taking a message for this long drops it */
 #define PCR_WRAP    (300ull << 33)
 #define REBASE_NS   1000000000ll
@@ -102,6 +103,13 @@ struct decoder {
     unsigned char *pes;
     size_t len;
     int64_t pts, dts; /* 90 kHz, or -1 */
+    struct held {     /* PES waiting for the PCR after a discontinuity */
+        unsigned char *es;
+        size_t len;
+        int64_t pts, dts;
+        uint32_t flags;
+    } held[AV_HELD];
+    unsigned nheld;
     unsigned long sent, dropped;
 };
 
@@ -117,7 +125,10 @@ static int64_t mono_ns(void)
     return (int64_t)ts.tv_sec * 1000000000ll + ts.tv_nsec;
 }
 
-/* the moment a PTS (90 kHz) is presented on the monotonic clock, or WEBOS_MEDIA_NONE */
+/* the moment a PTS (90 kHz) is presented on the monotonic clock: WEBOS_MEDIA_NONE without a
+ * PTS or a PCR yet, HELD when it is not on the PCR's line (the stream looped, and its PCR comes
+ * after this PES) */
+#define HELD (WEBOS_MEDIA_NONE + 1)
 static int64_t present_at(int64_t pts)
 {
     if (pts < 0 || !have_stc)
@@ -127,7 +138,8 @@ static int64_t present_at(int64_t pts)
         d += PCR_WRAP;
     if (d > (int64_t)(PCR_WRAP / 2))
         d -= PCR_WRAP;
-    return stc_mono + d * 1000 / 27 + AV_LEAD_NS;
+    int64_t at = stc_mono + d * 1000 / 27 + AV_LEAD_NS, now = mono_ns();
+    return at < now - REBASE_NS || at > now + 5 * REBASE_NS ? HELD : at;
 }
 
 static void on_pcr(const struct webos_tuner_pcr *p)
@@ -261,6 +273,8 @@ static void stop_decoder(struct decoder *d)
     }
     fprintf(stderr, "virtio-tuner: %s decoder %u stopped: %lu messages sent, %lu dropped\n",
             d->kind == WEBOS_MEDIA_VIDEO ? "video" : "audio", d->index, d->sent, d->dropped);
+    for (unsigned i = 0; i < d->nheld; i++)
+        free(d->held[i].es);
     free(d->pes);
     memset(d, 0, sizeof *d);
     d->fd = -1;
@@ -318,6 +332,47 @@ static int has_sequence_header(const unsigned char *b, size_t n)
     return 0;
 }
 
+/* one PES's elementary stream as a BUFFER, or held until its PCR comes; with pts and dts as
+ * the PES has them (90 kHz, or -1) */
+static void send_pes(struct decoder *d, const unsigned char *es, size_t len, int64_t pts,
+                     int64_t dts, uint32_t flags, int may_hold)
+{
+    struct webos_media_buffer b = {
+        .pts = present_at(pts),
+        .dts = present_at(dts),
+        .duration = WEBOS_MEDIA_NONE,
+        .stream_time = pts >= 0 ? pts * 100000 / 9 : WEBOS_MEDIA_NONE,
+        .flags = flags,
+    };
+    if (b.pts == HELD || b.dts == HELD) {
+        if (!may_hold || d->nheld == AV_HELD)
+            return;
+        struct held *h = &d->held[d->nheld];
+        if (!(h->es = malloc(len)))
+            return;
+        memcpy(h->es, es, len);
+        h->len = len;
+        h->pts = pts;
+        h->dts = dts;
+        h->flags = flags;
+        d->nheld++;
+        return;
+    }
+    send_msg(d, WEBOS_MEDIA_BUFFER, &b, sizeof b, es, len);
+}
+
+/* the held PES, once a PCR has come: in time, or dropped */
+static void send_held(struct decoder *d)
+{
+    for (unsigned i = 0; i < d->nheld; i++) {
+        if (ready(d))
+            send_pes(d, d->held[i].es, d->held[i].len, d->held[i].pts, d->held[i].dts,
+                     d->held[i].flags, 0);
+        free(d->held[i].es);
+    }
+    d->nheld = 0;
+}
+
 /* the PES gathered so far, as one BUFFER */
 static void flush_pes(struct decoder *d)
 {
@@ -330,24 +385,19 @@ static void flush_pes(struct decoder *d)
         return;
     const unsigned char *es = d->pes + at;
     size_t len = n - at;
+    uint32_t flags = 0;
     if (!d->have_caps && d->kind == WEBOS_MEDIA_AUDIO)
         audio_caps(d, es, len);
     if (!ready(d))
         return;
-    struct webos_media_buffer b = {
-        .pts = present_at(d->pts),
-        .dts = present_at(d->dts),
-        .duration = WEBOS_MEDIA_NONE,
-        .stream_time = d->pts >= 0 ? d->pts * 100000 / 9 : WEBOS_MEDIA_NONE,
-    };
     if (d->kind == WEBOS_MEDIA_VIDEO) {
         if (has_sequence_header(es, len))
-            b.flags |= WEBOS_MEDIA_KEYFRAME;
-        if (d->need_key && !(b.flags & WEBOS_MEDIA_KEYFRAME))
+            flags |= WEBOS_MEDIA_KEYFRAME;
+        if (d->need_key && !(flags & WEBOS_MEDIA_KEYFRAME))
             return;
         d->need_key = 0;
     }
-    send_msg(d, WEBOS_MEDIA_BUFFER, &b, sizeof b, es, len);
+    send_pes(d, es, len, d->pts, d->dts, flags, 1);
 }
 
 static int64_t pes_ts(const unsigned char *b)
@@ -408,6 +458,9 @@ static void on_records(const unsigned char *b, size_t n)
             struct webos_tuner_pcr p;
             memcpy(&p, data, sizeof p);
             on_pcr(&p);
+            for (unsigned i = 0; i < AV_DECODERS; i++)
+                if (decoders[i].nheld)
+                    send_held(&decoders[i]);
         } else if (d && r.type == WEBOS_TUNER_AV_START) {
             start_decoder(d, &r);
         } else if (d && r.type == WEBOS_TUNER_AV_STOP) {

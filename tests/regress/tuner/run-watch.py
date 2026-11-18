@@ -6,8 +6,8 @@ numbers.
 
   run-watch.py NAME [--seconds S] [--shot FILE]
 
-After a scan (run-scan.py), with a channel mapped: launches Live TV, which tunes the channel it
-watched last, waits until the video decoder (dtv_soc's /dev/video20) streams, and measures for S
+After a scan (run-scan.py), with a channel mapped: closes and launches Live TV, which tunes the
+channel it watched last, waits until the video decoder (dtv_soc's /dev/video20) streams, and measures for S
 seconds (default 20): the pictures the guest's decoder read the headers of
 (/proc/dtv_soc), the pictures and audio frames the host's media decoder decoded of the tuner's
 sessions (the VM's run/media-sessions.log names them, run/media-helper.log counts them), and
@@ -110,10 +110,25 @@ def main():
         ).stdout
     )
     run = os.path.join(info["dir"], "run")
+    # a just-booted set brings Home to the front once it is up, over a Live TV launched before
+    for _ in range(60):
+        if '"appId":"' in shell(
+            a.name,
+            "luna-send -n 1 -w 10000 "
+            "luna://com.webos.service.applicationmanager/getForegroundAppInfo '{}' | tr -d ' '",
+        ).replace('"appId":""', ""):
+            break
+        time.sleep(5)
+    # a fresh Live TV: one left in front by run-scan.py's scan.sh, whose own watch it ended, does
+    # not tune again when launched
+    am = "luna-send -n 1 -w 30000 luna://com.webos.service.applicationmanager/"
     shell(
         a.name,
-        "luna-send -n 1 -w 30000 luna://com.webos.service.applicationmanager/launch "
-        '\'{"id":"com.webos.app.livetv"}\'',
+        am
+        + 'closeByAppId \'{"id":"com.webos.app.livetv"}\'; sleep 5; '
+        + am
+        + 'launch \'{"id":"com.webos.app.livetv"}\'',
+        120,
     )
     t0 = time.monotonic()
     while not vdec(a.name):

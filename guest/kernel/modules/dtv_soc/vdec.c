@@ -457,8 +457,10 @@ static long vdec_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
     case UNSUBSCRIBE:
         if (copy_from_user(v, ptr, sizeof(v)))
             return -EFAULT;
-        if (v[0] != EVENT_TYPE || v[1] < EV_FRAME || v[1] > EV_USERDATA)
+        if (v[0] != EVENT_TYPE || v[1] < EV_FRAME || v[1] > EV_USERDATA) {
+            pr_info_ratelimited("event type %#x id %#x flags %#x not ours\n", v[0], v[1], v[2]);
             return -EINVAL;
+        }
         spin_lock_irqsave(&lock, flags);
         if (cmd == SUBSCRIBE)
             f->subs |= BIT(v[1] - EV_FRAME);
