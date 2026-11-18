@@ -195,11 +195,18 @@ static long extended(struct vsc_file *f, unsigned int cmd, void __user *arg)
     ptr = compat_ptr(control[3]);
     if (cmd == S_EXT && copy_from_user(payload, ptr, size))
         return -EFAULT;
-    /* Rotated images and external inputs have no emulated producer. */
+    /* Rotated images have no emulated producer. An input crop inside the source (live TV's
+     * overscan: videooutputd's DTV input [11,7,682,466] of [0,0,704,480]) is accepted and
+     * answered back, as rtk-vsc does, but not yet applied: the host shows the whole source, as
+     * webos-video.h carries no crop (a follow-up). One outside the source is refused. */
     if (cmd == S_EXT && id == REGION &&
-        (get_unaligned_le32(payload + 24) || get_unaligned_le32(payload) ||
-         (get_unaligned_le64(payload) && memcmp(payload, payload + 8, 8))))
-        return -EOPNOTSUPP; /* transport currently carries the full source only */
+        (get_unaligned_le32(payload + 24) ||
+         (get_unaligned_le16(payload + 12) &&
+          (get_unaligned_le16(payload) + get_unaligned_le16(payload + 4) >
+               get_unaligned_le16(payload + 12) ||
+           get_unaligned_le16(payload + 2) + get_unaligned_le16(payload + 6) >
+               get_unaligned_le16(payload + 14)))))
+        return -EOPNOTSUPP;
     if (cmd == S_EXT && id == CONNECT &&
         ((get_unaligned_le32(payload) != 0 && get_unaligned_le32(payload) != 4) ||
          get_unaligned_le32(payload + 8) > 1 || payload[5]))
