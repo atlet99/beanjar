@@ -6,3 +6,11 @@ v4l2_capture = true
 [release]
 base = "number1"
 partmap = "kisscurl"
+
+# W23P number1 keeps K8HPP's tuner boundary, its frontend consumer wanting 1.2.x
+# (docs/research/soc-successors.md); its US board's tuner values and the scan are not derived yet.
+[soc]
+base = "k8hpp"
+lgemu = [
+    "i2c_buses=0,1,2,3,4,5", "i2c_dev=nvm:4:0x50,amp:0:0x2a,amp:0:0x2b", "snd_ctls=1",
+]

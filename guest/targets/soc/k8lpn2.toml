@@ -2,6 +2,8 @@
 # NVM/two-amp addresses match K8LPN. Other Realtek boundaries remain provisional.
 
 base = "k8lpn"
+# its US board keeps the European tuner values it had (no dtv_soc) until its own firmware is checked
+broadcast_params = {}
 
 # gpio_usb_vbus and gpio_level: the USB ports' power switches and overcurrent inputs
 # (soc/k6lp.toml says how they were read)
