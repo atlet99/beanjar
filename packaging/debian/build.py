@@ -22,6 +22,7 @@ import tomllib
 
 TOP = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(TOP / "host/core"))
+from beanjar import paths as beanjar_paths  # noqa: E402
 from beanjar import targets as beanjar_targets  # noqa: E402
 
 PREFIX = Path("usr/lib/beanjar")
@@ -721,6 +722,27 @@ def stage_x86_64(work, gp):
     return root
 
 
+def board_files():
+    """Every target's board files, checkout-relative (targets.board_cmdline_src): its board.cmdline
+    and its boards for a broadcast standard (targets.Soc.broadcast_boards), whichever layer carries
+    them (targets.Soc.board_src)."""
+    out = set()
+    for target in beanjar_targets.all_targets():
+        broadcasts = [b for b, _ in beanjar_targets.soc(target).broadcast_boards]
+        for broadcast in [None] + broadcasts:
+            out.add(beanjar_targets.board_cmdline_src(target, broadcast))
+    return sorted(out)
+
+
+def stage_boards(g):
+    """The board files in g/boards, where the installed launcher reads them (paths.installed_board)."""
+    for rel in board_files():
+        installed = beanjar_paths.installed_board(rel)
+        if not installed:
+            raise SystemExit(f"{rel}: not a board file the installed launcher finds")
+        copy(TOP / rel, g / "boards" / os.path.relpath(installed, beanjar_paths.BOARDS))
+
+
 def stage_targets(g):
     """The board definitions, the target table targets.py loads at import (paths.Tree.src's
     guest/targets), in g/targets: beanjar-guest's, so each guest build carries the definitions
@@ -748,9 +770,7 @@ def stage_guest(work, gp, stamp):
     copy(TOP / "guest/layers/binds.conf", g / "layers/binds.conf")
     for file in (TOP / "guest/scripts").glob("*.sh"):
         copy(file, g / "scripts" / file.name)
-    # each chip's board.cmdline and its boards for a broadcast standard (targets.Soc.broadcast_boards)
-    for board in (TOP / "guest/layers/soc").glob("*/rootfs/etc/emulator/board*.cmdline"):
-        copy(board, g / "boards" / board.parts[-5] / board.name)
+    stage_boards(g)
     stage_targets(g)
     write(
         g / "installation.toml",

@@ -207,6 +207,14 @@ def resolve_layer(tree, target, name):
         and not os.path.isfile(os.path.join(src, "meson.build"))
     ):
         return src, os.path.relpath(src, tree.top)
+    always = targets.always_layers(target)
+    if os.path.isdir(src) and always != targets.WEBOS_LAYERS and name not in always:
+        # SimpleSmart's, NetCast's and the test guest's builds make their one layer and no optional
+        # one (meson.build's guest_modules): NetCast's Mesa is in its netcast45 layer
+        return None, (
+            f"{targets.name(target)} has none: its guest build makes only "
+            f"the {', '.join(always)} layer"
+        )
     if os.path.isdir(src):
         return None, f"not built (no {os.path.relpath(built, tree.top)})"
     return None, "not in the checkout"

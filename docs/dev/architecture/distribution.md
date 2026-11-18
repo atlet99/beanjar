@@ -107,6 +107,7 @@ remain under `scripts/`.
     ssh/bin/                      guest SSH binaries
     bin/lls-probe                  guest ARM probe, invoked through qemu-arm
     boards/<soc>/board.cmdline     board inputs to RAM and EEPROM derivation
+    boards/guest/<board source>/...  those of a target whose board source is not its soc layer
     targets/                      board definitions, the target table the host reads
     binds.conf                    guest bind configuration
     installation.toml             guest version, commit and payload digest

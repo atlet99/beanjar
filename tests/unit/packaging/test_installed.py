@@ -38,6 +38,11 @@ def test_paths_and_prebuilt_probe(tmp_path):
         tree.src("guest/layers/soc/o22/rootfs/etc/emulator/board-arib.cmdline")
         == "/usr/share/beanjar/guest/boards/o22/board-arib.cmdline"
     )
+    # a board source other than a soc layer (targets.Soc.board_src): at its checkout path
+    assert (
+        tree.src("guest/layers/netcast45/rootfs/etc/emulator/board.cmdline")
+        == "/usr/share/beanjar/guest/boards/guest/layers/netcast45/rootfs/etc/emulator/board.cmdline"
+    )
     # the board definitions, beanjar-guest's (packaging/debian/build.py's stage_targets)
     assert (
         tree.src("guest", "targets", "soc", "k8hp.toml")
@@ -459,3 +464,53 @@ def test_board_definitions_ship_with_the_guest(tmp_path):
     assert TOP / "host/core/beanjar" in sources
     assert not any(src.is_relative_to(source) for src in sources)
     assert not list(host.rglob("targets"))
+
+
+def test_every_target_board_file_ships_where_the_installed_host_reads_it(tmp_path):
+    """beanjar-guest's staging puts every target's board file (targets.board_cmdline_src, for its
+    default board and each of its broadcast boards, whichever layer is its board source) where an
+    installed paths.Tree.src finds it, each source's file at its own path."""
+    from beanjar import targets
+
+    build = _build_module()
+    g = tmp_path / "beanjar-guest/usr/share/beanjar/guest"
+    build.stage_boards(g)
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib/installation.toml").write_text('version="test"\n')
+    tree = paths.Tree(tmp_path / "lib")
+    found = {}
+    for target in targets.all_targets():
+        broadcasts = [b for b, _ in targets.soc(target).broadcast_boards]
+        for broadcast in [None] + broadcasts:
+            rel = targets.board_cmdline_src(target, broadcast)
+            installed = tree.src(rel)
+            assert installed.startswith("/usr/share/beanjar/guest/boards/"), (target, rel)
+            assert found.setdefault(installed, rel) == rel, f"{rel} and {found[installed]} collide"
+            staged = g / os.path.relpath(installed, "/usr/share/beanjar/guest")
+            assert staged.read_bytes() == (TOP / rel).read_bytes(), (target, broadcast)
+    assert set(map(str, (g / "boards").rglob("*.cmdline"))) == {
+        str(g / os.path.relpath(p, "/usr/share/beanjar/guest")) for p in found
+    }
+    for t in (("lm14", "netcast45"), ("m2", "simplesmart")):
+        assert tree.src(targets.board_cmdline_src(t)) in found
+
+
+def test_soc_board_files_keep_the_released_paths(tmp_path):
+    """The host-guest contract both ways: every chip's board file stays at
+    /usr/share/beanjar/guest/boards/<chip>/<name>, where a released host reads and a released guest
+    package ships it; only the boards of other board sources are added beside them."""
+    build = _build_module()
+    g = tmp_path / "beanjar-guest/usr/share/beanjar/guest"
+    build.stage_boards(g)
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib/installation.toml").write_text('version="test"\n')
+    tree = paths.Tree(tmp_path / "lib")
+    boards = sorted((TOP / "guest/layers/soc").glob("*/rootfs/etc/emulator/board*.cmdline"))
+    assert boards
+    for board in boards:
+        chip, name = board.parts[-5], board.name
+        released = f"/usr/share/beanjar/guest/boards/{chip}/{name}"
+        assert tree.src(str(board.relative_to(TOP))) == released
+        assert (g / "boards" / chip / name).read_bytes() == board.read_bytes()
+    chips = {b.parts[-5] for b in boards}
+    assert {p.name for p in (g / "boards").iterdir()} == chips | {"guest"}

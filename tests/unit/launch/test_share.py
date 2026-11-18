@@ -182,6 +182,18 @@ class ShareTest(unittest.TestCase):
         self.assertEqual(layers[0].src, os.path.join(self.top, "guest/layers/normal"))
         self.assertEqual(len(missing), 1)
         self.assertRegex(missing[0], r"^gl \(not built")
+        # NetCast's and SimpleSmart's guest builds make no optional layer: the note says so
+        for target, layer in (
+            (("lm14", "netcast45"), "netcast45"),
+            (("m2", "simplesmart"), "simplesmart"),
+        ):
+            self.assertEqual(
+                share.resolve_layer(self.tree, target, "gl"),
+                (
+                    None,
+                    f"{'-'.join(target)} has none: its guest build makes only the {layer} layer",
+                ),
+            )
         share.assemble(self.tree, H13_AFRO, self.run_dir, layers, self.notes.append)
         # the layers are disks (qemu.plan), not files of the share
         self.assertEqual(

@@ -395,6 +395,26 @@ def firmware_target(fw_dir, name=None):
     return target
 
 
+BOARDS = "/usr/share/beanjar/guest/boards"
+_BOARD_FILE = re.compile(r"board(-\w+)?\.cmdline")
+
+
+def installed_board(*p):
+    """Where beanjar-guest ships the board file at the checkout-relative path p (as Tree.src takes
+    it; a targets.board_cmdline_src), or None for another file. A chip's soc layer's are in
+    BOARDS/<chip>/, where every released host reads them; any other board source's
+    (targets.Soc.board_src: guest/layers/netcast45/rootfs, ...) at its checkout path in BOARDS
+    (BOARDS/guest/layers/netcast45/rootfs/etc/emulator/board.cmdline), beside the chips' and never
+    one of them, so two board sources never share a file (packaging/debian/build.py's stage_boards
+    puts them there)."""
+    p = tuple(part for item in p for part in os.fspath(item).split("/"))
+    if p[:1] != ("guest",) or "rootfs" not in p or not _BOARD_FILE.fullmatch(p[-1]):
+        return None
+    if p[1:3] == ("layers", "soc") and p[4:-1] == ("rootfs", "etc", "emulator"):
+        return os.path.join(BOARDS, p[3], p[-1])
+    return os.path.join(BOARDS, *p)
+
+
 class Tree:
     def __init__(self, top):
         self.top = os.path.abspath(top)
@@ -411,10 +431,9 @@ class Tree:
                 return "/usr/libexec/beanjar/vm-launcher"
             if p[:2] == ("guest", "scripts"):
                 return os.path.join("/usr/share/beanjar/guest/scripts", *p[2:])
-            if p[:3] == ("guest", "layers", "soc") and re.fullmatch(
-                r"board(-\w+)?\.cmdline", p[-1]
-            ):
-                return os.path.join("/usr/share/beanjar/guest/boards", p[3], p[-1])
+            board = installed_board(*p)
+            if board:
+                return board
             if p[:2] == ("guest", "layers"):
                 return os.path.join("/usr/share/beanjar/guest/layers", *p[2:])
             if p[:1] == ("guest",):
