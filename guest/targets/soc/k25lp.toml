@@ -8,6 +8,8 @@
 # is K8LPN2's, with K8LPN2's carried European tuner values.
 
 base = "k8lpn2"
+# its US board keeps the European tuner values it had (no dtv_soc) until its own firmware is checked
+broadcast_params = {}
 
 # gpio_usb_vbus and gpio_level: the USB ports' power switches and overcurrent inputs
 # (soc/k6lp.toml says how they were read): W25P 33.31.61's libdile_gpio and 43.22.74's
