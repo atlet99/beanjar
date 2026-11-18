@@ -29,6 +29,7 @@ initramfs_args = [
   '--var', 'VIRTIO_VIDEO', virtio_bins['virtio-video'],
   '--var', 'VIRTIO_MEMINFO', virtio_bins['virtio-meminfo'],
   '--var', 'VIRTIO_CAPTURE', virtio_bins['virtio-capture'],
+  '--var', 'VIRTIO_SHELL', virtio_bins['virtio-shell'],
   '--var', 'GOP_PRESENT', virtio_bins['gop-present'],
   '--var', 'SPLASH', virtio_bins['splash'],
   '--var', 'SESTORE_LOAD', virtio_bins['sestore-load'],

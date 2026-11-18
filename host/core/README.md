@@ -114,8 +114,9 @@ vms/<name>/identity/   the VM's own files, mode 0700: its SSH keys and known_hos
                        (including its SDP model key; below), vnc.password (beanjar vnc's; vnc password)
 vms/<name>/run/        qemu.pid qmp.sock viewer-qmp.sock console.sock dbus.sock cursor.sock video.sock ir.sock
                        (the micom's IR receiver, beanjar/ir_relay.py: ir-relay.log; QEMU's port is
-                       ir-qemu.sock) media-<n>.sock dbus-daemon.pid viewer.pid unit; share/ (what the
-                       guest sees, below)
+                       ir-qemu.sock) shell.sock (beanjar shell's relay, beanjar/guestshell.py:
+                       shell-relay.log; QEMU's port is shell-qemu.sock) media-<n>.sock dbus-daemon.pid
+                       viewer.pid unit; share/ (what the guest sees, below)
 vms/<name>/logs/       console.log webos.log qemu.out netstub.log viewer.log; saved/<time>-stop/
 ```
 
@@ -426,6 +427,7 @@ command shows what it manages. `beanjar --help` and `beanjar COMMAND --help` des
 | `host config [show \| set KEY=VALUE... \| unset KEY...]` | This machine's `config.toml` (above): shown, or set: `max_running=N`, how many VMs may run at once on this host, counting every beanjar VM up in `beanjar.slice` (every library's, the development VMs', the regress harness's); `unset max_running` removes the limit. `start` (and the GUI's Start, `vm-launcher start`) beyond it is refused before anything is launched. `firmware_dirs=DIR[:DIR...]`, the host's firmware collections; `unset firmware_dirs` goes back to `/srv/beanjar/firmware`. It reads and makes no library. |
 | `host add NAME URI` / `host remove NAME` / `host list` | The remote hosts of this machine's `config.toml` (see Several machines): add one (`ssh://[USER@]HOST[:PORT]`), remove it, or list the names and URIs (an array with `--json`). They need no library. |
 | `ares-TOOL [--root] -d NAME [ARGS...]` | Runs the webOS SDK tool `ares-TOOL` (`ares-install`, `ares-shell`, `ares-launch`, `ares-novacom`, ...) against the running VM alone, as the developer-mode user `prisoner`, or with `--root` as root over the VM's root SSH, the other arguments passed on as they are, and exits with its status (see ares tools). |
+| `shell [-t \| -T] NAME [[--] CMD [ARG...]]` | A root shell inside webOS on the running VM, or one command, over the VM's own `webos.shell` port: no SSH, developer mode, network or layer (see Shell). Exits with the command's status. |
 | `mitm show NAME [--password]` | The traffic inspector of a running `mode = "mitm"` VM: its mode, status (`Running`, `Inspector is not ready`, `Inspector off: REASON`, `Not running`, ...), whether it is ready, its URL (with `link = "lan"` the LAN one, and `local_url`, the host's way in), its password file, and `mitmweb`: the `version` and `path` the start found and the `problem` that kept the inspector off (no mitmweb, older than 12.0.1, or it failed; the guest then goes out directly); the password itself only with `--password`. |
 | `io usb attach NAME [--id ID]` / `io usb detach NAME ID` / `io usb list NAME` / `io usb plug NAME --device VENDOR:PRODUCT\|BUS-DEVICE [--id ID] [--sudo]` / `io usb plug NAME --camera [--pattern NAME]` | USB devices plugged into a running VM over usbredir: `attach` adds a `usb-redir` device with a unix socket in the run directory and prints the socket, `detach` unplugs it, `list` shows each with whether a client is on its socket and whether the guest has the device; `plug` does the lot for a device of this machine, or for the virtual camera, until Ctrl-C (see [USB devices](#usb-devices)). |
 | `mitm connect NAME` | Makes the inspector reachable from this machine and keeps it so until stdin ends, across the VM's restarts (`stop` and `start`, a guest reboot): prints one JSON line, `{"url", "password"}`, and another whenever they change (a restarted VM's inspector has a new password and no flows); stderr says when the inspector is gone and when it is back. Every 5 s it asks mitmweb with the session cookie of its first login, and when that fails asks for the VM's state again (at most every 10 s). For `HOST/NAME` it asks the host's `mitm show --password` and adds a forward from `127.0.0.1:PORT` here to the inspector there to the host's shared ssh connection; those requests keep that connection open (`ControlPersist` ends an idle one after 60 s, and the forward with it), and should it end anyway the same forward is added to a new one. It is cancelled at the end (also on SIGTERM, SIGHUP, Ctrl-C; one left by a killed run is cancelled by the next remote run, as `ares-TOOL`'s). Refused for a VM without mitm, not running, or whose inspector is not ready. beanjar-web serves the inspector through it ([web viewer](../../docs/dev/architecture/web-viewer.md#the-traffic-inspector)). |
@@ -939,6 +941,57 @@ so they are not shown; the tool reports its own. The exit status is the tool's (
 signal N). The host needs nothing but its `beanjar` and `AllowTcpForwarding` in its sshd (the
 default).
 
+### Shell
+
+`beanjar shell NAME` is an interactive root shell inside webOS, and `beanjar shell NAME -- CMD
+[ARG...]` runs one command there, on any running VM with the default layers: no SSH, developer
+mode or network. It is the debug console's `webos-enter` (webOS's namespaces and root, its PATH,
+`HOME=/home/root`), reached over a virtio-serial port of its own, `webos.shell`, that every VM
+has, apart from the serial console:
+
+```
+beanjar shell tv1
+beanjar shell tv1 -- ls /media/developer
+beanjar shell tv1 sh -c 'ps | grep [s]urface'
+tar c app | beanjar shell pi/tv1 -- tar x -C /tmp
+```
+
+- Everything after `NAME` is the command (a leading `--` is dropped); `-t` and `-T` come before
+  `NAME`.
+- With no command and a terminal on stdin the session gets a terminal of its own (a pty of
+  webOS's devpts, `/dev/pts/N` inside it): its size follows this one's, the keys go to it raw, so
+  Ctrl-C and Ctrl-Z reach the shell's foreground job and full-screen programs (`top`, `vi`) work.
+  `-t` gives a command a terminal too; `-T` never gives one.
+- Otherwise stdin, stdout and stderr are passed through apart, without a terminal, and the end of
+  stdin is the command's. SIGINT, SIGQUIT and SIGTERM that beanjar gets go on to the command's
+  process group; a third Ctrl-C gives the session up.
+- The exit status is the command's (`128+N` for its signal `N`); 255 when the session ended
+  without one: the VM stopped or restarted, the connection was lost, the session could not start
+  (the reason on stderr). An error before the session (no such VM, not running) is status 1.
+- Several sessions run at once, on one VM or several. A session whose client goes away (killed,
+  a closed connection) is given up in the guest: its process group gets SIGHUP, then SIGKILL 3 s
+  later.
+- `HOST/NAME` asks the host's `beanjar info` where the VM's run directory is and adds a forward
+  of the host's shared ssh connection to its `shell.sock` (`ssh -O forward`, as `ares-TOOL` and the
+  tuner feed do), cancelled at the end.
+
+How it works: the launcher starts the relay (`python3 -m beanjar.guestshell`, a child that ends
+with the VM, log `run/shell-relay.log`), which holds QEMU's socket for the port
+(`run/shell-qemu.sock`, which takes one client) and serves `run/shell.sock` to any number of
+clients. The initramfs's agent (`guest/initramfs/src/virtio-shell.c`, log `/run/virtio-shell.log`
+in the initramfs) runs each session's command with `webos-enter`. Both speak the frames of
+`include/webos-shell.h`: sessions multiplexed on the one port, with stdin, stdout, stderr, the
+terminal's size, signals and the exit status, and a window of 256 KiB per direction and session,
+so a slow reader holds up only its own session. The agent starts before webOS and serves until
+the VM stops; when webOS restarts, its sessions end with the status their commands got.
+
+Access: whoever can open `run/shell.sock` (mode 0600, the VM's owner) is root in the VM, the same
+trust as the serial console's `console.sock`. A remote session's forward listens on
+`127.0.0.1:PORT` of this machine while it runs, as `ares-TOOL`'s forwards do.
+
+`beanjar ares-shell` is unchanged: the developer-mode user over SSH (with `--root`, root over the
+VM's root SSH), with the `devmode` layer.
+
 ### Stopping a VM
 
 `stop NAME` saves the guest's logs, then sends the power-off signal: tvpowerd's `powerOff` with
@@ -1142,6 +1195,8 @@ and the same options (without
   HOST/NAME` and the VM's address in `info`.
 - `ares-TOOL -d HOST/NAME` runs the tool on this machine, through an ssh port forward to the
   VM's developer-mode port on the host (with `--root` its root SSH port; see ares tools).
+- `shell HOST/NAME` runs here, through an ssh port forward to the VM's `shell.sock` on the host
+  (see Shell).
 - `usb plug HOST/NAME` runs here, where the device is, asking the host's `usb attach`, `list`
   and `detach` and forwarding to the socket there (see USB devices).
 - `create`, `key model NAME install FILE` and `identity authorized-keys NAME add-mine` are local

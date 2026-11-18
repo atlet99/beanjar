@@ -14,6 +14,7 @@ from . import (
     remote_control,
     sensors,
     settings,
+    shell,
     vms,
 )
 from .common import parser_class
@@ -77,6 +78,7 @@ REGISTER = (
     identity.register,
     settings.register_config,
     register_ares,
+    shell.register,
     sensors.register,
     devices.register,
     mitm.register,

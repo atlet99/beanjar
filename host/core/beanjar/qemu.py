@@ -164,6 +164,7 @@ from pathlib import Path
 
 from . import (
     fwcache,
+    guestshell,
     hostswap,
     ir_relay,
     keys,
@@ -331,6 +332,9 @@ class Plan:
         # the micom's IR receiver (ir_relay.py), which the launcher starts on ir.sock before QEMU:
         # (ir.sock, QEMU's socket for the webos.ir port, the QMP socket it wakes the guest on)
         self.ir_relay = None
+        # `beanjar shell`'s relay (guestshell.py), which the launcher starts on shell.sock before
+        # QEMU: (shell.sock, QEMU's socket for the webos.shell port)
+        self.shell_relay = None
         self.prepared = None  # the VM's prepared board data (prepare.Prepared; None in a dry plan)
 
 
@@ -932,6 +936,16 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
         ]
     # the remote's keys reach the port through the micom's IR receiver on ir.sock (ir_relay.py)
     p.ir_relay = (socks["IR_SOCK"], ir_relay.qemu_path(socks["IR_SOCK"]), socks["QMP_SOCK"])
+    # `beanjar shell` (guestshell.py): the relay, started by the launcher on RUN_DIR's shell.sock,
+    # holds QEMU's socket for the port; the guest's agent (virtio-shell.c) serves it
+    shell_qemu = os.path.join(p.run_dir, guestshell.QEMU_NAME)
+    devices += [
+        "-chardev",
+        f"socket,id=shell,path={shell_qemu},server=on,wait=off",
+        "-device",
+        "virtserialport,chardev=shell,name=webos.shell",
+    ]
+    p.shell_relay = (os.path.join(p.run_dir, guestshell.SOCK), shell_qemu)
     # the antenna of a board with our tuner (dtv_soc): the host's tuner (tuner.py, started by the
     # launcher) connects to RUN_DIR's tuner.sock, the guest's pump (virtio-tuner.c) to the port
     if tuner.has_tuner(p.target):

@@ -51,6 +51,18 @@ beanjar ares-shell --root -d tv1 -r 'id'
 beanjar ares-push --root -d tv1 script.sh /tmp/
 ```
 
+Without any layer, `beanjar shell` is a root shell inside webOS over the VM's own shell port (no
+SSH, developer mode or network), or runs one command with its exit status:
+
+```sh
+beanjar shell tv1
+beanjar shell tv1 -- uname -a
+cat app.ipk | beanjar shell tv1 -- sh -c 'cat > /tmp/app.ipk'
+```
+
+Whoever can open the VM's `run/shell.sock` (its owner) is root in it, as with the serial console.
+Details: [the VM manager](../../host/core/README.md#shell).
+
 ## Second-screen apps and other machines
 
 An app on a phone or another PC reaches the VM's TV services (SSAP on ports 3000 and 3001) at the

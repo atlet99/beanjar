@@ -14,6 +14,7 @@ from ..core import Error
 from .common import Usage, emit, kv_lines, parse_size, read_new_password
 from .devices import cmd_usb_plug, remote_tuner, usb_attach_usage
 from .mitm import mitm_cleared
+from .shell import remote_shell
 
 
 def stream_to(host):
@@ -181,6 +182,8 @@ def remote_command(a, argv, host, name):
         return cmd_usb_plug(None, a, host)
     if kind == "tuner":
         return remote_tuner(a, host, name)
+    if kind == "shell":
+        return remote_shell(a, host, name)
     if kind == "password" and a.verb == "set":
         return remote_password(a, host, name)
     nwords = 1 + hasattr(a, "area") + hasattr(a, "verb_group")

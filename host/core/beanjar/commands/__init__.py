@@ -14,6 +14,7 @@ the command here or, for HOST/NAME, on that host (forward.py); ares_main runs an
   sensors.py         sensor: light, presence, temperature, rotate
   devices.py         io: tuner, usb
   mitm.py            mitm
+  shell.py           shell
   forward.py         a command for a VM of another host, run there over ssh
 
 What a command needs beyond the library is imported where it is used (the parser and the command

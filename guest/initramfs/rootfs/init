@@ -629,6 +629,8 @@ virtio-video > /run/virtio-video.log 2>&1 || log "video window pump failed: see 
 fi
 # the guest's swap to the webos.memory port every 2 s, the viewer's memory meter (guest/initramfs/src/virtio-meminfo.c)
 virtio-meminfo > /run/virtio-meminfo.log 2>&1 || log "memory pump failed: see /run/virtio-meminfo.log"
+# `beanjar shell`: webos-enter for each session the host opens on the webos.shell port (guest/initramfs/src/virtio-shell.c)
+virtio-shell > /run/virtio-shell.log 2>&1 || log "shell agent failed: see /run/virtio-shell.log"
 # The capture bridge stays in the initramfs and waits for a viewer provider hello.
 for capture_name in /sys/class/virtio-ports/*/name; do
 	[ -f "$capture_name" ] || continue

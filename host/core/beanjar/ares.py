@@ -481,8 +481,8 @@ def home_parent():
 
 HOME_PREFIX = "beanjar-ares-"  # a remote VM's temporary HOME: beanjar-ares-PID-RANDOM
 # the directories that record a forward: these HOMEs, `mitm connect`'s (inspector.py), `usb
-# plug`'s (usb.py) and a remote VM's tuner feed's (tuner.py)
-RECORD_PREFIXES = (HOME_PREFIX, "beanjar-mitm-", "beanjar-usb-", "beanjar-tuner-")
+# plug`'s (usb.py), a remote VM's tuner feed's (tuner.py) and `shell`'s (guestshell.py)
+RECORD_PREFIXES = (HOME_PREFIX, "beanjar-mitm-", "beanjar-usb-", "beanjar-tuner-", "beanjar-shell-")
 
 
 def sweep_homes(parent):
