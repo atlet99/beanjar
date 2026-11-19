@@ -111,7 +111,7 @@ def fake_map(names=None, sizes=None):
 def fake_partmap_build(path, m=None):
     """A stand-in for partmap.build: writes fake_map()'s partinfo disk image to path."""
 
-    def build(fw, target, cache, tree=None):
+    def build(fw, target, cache, tree=None, updatable=False):
         with open(path, "wb") as f:
             f.write(partmap.image(partmap.encode(m or fake_map())))
         return path

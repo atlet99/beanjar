@@ -44,6 +44,12 @@ HEADER = struct.Struct("<IIIB3x")
 DEVICE = struct.Struct("<32sQQIIiI")
 PART = struct.Struct("<32sQQ32sIIBBxxI")
 ALIGN = 1 << 20  # an assembled table's paks: their size rounded up to this (ours)
+# firmware.updatable only: extra room on each inactive A/B-bank pak partition, so a larger variant
+# firmware's pak (the updater checks pak.imageSize <= partition.size in /usr/sbin/update's
+# SWUPDATE_FILE_UpdateSoftware) still fits a partition sized from THIS VM's own, smaller pak. A real
+# set's partitions are fixed and over-provisioned; we have no retail o22 table, so this is headroom,
+# not a claim about retail geometry. One ALIGN keeps the partition ALIGN-aligned.
+UPDATABLE_HEADROOM = ALIGN
 
 Entry = namedtuple("Entry", "name offset size filename filesize sw_ver used valid flags")
 Map = namedtuple("Map", "magic cur_ver old_ver device entries")  # entries: all npartition of them
@@ -174,14 +180,28 @@ def _size(fw, target, size):
     raise Error(f"entry size {size!r}")
 
 
-def layout_table(fw, target, layout, tree=paths.TREE):
+def _inactive_pak_headroom(part, updatable):
+    """UPDATABLE_HEADROOM for an inactive-bank (used=0) pak-sized entry when updatable, else 0: the
+    only entries the stock updater writes and size-checks a flashed pak against. Active-bank (used=1)
+    entries and fixed-size entries are left exactly as they are, so backing-disk sizes and node
+    indices do not move."""
+    if updatable and part.used == 0 and not isinstance(part.size, int) and part.size[0] == "pak":
+        return UPDATABLE_HEADROOM
+    return 0
+
+
+def layout_table(fw, target, layout, tree=paths.TREE, updatable=False):
     """The 12368 bytes of an assembled table (PartmapLayout): the header and device of its header
     file's table, its entries at consecutive offsets from 0, then reserved (layout.reserved: its
-    size, used, valid, flags) at the end, which is also the device's size."""
+    size, used, valid, flags) at the end, which is also the device's size.
+
+    updatable (firmware.updatable only): each inactive A/B-bank pak partition gets UPDATABLE_HEADROOM
+    extra room so a larger variant firmware's pak still fits (see _inactive_pak_headroom). Off, the
+    table is byte-for-byte what a non-updatable VM has."""
     head = decode(file_table(fw, layout.header, tree))
     entries, off = [], 0
     for p in layout.parts:
-        size = _size(fw, target, p.size)
+        size = _size(fw, target, p.size) + _inactive_pak_headroom(p, updatable)
         entries.append(Entry(p.name, off, size, p.filename, 0, p.sw_ver, p.used, p.valid, p.flags))
         off += size
     size, used, valid, flags = layout.reserved
@@ -192,8 +212,11 @@ def layout_table(fw, target, layout, tree=paths.TREE):
     return encode(Map(head.magic, head.cur_ver, head.old_ver, device, entries))
 
 
-def table(fw, target, tree=paths.TREE):
-    """The 12368-byte map of the firmware directory fw of target, from its release's source."""
+def table(fw, target, tree=paths.TREE, updatable=False):
+    """The 12368-byte map of the firmware directory fw of target, from its release's source.
+
+    updatable only matters for an assembled (PartmapLayout) source: it widens the inactive A/B bank
+    (layout_table). A retail table (PartmapImage/PartmapFile) is real geometry and used as is."""
     src = targets.release(target, fw).partmap
     if isinstance(src, targets.PartmapImage):
         with open(os.path.join(fw, src.pak + ".pak"), "rb") as f:
@@ -202,7 +225,7 @@ def table(fw, target, tree=paths.TREE):
         return blob
     if isinstance(src, targets.PartmapFile):
         return file_table(fw, src, tree)
-    return layout_table(fw, target, src, tree)
+    return layout_table(fw, target, src, tree, updatable)
 
 
 def image(blob):
@@ -216,11 +239,13 @@ def image(blob):
     return data.ljust(entry[1].size, b"\0")
 
 
-def _key(fw, target, cache):
+def _key(fw, target, cache, updatable=False):
     """What the cached image depends on: the source paks' sha256 (recorded as fwcache does), the
-    assembled table's pak sizes and the release row."""
+    assembled table's pak sizes and the release row, and updatable (the inactive bank's headroom), so
+    the updatable and non-updatable images never share a cache slot."""
     src = targets.release(target, fw).partmap
     h = hashlib.sha256(repr(src).encode())
+    h.update(b"updatable" if updatable else b"")
     if isinstance(src, (targets.PartmapFile, targets.PartmapImage)):
         h.update(fwcache.digest(fw, cache, src.pak).encode())
     else:
@@ -233,20 +258,24 @@ def _key(fw, target, cache):
     return h.hexdigest()[:16]
 
 
-def image_path(fw, target, cache):
+def image_path(fw, target, cache, updatable=False):
     os.makedirs(cache, exist_ok=True)
-    return os.path.join(cache, f"partinfo-{_key(fw, target, cache)}.img")
+    return os.path.join(cache, f"partinfo-{_key(fw, target, cache, updatable)}.img")
 
 
-def build(fw, target, cache, tree=paths.TREE):
+def build(fw, target, cache, tree=paths.TREE, updatable=False):
     """The path of fw's partinfo disk image in cache, made if missing (under its lock, <image>.lock:
-    VMs of one firmware cache start at once)."""
-    path = image_path(fw, target, cache)
+    VMs of one firmware cache start at once).
+
+    updatable (firmware.updatable only) builds a separate image with the inactive A/B bank widened
+    (table); the default image is unchanged, so a non-updatable VM's partinfo is byte-for-byte as
+    before."""
+    path = image_path(fw, target, cache, updatable)
     if os.path.isfile(path):
         return path
     with paths.file_lock(path + ".lock"):
         if not os.path.isfile(path):
-            data = image(table(fw, target, tree))
+            data = image(table(fw, target, tree, updatable))
             tmp = path + ".tmp"
             with open(tmp, "wb") as f:
                 f.write(data)

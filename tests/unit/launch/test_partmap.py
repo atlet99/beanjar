@@ -419,6 +419,68 @@ class PartmapTest(unittest.TestCase):
             self.assertEqual(a.offset + a.size, b.offset)
         partmap.nodes(m, target)
 
+    def test_updatable_inactive_headroom(self):
+        """firmware.updatable: each inactive A/B-bank pak partition (used=0) gets UPDATABLE_HEADROOM
+        more room, so a larger variant firmware's pak still fits the stock updater's
+        pak.imageSize <= partition.size check. Active-bank (used=1) entries, fixed-size entries and
+        the non-updatable table are byte-for-byte untouched; backing-disk sizes and node indices do
+        not move."""
+        target = ("o22", "mullet")
+        fw = os.path.join(self.tmp, "fw")
+        os.makedirs(fw)
+        layout = targets.release(target).partmap
+        for p in layout.parts:
+            if not isinstance(p.size, int) and p.size[0] == "pak":
+                with open(os.path.join(fw, p.size[1] + ".pak"), "wb") as f:
+                    f.truncate(3 << 20 if p.size[1] == "rootfs" else 1000)
+        head = partmap.encode(
+            fake_map(("partinfo",))._replace(device=("h13_emmc", 0xE4800000, 0, 0, 0, 0, 1))
+        )
+        with mock.patch.object(partmap, "file_table", return_value=head):
+            plain_blob = partmap.table(fw, target)
+            wide_blob = partmap.table(fw, target, updatable=True)
+            # the default is non-updatable: the flag off is byte-for-byte the plain table
+            self.assertEqual(partmap.table(fw, target, updatable=False), plain_blob)
+        plain, wide = partmap.decode(plain_blob), partmap.decode(wide_blob)
+        self.assertNotEqual(plain_blob, wide_blob)
+        self.assertEqual(len(plain.entries), len(wide.entries))
+        inactive_paks = {
+            p.name
+            for p in layout.parts
+            if p.used == 0 and not isinstance(p.size, int) and p.size[0] == "pak"
+        }
+        n_inactive = 0
+        for a, b in zip(plain.entries, wide.entries):
+            self.assertEqual((a.name, a.used, a.flags), (b.name, b.used, b.flags))
+            if a.used == 0 and a.name in inactive_paks and a.name != "reserved":
+                self.assertEqual(b.size, a.size + partmap.UPDATABLE_HEADROOM)
+                n_inactive += 1
+            else:
+                self.assertEqual(b.size, a.size)
+        # every inactive pak bank is widened (here: the ten of o22-mullet)
+        self.assertEqual(n_inactive, len(inactive_paks))
+        # both tables are still consecutive from 0
+        for m in (plain, wide):
+            self.assertEqual(m.entries[0].offset, 0)
+            for x, y in zip(m.entries, m.entries[1:]):
+                self.assertEqual(x.offset + x.size, y.offset)
+        # the device grows by exactly the headroom handed out, no more
+        self.assertEqual(
+            partmap.device_size(wide),
+            partmap.device_size(plain) + n_inactive * partmap.UPDATABLE_HEADROOM,
+        )
+        # the inactive tzfw bank, the one that failed the check, now holds more than a 1 MiB pak
+        tzfw = [e for e in wide.entries if e.name == "tzfw" and e.used == 0]
+        self.assertEqual(len(tzfw), 1)
+        self.assertEqual(tzfw[0].size, partmap.ALIGN + partmap.UPDATABLE_HEADROOM)
+        # active-bank (used=1) tzfw keeps its node index and size (its offset may shift, since an
+        # earlier inactive bank grew ahead of it)
+        self.assertEqual(partmap.first(wide, "tzfw")[0], partmap.first(plain, "tzfw")[0])
+        self.assertEqual(partmap.first(wide, "tzfw")[1].size, partmap.first(plain, "tzfw")[1].size)
+        # backing-disk sizes and node indices are identical in both maps
+        self.assertEqual(partmap.disk_sizes(wide, target), partmap.disk_sizes(plain, target))
+        self.assertEqual(partmap.nodes(wide, target), partmap.nodes(plain, target))
+
     def firmware(self, name):
         fw = testunits.host_firmware(name)
         if not fw:

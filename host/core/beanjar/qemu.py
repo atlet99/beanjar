@@ -599,6 +599,16 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
     p.updatable = p.updatable == "on"
     if p.updatable and not targets.board_data(p.target):
         raise Error("firmware.updatable: this firmware has no eMMC partition map to present")
+    # firmware.updatable: serve the inactive A/B bank widened for the stock updater's pak size check
+    # (partmap.UPDATABLE_HEADROOM) from a separate cache image; a non-updatable VM keeps the prepared
+    # partinfo byte-for-byte. The whole-disk overlay, its dm-linear table and the overlay-backed pN
+    # nodes below all read this same map (partmap.read(p.partmap)), so they stay self-consistent.
+    if p.updatable and not dry and p.partmap:
+        try:
+            p.partmap = partmap.build(fw, p.target, cache, tree, updatable=True)
+            sizes = partmap.disk_sizes(partmap.read(p.partmap), p.target)
+        except (partmap.Error, OSError) as e:
+            raise Error(f"firmware.updatable: {e}") from None
     disks = [(name, size_bytes(size), None) for name, size in targets.state_disks(p.target)]
     for serial in targets.emmc_disks(p.target):
         disks.append((serial, sizes.get(serial), p.partmap if serial == "partinfo" else None))
