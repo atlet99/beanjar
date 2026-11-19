@@ -223,6 +223,12 @@ fi
 
 # ---- Mesa -----------------------------------------------------------------------------------------
 # Its configure tests the Wayland it builds against (HAVE_WL_*): a change of version reconfigures it.
+# No on-disk shader cache, as on a set: the firmware's own GL drivers (PowerVR's libGLESv2_PVR_MESA.so
+# and libsrv_um, Mali's libmali) keep none, so an app compiles its shaders at every launch unless it
+# saves them itself with GL_OES_get_program_binary. shader-cache-default=false rather than
+# shader-cache=disabled: the latter drops the cache object that program binaries are keyed by, and
+# with it GL_NUM_PROGRAM_BINARY_FORMATS; this way the object stays and never touches the disk
+# (MESA_SHADER_CACHE_DISABLE=false still opts a process in).
 SETUP_KEY=$(cat "$STAGE/.wayland") setup mesa "$MESA_SRC" $CROSSARGS --prefix=/usr --libdir=lib --buildtype=release -Db_ndebug=true \
 	-Dgallium-drivers=virgl,softpipe -Dvulkan-drivers= -Dplatforms="${MESA_PLATFORMS-wayland}" \
 	-Degl=enabled -Dgles1=enabled -Dgles2=enabled -Dopengl=true -Dglx=disabled -Dglvnd=disabled \
@@ -231,6 +237,7 @@ SETUP_KEY=$(cat "$STAGE/.wayland") setup mesa "$MESA_SRC" $CROSSARGS --prefix=/u
 	-Dbuild-tests=false -Dgallium-va=disabled \
 	-Dgallium-extra-hud=false -Dtools= -Dmicrosoft-clc=disabled -Dgallium-rusticl=false \
 	-Dandroid-libbacktrace=disabled -Dlegacy-wayland=bind-wayland-display \
+	-Dshader-cache=enabled -Dshader-cache-default=false \
 	-Dbuild.pkg_config_path="${FW_WL_SRC:+$WORK/native-fw/usr/lib/pkgconfig:$WORK/native-fw/usr/share/pkgconfig:}$NATIVE_PC" \
 	${MESA_EXTRA_ARGS-}
 build mesa
