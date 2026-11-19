@@ -345,8 +345,12 @@ class Plan:
         self.prepared = None  # the VM's prepared board data (prepare.Prepared; None in a dry plan)
         # UPDATABLE (firmware.updatable on): the whole-disk /dev/mmcblk0 for the stock updater.
         # emmc_overlay is the scratch overlay disk's serial (writes discarded, snapshot=on);
-        # emmc_table is its dm-linear table words (partmap.emmc_table_words), None/[] off or dry
+        # emmc_table is its dm-linear table words (partmap.emmc_table_words), None/[] off or dry.
+        # emmc_part_nodes is the overlay-backed per-partition node words (partmap.emmc_part_words):
+        # /dev/mmcblk0pN for the partitions the updater touches that have no real backing disk
+        # (crc32info, the inactive A/B bank), each a slice of the same overlay.
         self.updatable, self.emmc_overlay, self.emmc_table = False, None, []
+        self.emmc_part_nodes = []
 
 
 def _get(env, k, default=""):
@@ -652,6 +656,7 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
                 m = partmap.read(p.partmap)
                 dev_size = partmap.device_size(m)
                 p.emmc_table = partmap.emmc_table_words(m, p.target, p.emmc_overlay)
+                p.emmc_part_nodes = partmap.emmc_part_words(m, p.target)
             except (partmap.Error, OSError) as e:
                 raise Error(f"firmware.updatable: {e}") from None
             # a sparse zero base of the whole-disk size; QEMU's snapshot layer never writes it, so it
@@ -661,7 +666,13 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
                     p.remove.append(img)
                 p.disks.append((img, dev_size, None))
             say(
-                f"updatable: whole-disk /dev/mmcblk0 over {len(p.emmc_table)} segments, writes discarded"
+                f"updatable: whole-disk /dev/mmcblk0 over {len(p.emmc_table)} segments"
+                + (
+                    f", {len(p.emmc_part_nodes)} overlay-backed pN nodes"
+                    if p.emmc_part_nodes
+                    else ""
+                )
+                + ", writes discarded"
             )
     # qemu-user's cold overhead: a swap disk on a memfd in host RAM, which the launcher makes when
     # QEMU starts (hostswap.py); a native VM has none

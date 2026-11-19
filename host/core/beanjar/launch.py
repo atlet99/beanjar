@@ -377,7 +377,7 @@ def run(words, env=None):
         p.broadcast,
         p.qemu_arm if p.userland == "qemu-user" else None,
         p.qemu_aarch64 if p.userland == "qemu-user" else None,
-        (p.emmc_overlay, p.emmc_table) if p.updatable else None,
+        (p.emmc_overlay, p.emmc_table, p.emmc_part_nodes) if p.updatable else None,
     )
     info = paths.vm_info(p.target, p.fw, p.fw_name)  # the viewer's window title
     info["layers"] = list(p.layers)  # the viewer's GPU meter: the gl layer is the guest on host GL

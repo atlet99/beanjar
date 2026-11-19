@@ -334,6 +334,43 @@ def emmc_table_words(m, target, overlay):
     return [f"{s}:{l}:{serial}:{src}" for s, l, serial, src in dm_segments(m, target, overlay)]
 
 
+def overlay_nodes(m, target):
+    """[(N, start, length)] in 512-byte sectors: the /dev/mmcblk0pN nodes for the partitions the
+    stock updater touches that have NO backing disk of their own (firmware.updatable). Each is a
+    dm-linear slice of the SAME scratch overlay the whole-disk /dev/mmcblk0 maps (dm_segments), at
+    the partition's absolute offset and size — so a write at that offset through /dev/mmcblk0 and a
+    read of /dev/mmcblk0pN are the same overlay bytes, and both are discarded at power-off.
+
+    These are exactly the kernel-registered partitions that nodes(m, target) does NOT back with a
+    real disk: the inactive A/B bank entries the updater writes, the crc32 record partition
+    (crc32info) its SWUPDATE_Partition_SetCrc32 opens as /dev/mmcblk0p<idx>, and any gap/no-consumer
+    partition. The partitions that already have a real backing disk (the active bank,
+    partinfo/mapbak, the mounted state/pak disks) keep those nodes and are deliberately NOT listed
+    here, so they are never remapped onto the overlay. Error on an unaligned offset or size.
+
+    nodes(m, target) is validated first, so a broken map is caught the same way as the whole-disk
+    table."""
+    backed = {n for n, _ in nodes(m, target)}
+    out = []
+    for n, e in partitions(m):
+        if n in backed:
+            continue
+        if e.offset % SECTOR or e.size % SECTOR:
+            raise Error(
+                f"partition {n} ({e.name}): offset {e.offset} size {e.size} "
+                f"not a multiple of {SECTOR}"
+            )
+        out.append((n, e.offset // SECTOR, e.size // SECTOR))
+    return out
+
+
+def emmc_part_words(m, target):
+    """The overlay-backed per-partition nodes of overlay_nodes as boot.conf words, one per node:
+    N:start:length (sectors). guest/initramfs/rootfs/bin/beanjar-emmc makes each /dev/mmcblk0pN a
+    dm-linear slice of the overlay disk (boot.conf's EMMC_OVERLAY) at that absolute start."""
+    return [f"{n}:{start}:{length}" for n, start, length in overlay_nodes(m, target)]
+
+
 def main(argv=None):
     import argparse
 

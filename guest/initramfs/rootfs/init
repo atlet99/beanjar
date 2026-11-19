@@ -381,12 +381,15 @@ for n in $PART_NODES; do
 	fi
 done
 [ -z "$PART_NODES" ] || log "eMMC partitions: /dev/mmcblk0p{$(echo $PART_NODES | sed 's/:[^ ]*//g; s/ /,/g')}"
-# firmware.updatable (boot.conf's EMMC_OVERLAY and EMMC_TABLE, from host/core/beanjar/qemu.py): the
-# whole-disk /dev/mmcblk0 the stock firmware updater writes into, a dm-linear device over the
-# per-partition disks and a discarded scratch overlay. Built before webOS so update's open succeeds
-# (bin/beanjar-emmc). Only VMs with the flag on carry EMMC_OVERLAY.
+# firmware.updatable (boot.conf's EMMC_OVERLAY, EMMC_TABLE and EMMC_PART_NODES, from
+# host/core/beanjar/qemu.py): the whole-disk /dev/mmcblk0 the stock firmware updater writes into (a
+# dm-linear device over a discarded scratch overlay), plus the overlay-backed /dev/mmcblk0pN nodes
+# for the partitions it touches that have no backing disk of their own (crc32info, the inactive A/B
+# bank), each a slice of the same overlay so the whole-disk writes and the pN reads are coherent.
+# Built before webOS so update's open and its SWUPDATE_Partition_SetCrc32 succeed (bin/beanjar-emmc).
+# Only VMs with the flag on carry EMMC_OVERLAY.
 if [ -n "${EMMC_OVERLAY:-}" ]; then
-	if beanjar-emmc "$EMMC_OVERLAY" $EMMC_TABLE; then
+	if beanjar-emmc "$EMMC_OVERLAY" $EMMC_TABLE -- $EMMC_PART_NODES; then
 		log "updatable: whole-disk /dev/mmcblk0 ready for the firmware updater"
 	else
 		log "updatable: /dev/mmcblk0 could not be built (see above)"

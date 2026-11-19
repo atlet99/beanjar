@@ -12,12 +12,21 @@
 # nodes and mounts (the updater reads those through the pN nodes); they are not folded in here, as
 # device-mapper would have to claim each backing disk exclusively and those are mounted.
 #
-# The host built the table (host/core/beanjar/partmap.py: emmc_table_words, boot.conf's EMMC_TABLE)
-# and named the overlay disk (EMMC_OVERLAY). This resolves each segment's disk serial to its virtio
-# device and hands the resolved table to the ioctl helper (src/dm-linear.c; the initramfs busybox
-# has no dmsetup).
+# The partitions the updater touches that have NO backing disk of their own (crc32info, which its
+# SWUPDATE_Partition_SetCrc32 opens as /dev/mmcblk0p<idx>, and the inactive A/B bank entries) also
+# get a /dev/mmcblk0pN node here: a dm-linear slice of the SAME overlay at that partition's absolute
+# offset and size, so a write through /dev/mmcblk0 and a read of /dev/mmcblk0pN are the same overlay
+# bytes. Several dm devices share the one overlay as their lower device, which is fine because it is
+# unmounted (the earlier EBUSY was only from stacking dm over already-mounted disks).
 #
-#   beanjar-emmc <overlay-serial> <segment>...   segment: start:len:serial:src, in 512-byte sectors
+# The host built the tables (host/core/beanjar/partmap.py: emmc_table_words / emmc_part_words,
+# boot.conf's EMMC_TABLE / EMMC_PART_NODES) and named the overlay disk (EMMC_OVERLAY). This resolves
+# each serial to its virtio device and hands the resolved tables to the ioctl helper (src/dm-linear.c;
+# the initramfs busybox has no dmsetup).
+#
+#   beanjar-emmc <overlay-serial> <segment>... [-- <node>...]
+#     segment: start:len:serial:src (whole-disk dm-linear table, 512-byte sectors)
+#     node:    N:start:length       (an overlay-backed /dev/mmcblk0pN slice, 512-byte sectors)
 set -eu
 [ $# -ge 2 ] || { echo "beanjar-emmc: no overlay serial or table" >&2; exit 1; }
 overlay=$1
@@ -33,18 +42,39 @@ devnum() {
 	return 1
 }
 
-count=$#
+# the whole-disk dm-linear table, up to a "--" that begins the per-partition node specs
+count=0
 table=
-for seg in "$@"; do
+while [ $# -gt 0 ]; do
+	[ "$1" = "--" ] && { shift; break; }
+	seg=$1; shift
 	start=${seg%%:*}; rest=${seg#*:}
 	len=${rest%%:*}; rest=${rest#*:}
 	serial=${rest%%:*}; src=${rest##*:}
 	num=$(devnum "$serial") || { echo "beanjar-emmc: no disk with serial $serial" >&2; exit 1; }
 	table="$table$start $len $num $src
 "
+	count=$((count + 1))
 done
 printf '%s' "$table" | dm-linear mmcblk0 /webos/dev/mmcblk0 || {
 	echo "beanjar-emmc: could not create the whole-disk /dev/mmcblk0" >&2
 	exit 1
 }
 echo "beanjar-emmc: /dev/mmcblk0 whole-disk dm-linear over $count segments (overlay $overlay, writes discarded)"
+
+# the overlay-backed per-partition nodes (N:start:length): each a one-segment dm-linear slice of the
+# overlay disk at the partition's absolute offset, so the updater's crc32info and inactive-bank
+# access opens instead of failing. All share the one (unmounted) overlay as their lower device.
+onum=$(devnum "$overlay") || { echo "beanjar-emmc: no overlay disk with serial $overlay" >&2; exit 1; }
+nodes=0
+for spec in "$@"; do
+	n=${spec%%:*}; rest=${spec#*:}
+	start=${rest%%:*}; length=${rest##*:}
+	printf '%s' "0 $length $onum $start
+" | dm-linear "mmcblk0p$n" "/webos/dev/mmcblk0p$n" || {
+		echo "beanjar-emmc: could not create /dev/mmcblk0p$n" >&2
+		exit 1
+	}
+	nodes=$((nodes + 1))
+done
+[ "$nodes" -eq 0 ] || echo "beanjar-emmc: $nodes overlay-backed /dev/mmcblk0pN nodes (overlay $overlay)"

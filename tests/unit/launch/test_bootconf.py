@@ -139,23 +139,38 @@ class BootConfTest(unittest.TestCase):
         )
 
     def test_updatable(self):
-        """firmware.updatable: boot.conf carries EMMC_OVERLAY and EMMC_TABLE only when the flag is
-        on, so a default VM's boot.conf is unchanged; on, they name the overlay disk and the
-        dm-linear table words init builds /dev/mmcblk0 from."""
+        """firmware.updatable: boot.conf carries EMMC_OVERLAY, EMMC_TABLE and EMMC_PART_NODES only
+        when the flag is on, so a default VM's boot.conf is unchanged; on, they name the overlay
+        disk, the whole-disk dm-linear table and the overlay-backed per-partition nodes init builds
+        /dev/mmcblk0 and /dev/mmcblk0pN from."""
+        emmc_vars = ("EMMC_OVERLAY", "EMMC_TABLE", "EMMC_PART_NODES")
         layers = ["normal", "gl", "webos", "soc", "common"]
         with tempfile.NamedTemporaryFile("w", suffix=".conf") as f:
             f.write(targets.boot_conf(H13_AFRO, layers))
             f.flush()
-            off = boot_conf(f.name, ("EMMC_OVERLAY", "EMMC_TABLE"))
+            off = boot_conf(f.name, emmc_vars)
             self.assertNotIn("EMMC_OVERLAY", text(f.name))
-        self.assertEqual((off["EMMC_OVERLAY"], off["EMMC_TABLE"]), ("", ""))
-        emmc = ("emmc-overlay", ["0:2048:emmc-overlay:0", "2048:512:partinfo:0"])
+        self.assertEqual(
+            (off["EMMC_OVERLAY"], off["EMMC_TABLE"], off["EMMC_PART_NODES"]), ("", "", "")
+        )
+        emmc = (
+            "emmc-overlay",
+            ["0:2048:emmc-overlay:0", "2048:512:partinfo:0"],
+            ["1:0:2048", "8:11264:2048"],
+        )
         with tempfile.NamedTemporaryFile("w", suffix=".conf") as f:
             f.write(targets.boot_conf(H13_AFRO, layers, emmc=emmc))
             f.flush()
-            on = boot_conf(f.name, ("EMMC_OVERLAY", "EMMC_TABLE"))
+            on = boot_conf(f.name, emmc_vars)
         self.assertEqual(on["EMMC_OVERLAY"], "emmc-overlay")
         self.assertEqual(on["EMMC_TABLE"], "0:2048:emmc-overlay:0 2048:512:partinfo:0")
+        self.assertEqual(on["EMMC_PART_NODES"], "1:0:2048 8:11264:2048")
+        # a two-element emmc tuple (no per-partition nodes) still works: EMMC_PART_NODES is empty
+        with tempfile.NamedTemporaryFile("w", suffix=".conf") as f:
+            f.write(targets.boot_conf(H13_AFRO, layers, emmc=(emmc[0], emmc[1])))
+            f.flush()
+            short = boot_conf(f.name, emmc_vars)
+        self.assertEqual(short["EMMC_PART_NODES"], "")
 
     def test_w15m(self):
         """M14's lg115x.ko carries M14 B0's identity (not KADP's H13 defaults)."""

@@ -1519,8 +1519,10 @@ def boot_conf(
     (board_broadcast), which picks the board (board_cmdline). userland: qemu-user adds USERLAND,
     which has init run the 32-bit programs under /host/qemu-arm (docs/dev/architecture/qemu-user-bridge.md);
     aarch64 (the x86-64 guest kernel's) adds USERLAND_AARCH64, the 64-bit ones under /host/qemu-aarch64.
-    emmc (firmware.updatable on): (overlay serial, dm-linear table words, partmap.emmc_table_words),
-    which has init build the whole-disk /dev/mmcblk0 for the stock updater (bin/beanjar-emmc)."""
+    emmc (firmware.updatable on): (overlay serial, dm-linear table words of the whole-disk
+    /dev/mmcblk0 partmap.emmc_table_words, per-partition overlay-node words partmap.emmc_part_words),
+    which has init build the whole-disk /dev/mmcblk0 and the overlay-backed /dev/mmcblk0pN nodes the
+    updater's crc32info/inactive-bank access needs for the stock updater (bin/beanjar-emmc)."""
     s, r = soc(target), release(target)
     derived = derived or {}
     vm = vm or {}
@@ -1604,6 +1606,13 @@ def boot_conf(
                     _words(emmc[1]),
                     "firmware.updatable: the dm-linear table of /dev/mmcblk0, start:len:serial:src "
                     "per segment in sectors (bin/beanjar-emmc resolves each serial to its disk)",
+                ),
+                (
+                    "EMMC_PART_NODES",
+                    _words(emmc[2] if len(emmc) > 2 else []),
+                    "firmware.updatable: the overlay-backed per-partition nodes, N:start:length in "
+                    "sectors; bin/beanjar-emmc makes /dev/mmcblk0pN a dm-linear slice of EMMC_OVERLAY "
+                    "at start, for the crc32info/inactive-bank partitions that have no backing disk",
                 ),
             )
             if emmc

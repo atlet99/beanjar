@@ -140,6 +140,48 @@ class PartmapTest(unittest.TestCase):
         with self.assertRaisesRegex(partmap.Error, "device size"):
             partmap.dm_segments(m, H13_AFRO, "ov")
 
+    def test_overlay_nodes(self):
+        """The overlay-backed per-partition nodes (firmware.updatable): exactly the kernel-registered
+        partitions nodes() does not back with a real disk — secureboot (p1) and the inactive sedata
+        bank (p8, the second sedata entry) in afro's fake map — each a slice of the overlay at the
+        partition's absolute offset and size, in sectors. The active bank, partinfo/mapbak and the
+        state disks (all backed) are not listed, so they are never remapped onto the overlay."""
+        m = fake_map()
+        backed = {n for n, _ in partmap.nodes(m, H13_AFRO)}
+        self.assertNotIn(1, backed)  # secureboot: no disk of ours
+        self.assertNotIn(8, backed)  # the inactive A/B sedata bank
+        self.assertIn(7, backed)  # the active sedata bank keeps its real disk
+        ents = {n: e for n, e in partmap.partitions(m)}
+        self.assertEqual(
+            partmap.overlay_nodes(m, H13_AFRO),
+            [
+                (1, ents[1].offset // partmap.SECTOR, ents[1].size // partmap.SECTOR),
+                (8, ents[8].offset // partmap.SECTOR, ents[8].size // partmap.SECTOR),
+            ],
+        )
+        # the words carry the same, N:start:length
+        self.assertEqual(
+            partmap.emmc_part_words(m, H13_AFRO),
+            [
+                f"1:0:{ents[1].size // partmap.SECTOR}",
+                f"8:{ents[8].offset // partmap.SECTOR}:{ents[8].size // partmap.SECTOR}",
+            ],
+        )
+        # a slice's start matches the whole-disk address: a write there through /dev/mmcblk0 and a
+        # read of the pN node are the same overlay bytes
+        for n, start, length in partmap.overlay_nodes(m, H13_AFRO):
+            self.assertEqual(start, ents[n].offset // partmap.SECTOR)
+        # a map missing a partition the release backs is still caught (nodes' check)
+        short = fake_map(tuple(n for n in (e.name for e in m.entries[:-1]) if n != "nvram"))
+        with self.assertRaisesRegex(partmap.Error, "no partition nvram"):
+            partmap.overlay_nodes(short, H13_AFRO)
+
+    def test_overlay_nodes_unaligned(self):
+        """A partition whose offset or size is not a multiple of a sector is refused."""
+        m = fake_map(sizes={"secureboot": (1 << 20) + 1})
+        with self.assertRaisesRegex(partmap.Error, "not a multiple"):
+            partmap.overlay_nodes(m, H13_AFRO)
+
     def test_shipped_image(self):
         """W21A ships partinfo.pak; its table is preserved, and malformed input is refused."""
         target = ("lm21a", "kisscurl")
@@ -476,6 +518,9 @@ class PartmapTest(unittest.TestCase):
         # the table matches partmap.emmc_table_words for the firmware's map
         m = partmap.read(on.partmap)
         self.assertEqual(on.emmc_table, partmap.emmc_table_words(m, on.target, "emmc-overlay"))
+        # the overlay-backed per-partition nodes match partmap.emmc_part_words; off carries none
+        self.assertEqual(on.emmc_part_nodes, partmap.emmc_part_words(m, on.target))
+        self.assertEqual(off.emmc_part_nodes, [])
         # the overlay base is created at the whole-disk size, sparse
         qemu.make_disks(on)
         overlay = os.path.join(state, "emmc-overlay.img")
