@@ -292,6 +292,48 @@ def disk_sizes(m, target):
     return out
 
 
+SECTOR = 512
+
+
+def device_size(m):
+    """The whole eMMC's size in bytes: the last entry (reserved) starts at the end of every
+    partition, which is the device size (layout_table); for a firmware's own table its reserved is
+    last too. Falls back to the header's device size where that is larger."""
+    end = m.entries[-1].offset if m.entries else 0
+    return max(end, m.device[1])
+
+
+def dm_segments(m, target, overlay):
+    """[(start, length, serial, src)] in 512-byte sectors, a dm-linear table for the whole eMMC as
+    /dev/mmcblk0 (firmware.updatable). The whole address range [0, device_size) maps into the
+    scratch overlay disk at the same absolute offset, so the stock updater's raw writes — which go
+    to the inactive A/B bank at LG's absolute byte offsets — land in the overlay and are discarded,
+    never touching a real backing disk.
+
+    The updater only writes (and reads back) the inactive bank through the whole-disk node; it reads
+    partinfo and the active partitions through their own /dev/mmcblk0pN nodes, which are unchanged.
+    The active partitions are NOT folded into this device: device-mapper claims each backing device
+    exclusively (block/bdev.c bd_may_claim), and those disks are already mounted (the squashfs paks)
+    or are mounted/swapped later by webOS (the ext4 state disks, authcxt, efs), so stacking dm over
+    them would fail with EBUSY or block webOS's own mount. A whole-disk overlay avoids that and still
+    lets the updater complete its writes and the verify/swap chain. nodes(m, target) is validated so
+    a broken map is still caught. Error on an unaligned device size."""
+    nodes(
+        m, target
+    )  # the map must name every partition the release backs (same check as the nodes)
+    total = device_size(m)
+    if total % SECTOR:
+        raise Error(f"device size {total} is not a multiple of {SECTOR}")
+    return [(0, total // SECTOR, overlay, 0)]
+
+
+def emmc_table_words(m, target, overlay):
+    """The dm-linear table of dm_segments as boot.conf words, one per segment: start:len:serial:src
+    (sectors). guest/initramfs/rootfs/bin/beanjar-emmc resolves each serial to its virtio disk and
+    builds the dmsetup table from them."""
+    return [f"{s}:{l}:{serial}:{src}" for s, l, serial, src in dm_segments(m, target, overlay)]
+
+
 def main(argv=None):
     import argparse
 

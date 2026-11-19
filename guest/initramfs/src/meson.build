@@ -8,7 +8,7 @@
 arm64_cc = find_program(get_option('arm64_cross_compile') + 'gcc', native: true)
 arm64_cflags = ['-static', '-Os', '-Wall', '-Wextra'] + (get_option('werror') ? ['-Werror'] : [])
 virtio_bins = {}
-foreach name : ['virtio-pointer', 'virtio-touch', 'virtio-ir', 'virtio-tuner', 'virtio-video', 'virtio-meminfo', 'virtio-capture', 'virtio-shell', 'gop-present', 'splash', 'sestore-load']
+foreach name : ['virtio-pointer', 'virtio-touch', 'virtio-ir', 'virtio-tuner', 'virtio-video', 'virtio-meminfo', 'virtio-capture', 'virtio-shell', 'gop-present', 'splash', 'sestore-load', 'dm-linear']
   virtio_bins += {name: custom_target(name,
     input: name + '.c',
     output: name,

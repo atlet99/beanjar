@@ -34,6 +34,13 @@ Environment (both):
             free page reporting on the VM's virtio-balloon (every VM has one, for the guest's memory
             statistics, never inflated, so the guest still has all of MEM), and the host takes back
             the free 4 MiB blocks the guest reports. Opt-in: it has a cost.
+  UPDATABLE  on or off (default; vm.toml's firmware.updatable): on attaches a whole-disk
+            /dev/mmcblk0 (a dm-linear device the guest builds, bin/beanjar-emmc) so the stock
+            firmware updater (/usr/sbin/update) can run its raw partition writes for study. It adds
+            one scratch overlay disk (serial emmc-overlay) the updater's inactive-bank writes land
+            in, attached snapshot=on so they are discarded at power-off, and attaches partinfo
+            snapshot=on too so the bank swap does not persist. Off leaves the VM byte-for-byte
+            unchanged.
   USERLAND  auto (default), native or qemu-user (vm.toml's hardware.userland): qemu-user runs the
             firmware's 32-bit ARM programs under qemu-arm in the guest, their system calls through
             the guest kernel's compat table (docs/dev/architecture/qemu-user-bridge.md): the
@@ -336,6 +343,10 @@ class Plan:
         # QEMU: (shell.sock, QEMU's socket for the webos.shell port)
         self.shell_relay = None
         self.prepared = None  # the VM's prepared board data (prepare.Prepared; None in a dry plan)
+        # UPDATABLE (firmware.updatable on): the whole-disk /dev/mmcblk0 for the stock updater.
+        # emmc_overlay is the scratch overlay disk's serial (writes discarded, snapshot=on);
+        # emmc_table is its dm-linear table words (partmap.emmc_table_words), None/[] off or dry
+        self.updatable, self.emmc_overlay, self.emmc_table = False, None, []
 
 
 def _get(env, k, default=""):
@@ -576,14 +587,25 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
             raise Error(str(e)) from None
         except (partmap.Error, OSError) as e:
             raise Error(f"partition map: {e}") from None
+    # firmware.updatable: the whole-disk /dev/mmcblk0 the stock updater writes into. partinfo is
+    # attached snapshot=on so the updater's bank-swap write to it is discarded with the rest.
+    p.updatable = _get(env, "UPDATABLE", "off")
+    if p.updatable not in ("on", "off"):
+        raise Error(f"UPDATABLE={p.updatable}: on or off")
+    p.updatable = p.updatable == "on"
+    if p.updatable and not targets.board_data(p.target):
+        raise Error("firmware.updatable: this firmware has no eMMC partition map to present")
     disks = [(name, size_bytes(size), None) for name, size in targets.state_disks(p.target)]
     for serial in targets.emmc_disks(p.target):
         disks.append((serial, sizes.get(serial), p.partmap if serial == "partinfo" else None))
     for name, size, seed in disks:
         img = os.path.join(state, name + ".img")
+        opt = state_opt
+        if p.updatable and name == "partinfo" and ",snapshot=on" not in opt:
+            opt += ",snapshot=on"
         devices += [
             "-drive",
-            f"if=none,id={name},format=raw,file={img},discard=unmap,detect-zeroes=unmap{state_opt}",
+            f"if=none,id={name},format=raw,file={img},discard=unmap,detect-zeroes=unmap{opt}",
             "-device",
             f"virtio-blk-pci,drive={name},serial={name}",
         ]
@@ -611,6 +633,36 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
         elif not os.path.isfile(img):
             p.disks.append((img, size, seed))
     say("state: none (fresh disks, discarded at power-off)" if state_opt else f"state: {state}")
+    # firmware.updatable: one scratch overlay disk sized to the whole eMMC, the dm-linear whole-disk
+    # /dev/mmcblk0's backing (guest bin/beanjar-emmc). snapshot=on discards every write at power-off,
+    # so the updater's raw writes to the inactive A/B bank never persist and never reach a real
+    # backing disk; the active partitions keep their own pN nodes and are not stacked under dm.
+    if p.updatable:
+        p.emmc_overlay = "emmc-overlay"
+        img = os.path.join(state, p.emmc_overlay + ".img")
+        devices += [
+            "-drive",
+            f"if=none,id={p.emmc_overlay},format=raw,snapshot=on,file={img},"
+            "discard=unmap,detect-zeroes=unmap",
+            "-device",
+            f"virtio-blk-pci,drive={p.emmc_overlay},serial={p.emmc_overlay}",
+        ]
+        if not dry:
+            try:
+                m = partmap.read(p.partmap)
+                dev_size = partmap.device_size(m)
+                p.emmc_table = partmap.emmc_table_words(m, p.target, p.emmc_overlay)
+            except (partmap.Error, OSError) as e:
+                raise Error(f"firmware.updatable: {e}") from None
+            # a sparse zero base of the whole-disk size; QEMU's snapshot layer never writes it, so it
+            # stays all-zero and is shared across starts (re-made only if its size changed)
+            if not os.path.isfile(img) or os.path.getsize(img) != dev_size:
+                if os.path.isfile(img):
+                    p.remove.append(img)
+                p.disks.append((img, dev_size, None))
+            say(
+                f"updatable: whole-disk /dev/mmcblk0 over {len(p.emmc_table)} segments, writes discarded"
+            )
     # qemu-user's cold overhead: a swap disk on a memfd in host RAM, which the launcher makes when
     # QEMU starts (hostswap.py); a native VM has none
     swap = vmsettings.qemu_user_swap_mib(tv_mem, p.userland)

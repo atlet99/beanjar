@@ -138,6 +138,25 @@ class BootConfTest(unittest.TestCase):
             },
         )
 
+    def test_updatable(self):
+        """firmware.updatable: boot.conf carries EMMC_OVERLAY and EMMC_TABLE only when the flag is
+        on, so a default VM's boot.conf is unchanged; on, they name the overlay disk and the
+        dm-linear table words init builds /dev/mmcblk0 from."""
+        layers = ["normal", "gl", "webos", "soc", "common"]
+        with tempfile.NamedTemporaryFile("w", suffix=".conf") as f:
+            f.write(targets.boot_conf(H13_AFRO, layers))
+            f.flush()
+            off = boot_conf(f.name, ("EMMC_OVERLAY", "EMMC_TABLE"))
+            self.assertNotIn("EMMC_OVERLAY", text(f.name))
+        self.assertEqual((off["EMMC_OVERLAY"], off["EMMC_TABLE"]), ("", ""))
+        emmc = ("emmc-overlay", ["0:2048:emmc-overlay:0", "2048:512:partinfo:0"])
+        with tempfile.NamedTemporaryFile("w", suffix=".conf") as f:
+            f.write(targets.boot_conf(H13_AFRO, layers, emmc=emmc))
+            f.flush()
+            on = boot_conf(f.name, ("EMMC_OVERLAY", "EMMC_TABLE"))
+        self.assertEqual(on["EMMC_OVERLAY"], "emmc-overlay")
+        self.assertEqual(on["EMMC_TABLE"], "0:2048:emmc-overlay:0 2048:512:partinfo:0")
+
     def test_w15m(self):
         """M14's lg115x.ko carries M14 B0's identity (not KADP's H13 defaults)."""
         with tempfile.NamedTemporaryFile("w", suffix=".conf") as f:

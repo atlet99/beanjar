@@ -1,0 +1,50 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Mariotaku <git@mariotaku.me> and the Beanjar contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+# firmware.updatable: build the whole-disk /dev/mmcblk0 the stock firmware updater writes into,
+# before webOS starts, so /usr/sbin/update's open(/dev/mmcblk0, O_RDWR) succeeds and its hardcoded
+# `mknod b 179 0` fallback is never reached (docs/research/firmware-update.md).
+#
+# A dm-linear device named mmcblk0 maps the whole eMMC address range into the scratch overlay disk,
+# which QEMU discards at power-off. The updater writes the inactive A/B bank at LG's absolute byte
+# offsets and reads it back through this node; both land in the overlay, so nothing persists and no
+# real backing disk is touched. partinfo and the active partitions keep their own /dev/mmcblk0pN
+# nodes and mounts (the updater reads those through the pN nodes); they are not folded in here, as
+# device-mapper would have to claim each backing disk exclusively and those are mounted.
+#
+# The host built the table (host/core/beanjar/partmap.py: emmc_table_words, boot.conf's EMMC_TABLE)
+# and named the overlay disk (EMMC_OVERLAY). This resolves each segment's disk serial to its virtio
+# device and hands the resolved table to the ioctl helper (src/dm-linear.c; the initramfs busybox
+# has no dmsetup).
+#
+#   beanjar-emmc <overlay-serial> <segment>...   segment: start:len:serial:src, in 512-byte sectors
+set -eu
+[ $# -ge 2 ] || { echo "beanjar-emmc: no overlay serial or table" >&2; exit 1; }
+overlay=$1
+shift
+
+# "major:minor" of the virtio disk with serial $1 (-device virtio-blk-pci,serial=NAME).
+devnum() {
+	for s in /sys/block/vd*/serial; do
+		[ "$(cat "$s" 2>/dev/null)" = "$1" ] || continue
+		cat "${s%/serial}/dev"
+		return 0
+	done
+	return 1
+}
+
+count=$#
+table=
+for seg in "$@"; do
+	start=${seg%%:*}; rest=${seg#*:}
+	len=${rest%%:*}; rest=${rest#*:}
+	serial=${rest%%:*}; src=${rest##*:}
+	num=$(devnum "$serial") || { echo "beanjar-emmc: no disk with serial $serial" >&2; exit 1; }
+	table="$table$start $len $num $src
+"
+done
+printf '%s' "$table" | dm-linear mmcblk0 /webos/dev/mmcblk0 || {
+	echo "beanjar-emmc: could not create the whole-disk /dev/mmcblk0" >&2
+	exit 1
+}
+echo "beanjar-emmc: /dev/mmcblk0 whole-disk dm-linear over $count segments (overlay $overlay, writes discarded)"

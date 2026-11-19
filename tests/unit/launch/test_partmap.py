@@ -112,6 +112,34 @@ class PartmapTest(unittest.TestCase):
         )
         self.assertFalse(partmap.same_layout(m, renamed))
 
+    def test_device_size(self):
+        """The whole eMMC's size is the reserved entry's offset (the end of every partition)."""
+        m = fake_map()
+        self.assertEqual(partmap.device_size(m), m.entries[-1].offset)
+        self.assertEqual(partmap.device_size(m), sum(e.size for e in m.entries[:-1]))
+
+    def test_dm_segments(self):
+        """The dm-linear table of the whole-disk /dev/mmcblk0 (firmware.updatable): the whole address
+        range maps into the scratch overlay at its own offset, so the updater's raw writes to the
+        inactive bank are discarded and no real (mounted) backing disk is stacked under dm."""
+        m = fake_map()
+        segs = partmap.dm_segments(m, H13_AFRO, "ov")
+        total = partmap.device_size(m) // partmap.SECTOR
+        self.assertEqual(segs, [(0, total, "ov", 0)])
+        # the words carry the same, start:len:serial:src
+        self.assertEqual(partmap.emmc_table_words(m, H13_AFRO, "ov"), [f"0:{total}:ov:0"])
+        # a map missing a partition the release backs is still caught (nodes' check)
+        short = fake_map(tuple(n for n in (e.name for e in m.entries[:-1]) if n != "nvram"))
+        with self.assertRaisesRegex(partmap.Error, "no partition nvram"):
+            partmap.dm_segments(short, H13_AFRO, "ov")
+
+    def test_dm_segments_unaligned(self):
+        """A whole-disk size that is not a multiple of a sector is refused."""
+        m = fake_map(sizes={"nvram": (1 << 20) + 1})
+        self.assertNotEqual(partmap.device_size(m) % partmap.SECTOR, 0)
+        with self.assertRaisesRegex(partmap.Error, "device size"):
+            partmap.dm_segments(m, H13_AFRO, "ov")
+
     def test_shipped_image(self):
         """W21A ships partinfo.pak; its table is preserved, and malformed input is refused."""
         target = ("lm21a", "kisscurl")
@@ -402,3 +430,54 @@ class PartmapTest(unittest.TestCase):
         shutil.rmtree(p.prepared.dir)
         with mock.patch.object(partmap, "build", big), self.assertRaisesRegex(qemu.Error, "nvram"):
             qemu.plan(env, [], accel="tcg", tree=paths.Tree(top), say=lambda _: None)
+
+    def test_plan_updatable(self):
+        """firmware.updatable on (UPDATABLE=on): one scratch overlay disk sized to the whole eMMC,
+        attached snapshot=on, plus partinfo attached snapshot=on, and the dm-linear table on the
+        plan. Off, nothing of it; the overlay's base is created the whole-disk size."""
+        root = os.path.join(self.tmp, "t")
+        top, fw, state = fake_tree(root)
+        base = dict(FW=fw, STATE=state, **net("direct"), SLOT="1")
+        build = fake_partmap_build(os.path.join(self.tmp, "map.img"))
+        with mock.patch.object(partmap, "build", build):
+            off = qemu.plan(base, [], accel="tcg", tree=paths.Tree(top), say=lambda _: None)
+            on = qemu.plan(
+                dict(base, UPDATABLE="on"),
+                [],
+                accel="tcg",
+                tree=paths.Tree(top),
+                say=lambda _: None,
+            )
+        self.assertFalse(off.updatable)
+        self.assertNotIn("emmc-overlay", " ".join(off.argv))
+        self.assertIn(
+            "-drive if=none,id=partinfo,format=raw,file="
+            + os.path.join(state, "partinfo.img")
+            + ",discard=unmap,detect-zeroes=unmap -device",
+            " ".join(off.argv),
+        )
+        # on: the overlay disk, and partinfo now snapshot=on
+        self.assertTrue(on.updatable)
+        self.assertEqual(on.emmc_overlay, "emmc-overlay")
+        argv = " ".join(on.argv)
+        self.assertIn(
+            "-drive if=none,id=emmc-overlay,format=raw,snapshot=on,file="
+            + os.path.join(state, "emmc-overlay.img")
+            + ",discard=unmap,detect-zeroes=unmap -device "
+            "virtio-blk-pci,drive=emmc-overlay,serial=emmc-overlay",
+            argv,
+        )
+        self.assertIn(
+            "if=none,id=partinfo,format=raw,file="
+            + os.path.join(state, "partinfo.img")
+            + ",discard=unmap,detect-zeroes=unmap,snapshot=on",
+            argv,
+        )
+        # the table matches partmap.emmc_table_words for the firmware's map
+        m = partmap.read(on.partmap)
+        self.assertEqual(on.emmc_table, partmap.emmc_table_words(m, on.target, "emmc-overlay"))
+        # the overlay base is created at the whole-disk size, sparse
+        qemu.make_disks(on)
+        overlay = os.path.join(state, "emmc-overlay.img")
+        self.assertEqual(os.path.getsize(overlay), partmap.device_size(m))
+        self.assertEqual(os.stat(overlay).st_blocks, 0)

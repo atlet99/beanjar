@@ -1045,6 +1045,9 @@ class Library:
             elif k == "free_page_reporting" and v == "off":
                 cfg.pop(k, None)  # off is the default, not written out
                 continue
+            elif k == "updatable" and v == "off":
+                cfg.pop(k, None)  # off is the default, not written out
+                continue
             elif k == "gpu" and v in ("", "auto"):
                 cfg.pop(k, None)  # auto is the default, not written out
                 continue

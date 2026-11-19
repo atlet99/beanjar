@@ -189,6 +189,19 @@ def test_free_page_reporting():
     assert "FREE_PAGE_REPORTING" not in vmsettings.launcher_env(vmconfig.decode(base))
 
 
+def test_updatable():
+    """firmware.updatable: off is the default and is not written out; on is UPDATABLE=on; a value
+    other than on/off is refused."""
+    base = {"firmware": {"directory": "firmware"}}
+    assert "updatable" not in vmconfig.decode(base)
+    assert "UPDATABLE" not in vmsettings.launcher_env(vmconfig.decode(base))
+    cfg = vmconfig.decode(dict(base, firmware={"directory": "firmware", "updatable": "on"}))
+    assert vmsettings.launcher_env(cfg)["UPDATABLE"] == "on"
+    for bad, why in (("yes", "one of on, off"), (True, "must be a string")):
+        with pytest.raises(core.Error, match=why):
+            vmconfig.decode(dict(base, firmware={"directory": "firmware", "updatable": bad}))
+
+
 def test_debug_mode():
     """firmware.debug_mode: debug (the default, not written out), event or release; DEBUG_MODE."""
     base = {"firmware": {"directory": "firmware"}}

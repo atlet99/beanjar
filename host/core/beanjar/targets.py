@@ -1506,6 +1506,7 @@ def boot_conf(
     broadcast=None,
     userland="native",
     aarch64=False,
+    emmc=None,
 ):
     """The text of /host/boot.conf, which guest/initramfs/rootfs/init
     sources and carries out: NAME="value" lines, lists space-separated. layers: the layers the
@@ -1517,7 +1518,9 @@ def boot_conf(
     firmware directory, whose paks it names (release). broadcast: the board's broadcast standard
     (board_broadcast), which picks the board (board_cmdline). userland: qemu-user adds USERLAND,
     which has init run the 32-bit programs under /host/qemu-arm (docs/dev/architecture/qemu-user-bridge.md);
-    aarch64 (the x86-64 guest kernel's) adds USERLAND_AARCH64, the 64-bit ones under /host/qemu-aarch64."""
+    aarch64 (the x86-64 guest kernel's) adds USERLAND_AARCH64, the 64-bit ones under /host/qemu-aarch64.
+    emmc (firmware.updatable on): (overlay serial, dm-linear table words, partmap.emmc_table_words),
+    which has init build the whole-disk /dev/mmcblk0 for the stock updater (bin/beanjar-emmc)."""
     s, r = soc(target), release(target)
     derived = derived or {}
     vm = vm or {}
@@ -1587,6 +1590,24 @@ def boot_conf(
             "PART_NODES",
             _words(f"{n}:{serial}" for n, serial in part_nodes),
             "the eMMC partitions' nodes, N:serial: /dev/mmcblk0pN is that disk",
+        ),
+        *(
+            (
+                (
+                    "EMMC_OVERLAY",
+                    _words([emmc[0]]),
+                    "firmware.updatable: the scratch overlay disk's serial, the dm-linear "
+                    "whole-disk /dev/mmcblk0's backing (writes discarded at power-off)",
+                ),
+                (
+                    "EMMC_TABLE",
+                    _words(emmc[1]),
+                    "firmware.updatable: the dm-linear table of /dev/mmcblk0, start:len:serial:src "
+                    "per segment in sectors (bin/beanjar-emmc resolves each serial to its disk)",
+                ),
+            )
+            if emmc
+            else ()
         ),
         (
             "PMLOG_MODE",

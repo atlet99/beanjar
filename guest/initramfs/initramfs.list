@@ -32,6 +32,10 @@ file /bin/virtio-meminfo ${VIRTIO_MEMINFO} 0755 0 0
 file /bin/virtio-capture ${VIRTIO_CAPTURE} 0755 0 0
 file /bin/virtio-shell ${VIRTIO_SHELL} 0755 0 0
 file /bin/sestore-load ${SESTORE_LOAD} 0755 0 0
+# firmware.updatable: the device-mapper ioctls for the whole-disk /dev/mmcblk0 (src/dm-linear.c,
+# bin/beanjar-emmc)
+file /bin/dm-linear ${DM_LINEAR} 0755 0 0
+file /bin/beanjar-emmc ${SRC}/bin/beanjar-emmc 0755 0 0
 # SimpleSmart's GOP planes on virtio-gpu (src/gop-present.c)
 file /bin/gop-present ${GOP_PRESENT} 0755 0 0
 # the boot splash (src/splash.c) and its picture (meson/splash.py)

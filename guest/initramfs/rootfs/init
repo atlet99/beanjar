@@ -381,6 +381,17 @@ for n in $PART_NODES; do
 	fi
 done
 [ -z "$PART_NODES" ] || log "eMMC partitions: /dev/mmcblk0p{$(echo $PART_NODES | sed 's/:[^ ]*//g; s/ /,/g')}"
+# firmware.updatable (boot.conf's EMMC_OVERLAY and EMMC_TABLE, from host/core/beanjar/qemu.py): the
+# whole-disk /dev/mmcblk0 the stock firmware updater writes into, a dm-linear device over the
+# per-partition disks and a discarded scratch overlay. Built before webOS so update's open succeeds
+# (bin/beanjar-emmc). Only VMs with the flag on carry EMMC_OVERLAY.
+if [ -n "${EMMC_OVERLAY:-}" ]; then
+	if beanjar-emmc "$EMMC_OVERLAY" $EMMC_TABLE; then
+		log "updatable: whole-disk /dev/mmcblk0 ready for the firmware updater"
+	else
+		log "updatable: /dev/mmcblk0 could not be built (see above)"
+	fi
+fi
 # The stock systemd EFS scripts skip mapping creation when the block node exists.
 # Prepare an upstream dm-linear mapping, then let their own mkswap/swapon run.
 # Only firmwares with an attached EFS backing disk get this integration.

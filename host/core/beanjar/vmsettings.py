@@ -269,6 +269,7 @@ SETTINGS = {
     "userland": "USERLAND",
     "guest_kernel": "GUEST_KERNEL",
     "debug_mode": "DEBUG_MODE",
+    "updatable": "UPDATABLE",
     "layers": "LAYERS",
     "link": "NET_LINK",
     "mode": "NET_MODE",
@@ -341,6 +342,15 @@ SETTING_HELP = {
         "with the popup; release a retail set, no popup, and it reboots when tvservice or lginit_app "
         "exits",
         "debug",
+    ),
+    "updatable": (
+        "|".join(ONOFF),
+        "off",
+        "present a whole-disk /dev/mmcblk0 so the stock firmware updater (/usr/sbin/update) can "
+        "run its raw partition writes for study: a dm-linear device over the per-partition disks "
+        "and a scratch overlay QEMU discards at power-off, so nothing persists and the inactive "
+        "A/B bank and gaps take the writes; off leaves the VM byte-for-byte unchanged",
+        None,
     ),
     "layers": (
         "NAME[@VERSION],...",
@@ -551,6 +561,7 @@ def validate(cfg, saved=False):
         ("gpu", GPUS),
         ("audio", AUDIOS),
         ("free_page_reporting", ONOFF),
+        ("updatable", ONOFF),
         ("userland", USERLANDS),
         ("guest_kernel", GUEST_KERNELS),
         ("debug_mode", tuple(DEBUG_MODES)),

@@ -33,6 +33,7 @@ initramfs_args = [
   '--var', 'GOP_PRESENT', virtio_bins['gop-present'],
   '--var', 'SPLASH', virtio_bins['splash'],
   '--var', 'SESTORE_LOAD', virtio_bins['sestore-load'],
+  '--var', 'DM_LINEAR', virtio_bins['dm-linear'],
   '--var', 'SPLASH_PPM', splash_ppm,
   # the out-of-tree kernel modules (guest/kernel/modules/<name>), each with a `file` line in
   # initramfs.list

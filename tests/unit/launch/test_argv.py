@@ -207,6 +207,11 @@ def cases(top, fw):
         # the TV's debug status: webos.debugmode= for /init, nothing for the default
         ("tcg-debug-mode-release", "tcg", dict(**net("direct"), DEBUG_MODE="release")),
         ("tcg-bad-debug-mode", "tcg", dict(**net("direct"), DEBUG_MODE="quiet")),
+        # firmware.updatable: on adds the scratch overlay disk and attaches partinfo snapshot=on;
+        # off, the default, adds nothing; a bad value errors
+        ("tcg-updatable", "tcg", dict(**net("direct"), UPDATABLE="on")),
+        ("tcg-updatable-off", "tcg", dict(**net("direct"), UPDATABLE="off")),
+        ("tcg-bad-updatable", "tcg", dict(**net("direct"), UPDATABLE="yes")),
         # the GPU in its own process on an ARM host with a render node ("_HOST": "arm",
         # planned()): asked for; auto takes it too; none without a
         # GPU; errors without a render node or a backend
