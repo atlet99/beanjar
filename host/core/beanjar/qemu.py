@@ -427,8 +427,11 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
         link = _get(env, "NET_LINK", "nat")
         if link != "off" and (link != "nat" or env.get("NET_MODE") != "direct"):
             raise Error("ACCEL=hvf requires NET_LINK=off or NET_LINK=nat with NET_MODE=direct")
-        if _get(env, "DISPLAY_BACKEND", "none") != "none" or _get(env, "AUDIO", "off") != "off":
-            raise Error("ACCEL=hvf requires DISPLAY_BACKEND=none and AUDIO=off")
+        if (
+            _get(env, "DISPLAY_BACKEND", "none") not in ("none", "cocoa")
+            or _get(env, "AUDIO", "off") != "off"
+        ):
+            raise Error("ACCEL=hvf requires DISPLAY_BACKEND=none or cocoa, and AUDIO=off")
     from . import development
 
     explicit_ca = "NETSTUB_CA" in env
@@ -1230,7 +1233,13 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
             tcg += f",tb-size={env['TCG_TB_SIZE']}"
     # the display: under TCG, or on the x86-64 kernel's PC host, a render node or the surfaceless
     # display of a host without one (WSL2); under the arm64 kernel's KVM, the board's render node
-    if accel == "tcg" or guest_kernel == "x86-64":
+    node = None
+    if display_backend == "cocoa":
+        if accel != "hvf" or p.target != ("virt", "testguest"):
+            raise Error("DISPLAY_BACKEND=cocoa requires the open test guest with ACCEL=hvf")
+        display = ["-display", "cocoa,show-cursor=on"]
+        gpu[1] = gpu[1].replace("virtio-gpu-gl-pci", "virtio-gpu-pci", 1)
+    elif accel == "tcg" or guest_kernel == "x86-64":
         if display_backend == "none":
             display, gpu = ["-display", "none"], []
         elif display_backend in ("egl-headless", "dbus"):
@@ -1266,7 +1275,7 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
             display = ["-display", f"dbus,gl=on,rendernode={node},addr={dbus_addr}"]
         else:
             raise Error(f"unknown DISPLAY_BACKEND={display_backend} (none, egl-headless or dbus)")
-    if gpu and render_driver(node) in INTEGER_INPUT_DRIVERS:
+    if gpu and node is not None and render_driver(node) in INTEGER_INPUT_DRIVERS:
         p.env.setdefault("VIRGL_USE_INTEGER", "1")
     machine = "q35" if guest_kernel == "x86-64" else "virt"
     memory = []
@@ -1277,7 +1286,7 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
         and "gl" in p.layers
         and display_backend == "dbus"
     )
-    if gpu and gpu_process(env, node, qemu, tree, say):
+    if gpu and node is not None and gpu_process(env, node, qemu, tree, say):
         # virgl in QEMU's vhost-user-gpu backend, its own process (docs/dev/architecture/gpu-process.md):
         # the same device to the guest, at the same resolution and id. The backend maps the guest's
         # RAM to read its buffers, so the RAM is a shared memfd.

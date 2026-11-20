@@ -1018,6 +1018,8 @@ class ArgvTest(unittest.TestCase):
             self.assertNotIn("-add-fd", p.argv)
             self.assertNotIn("-audiodev", p.argv)
             self.assertNotIn("webos.time_scale=", p.argv[p.argv.index("-append") + 1])
+            with self.assertRaisesRegex(qemu.Error, "cocoa requires the open test guest"):
+                plan(DISPLAY_BACKEND="cocoa")
             with self.assertRaisesRegex(qemu.Error, "requires NET_LINK=off"):
                 plan(NET_LINK="nat")
             with self.assertRaisesRegex(qemu.Error, "requires NET_LINK=off"):
