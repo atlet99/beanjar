@@ -1,7 +1,8 @@
 # Installing the macOS stack with Homebrew
 
 There is no macOS app release yet. Developers can run the open test guest in the foreground on
-Apple silicon using HVF, with networking off or direct NAT and with graphics and sound off.
+Apple silicon using HVF, with networking off or direct NAT. The open test guest also supports
+QEMU's native Cocoa window; TV firmware graphics and sound are not supported in this preview.
 The tap installs only dependencies. Its bottles for Apple silicon on macOS 15 are released on
 [beanjar-vendor](https://github.com/mariotaku/beanjar-vendor/releases).
 
@@ -98,6 +99,39 @@ interface and fetch the file through QEMU's host-loopback address:
 ```sh
 webos-enter /bin/sh -c 'ip link set eth0 up && ip addr add 10.0.2.15/24 dev eth0 && wget -O - http://10.0.2.2:18081/'
 ```
+
+## Building a CLI disk image without Developer ID
+
+With the guest artifacts described above, the published guest components and LLS/SSH artifacts
+in `build/`, and Homebrew's `uv`, `qemu`, `squashfs`, `e2fsprogs`, `openssl@3` and `imagemagick` installed:
+
+```sh
+python3 packaging/macos/build.py
+shasum -a 256 "build/Beanjar-$(tr -d '\n' < packaging/VERSION)-macos-arm64-preview-adhoc.dmg"
+```
+
+The default build signs the Apple Silicon executables and libraries ad hoc, including the
+Hypervisor entitlement for QEMU. The versioned DMG contains `Beanjar.app`, an `Applications`
+shortcut and installation instructions. The app targets macOS 26 on Apple Silicon. Opening it from
+Finder starts the open test guest, with a native QEMU window and diagnostics in Terminal. The
+window shows a boot screen drawn by the guest framebuffer, not the webOS TV interface.
+
+The TV graphics path needs virgl and a working EGL display on macOS. The current patched QEMU
+bottle still fails with `egl: not available on this platform` for both `egl-headless` and
+`dbus,gl=on`. Its surfaceless entry point is currently selected only on GBM builds. Cocoa with a
+2D virtio GPU does not provide the TV compositor's GL path.
+
+To use your own Keychain identity and sign the image itself as well:
+
+```sh
+security find-identity -v -p codesigning
+python3 packaging/macos/build.py --identity '<exact Keychain identity name or SHA-1 hash>'
+```
+
+This writes the same versioned filename without `-adhoc`. If certificates share a name, use the SHA-1
+hash to select one. Neither an ad-hoc signature nor a self-signed certificate provides Apple
+notarization. Publish the SHA-256 alongside downloads; an ad-hoc signature does not identify
+the publisher.
 
 ## Updating and removing
 
