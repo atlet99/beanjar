@@ -78,6 +78,10 @@ macOS 26.3.1 with Homebrew's upstream QEMU 11.1.3. The full guest test suite, re
 the desktop viewer are outside this smoke test. HVF does not expose AArch32 on Apple silicon, so
 the guest uses `qemu-user`; it has extra RAM but no Linux memfd-backed swap.
 
+If early systemd services fail with `237/KEYRING` under HVF, repeat the headless launch with
+`ACCEL=tcg LAYERS=headless`. TCG runs the 32-bit firmware without `qemu-user`, so it is useful as
+a compatibility baseline, though it is slower than HVF. Keep `NET_LINK=off` for this comparison.
+
 ## Developer smoke test: direct NAT
 
 For a networked run, replace `NET_LINK=off` with `NET_LINK=nat NET_MODE=direct`. Direct mode allows

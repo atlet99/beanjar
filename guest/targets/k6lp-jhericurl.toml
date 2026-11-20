@@ -1,4 +1,5 @@
-models = ["W20L"]
+models = ["W20L", "W20P"]
+bring_up = ["W20P"]
 v4l2_capture = true
 
 # W20L ignores builtin M-RCU motion until the native cursor-on event.

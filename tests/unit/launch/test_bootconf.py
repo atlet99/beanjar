@@ -1261,6 +1261,8 @@ class BootConfTest(unittest.TestCase):
         self.assertEqual(targets.of_firmware("WT1H", "afro"), H13_AFRO)
         self.assertIsNone(targets.of_firmware("WT1H", "beehive"))
         self.assertEqual(targets.of_firmware("W20L", "jhericurl"), ("k6lp", "jhericurl"))
+        self.assertEqual(targets.of_firmware("W20P", "jhericurl"), ("k6lp", "jhericurl"))
+        self.assertIn("W20P", targets.BRING_UP)
         self.assertIsNone(targets.of_firmware("W20L", "goldilocks2"))
         self.assertEqual(targets.of_firmware("W21P", "kisscurl"), ("k7lp", "kisscurl"))
         self.assertEqual(targets.of_firmware("N21D", "kisscurl"), ("lm21u", "kisscurl"))

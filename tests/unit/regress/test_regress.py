@@ -381,7 +381,7 @@ class ArgsTest(unittest.TestCase):
         # the run's deadlines take the launcher's factor for the VM host's accelerator: --local is
         # this machine's (TCG on x86), the Pi KVM, ACCEL as given
         scale = regress.qemu.TIME_SCALE
-        self.assertEqual(scale, {"kvm": 1, "tcg": 4})
+        self.assertEqual(scale, {"kvm": 1, "hvf": 1, "tcg": 4})
         for argv, env, accel, timeout in (
             (["--local"], {}, regress.qemu.default_accel(), 300),
             (["--local"], {"ACCEL": "tcg"}, "tcg", 300),
