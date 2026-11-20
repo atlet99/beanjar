@@ -996,6 +996,42 @@ class ArgvTest(unittest.TestCase):
             ):
                 plan("kvm", False, platform)
 
+    def test_hvf(self):
+        tree = paths.Tree(self.top)
+        env = dict(FW=self.fw, STATE="none", SLOT="1", NET_LINK="off", ACCEL="hvf")
+
+        def plan(**settings):
+            return qemu.plan(dict(env, **settings), tree=tree, say=lambda _: None, dry=True)
+
+        with mock.patch.object(qemu.sys, "platform", "linux"):
+            with self.assertRaisesRegex(qemu.Error, "requires an Apple silicon host"):
+                plan()
+        with (
+            mock.patch.object(qemu.sys, "platform", "darwin"),
+            mock.patch.object(qemu.platform, "machine", return_value="arm64"),
+        ):
+            p = plan()
+            self.assertEqual(p.userland, "qemu-user")
+            self.assertEqual(p.wrap, "off")
+            self.assertEqual(p.argv[p.argv.index("-accel") + 1], "hvf")
+            self.assertEqual(p.argv[p.argv.index("-cpu") + 1], "host")
+            self.assertNotIn("-add-fd", p.argv)
+            self.assertNotIn("-audiodev", p.argv)
+            self.assertNotIn("webos.time_scale=", p.argv[p.argv.index("-append") + 1])
+            with self.assertRaisesRegex(qemu.Error, "requires NET_LINK=off"):
+                plan(NET_LINK="nat")
+            with self.assertRaisesRegex(qemu.Error, "requires NET_LINK=off"):
+                plan(NET_LINK="lan", NET_MODE="direct")
+            p = plan(NET_LINK="nat", NET_MODE="direct", FORWARD="18080:8080")
+            self.assertFalse(p.wrap)
+            self.assertEqual(p.service_host, "127.0.0.1")
+            netdev = p.argv[p.argv.index("-netdev") + 1]
+            self.assertIn("hostfwd=tcp:127.0.0.1:18080-:8080", netdev)
+            p = plan(NET_LINK="nat", NET_MODE="direct", LISTEN_ADDRESS="0.0.0.0")
+            self.assertEqual((p.env["LISTEN_ADDRESS"], p.service_host), ("0.0.0.0", "127.0.0.1"))
+            with self.assertRaisesRegex(qemu.Error, "requires qemu-user"):
+                plan(USERLAND="native")
+
     def test_guest_ram(self):
         """The guest's RAM (-m) is the TV's (MEM, else the model's) with half as much again for
         qemu-user's own when the userland resolves to qemu-user, whatever made it so; native
@@ -1793,8 +1829,8 @@ class ArgvTest(unittest.TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        if "missing" in r.stderr:
-            self.skipTest("the checkout has no guest build")
+        if "missing" in r.stderr or "layer webos of h13-afro: not built" in r.stderr:
+            self.skipTest("the checkout has no guest build for this test's target")
         self.assertEqual(r.returncode, 0, r.stderr)
         argv = shlex.split(r.stdout.splitlines()[-1])
         self.assertEqual(argv[:3], [paths.TREE.qemu(env)[0], "-M", "virt"])

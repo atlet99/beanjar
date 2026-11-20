@@ -6,7 +6,9 @@ import fcntl
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 from beanjar import base, hostswap
 
@@ -15,6 +17,7 @@ class HostSwapTest(unittest.TestCase):
     def setUp(self):
         self.addCleanup(hostswap.close_fds, (hostswap.FD, hostswap.FD_RO))
 
+    @unittest.skipUnless(hasattr(os, "memfd_create"), "requires Linux memfd_create")
     def test_open_fds(self):
         """A command line with the swap disk gets a sparse memfd of its size at FD, read-write, and
         at FD_RO, read-only, both inheritable, which a child started with pass_fds sees as the same
@@ -52,13 +55,9 @@ class HostSwapTest(unittest.TestCase):
     def test_no_memfd(self):
         """A host without memfd_create (macOS) is told so; nothing is opened."""
         argv = ["qemu", *hostswap.argv(64)]
-        saved = os.memfd_create
-        del os.memfd_create
-        try:
+        with mock.patch.object(hostswap, "os", SimpleNamespace(fstat=os.fstat)):
             with self.assertRaisesRegex(base.Error, "needs memfd_create"):
                 hostswap.open_fds(argv)
-        finally:
-            os.memfd_create = saved
         with self.assertRaises(OSError):
             os.fstat(hostswap.FD)
 

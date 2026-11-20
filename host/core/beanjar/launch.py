@@ -50,7 +50,7 @@ beanjar.launch with host/core on PYTHONPATH).
                                    its ports are (the development VM's, INSTANCE's, unless --dir)
                                    (qemu.tcg_rendernode; the host build's `qemu` option asks it)
 
-The kernel cmdline words go to the guest. ACCEL (tcg or kvm) picks the machine; the default is kvm
+The kernel cmdline words go to the guest. ACCEL picks the accelerator; the default is kvm
 on an aarch64 host whose /dev/kvm the user can open (the Pi) and tcg elsewhere (qemu.py).
 
 The guest sees only its runtime tree, RUN_DIR/share (share.py): the per-VM layer, a read-only
@@ -858,8 +858,10 @@ def booted(log):
 
 
 def start_check(env=None):
-    """Refuse a start beyond the machine's max_running before anything changes (Bg.refuse_beyond_limit)."""
+    """Refuse an unsupported or over-limit background start before anything changes."""
     env = dict(os.environ if env is None else env)
+    if env.get("ACCEL") == "hvf":
+        raise Error("ACCEL=hvf is experimental; use vm-launcher run in the foreground")
     run_dir = os.path.abspath(os.path.join(TREE.top, env.get("RUN_DIR") or "build"))
     unit_name = env.get("UNIT") or vmunits.vm_unit_name(os.path.dirname(run_dir))
     why = core.running_refusal(os.path.basename(os.path.dirname(run_dir)), run_dir, unit_name)

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """The QEMU command line of a VM, from the launcher's environment (plan()), and its state disks.
 
-Two machines, by ACCEL (default kvm on an aarch64 host, tcg elsewhere):
+By ACCEL (default kvm on an aarch64 host with /dev/kvm, tcg elsewhere):
   tcg  the WT1H emulator on an x86_64 host with TCG
   kvm  a Raspberry Pi 5 (Cortex-A76) with KVM and virgl. The A76 has AArch32 at EL0 only, so the
        arm64 kernel runs the 32-bit userland in COMPAT mode under -cpu host.
@@ -280,7 +280,7 @@ def tcg_tb_mib(env):
 # into h13's 30 s (scratch/timed-gates-study.md, section 6), i.e. up to 1.6 times the timeout;
 # alone, core-boot-done was 1.3 to 2.5 times KVM's (docs/dev/guides/build.md). 4 leaves 2.5 times that margin
 # and still ends a real hang within minutes.
-TIME_SCALE = {"kvm": 1, "tcg": 4}
+TIME_SCALE = {"kvm": 1, "hvf": 1, "tcg": 4}
 
 
 def time_scale(accel=None):
@@ -402,6 +402,8 @@ def vm_host_swap(env, tree=paths.TREE):
     """The size in MiB of the swap disk in host RAM (hostswap.py) a launch with env gets: under
     qemu-user vmsettings.qemu_user_swap_mib of the TV's RAM (vm_mem), else 0; 0 too if the TV's
     is not known."""
+    if vm_accel(env) == "hvf":
+        return 0  # no Linux memfd backing on macOS
     mem = vm_mem(env, tree)
     return 0 if mem is None else vmsettings.qemu_user_swap_mib(mem, vm_userland(env))
 
@@ -415,8 +417,18 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
     if guest_kernel not in vmsettings.GUEST_KERNELS:
         raise Error(f"GUEST_KERNEL={guest_kernel}: one of {', '.join(vmsettings.GUEST_KERNELS)}")
     accel = accel or env.get("ACCEL") or default_accel(guest_kernel)
-    if accel not in ("tcg", "kvm"):
-        raise Error(f"unknown ACCEL={accel} (tcg or kvm)")
+    if accel not in TIME_SCALE:
+        raise Error(f"unknown ACCEL={accel} (tcg, kvm or hvf)")
+    if accel == "hvf":
+        if sys.platform != "darwin" or platform.machine() != "arm64" or guest_kernel != "arm64":
+            raise Error("ACCEL=hvf requires an Apple silicon host and an arm64 guest kernel")
+        if env.get("USERLAND") == "native":
+            raise Error("ACCEL=hvf requires qemu-user: Apple silicon has no AArch32 at EL0")
+        link = _get(env, "NET_LINK", "nat")
+        if link != "off" and (link != "nat" or env.get("NET_MODE") != "direct"):
+            raise Error("ACCEL=hvf requires NET_LINK=off or NET_LINK=nat with NET_MODE=direct")
+        if _get(env, "DISPLAY_BACKEND", "none") != "none" or _get(env, "AUDIO", "off") != "off":
+            raise Error("ACCEL=hvf requires DISPLAY_BACKEND=none and AUDIO=off")
     from . import development
 
     explicit_ca = "NETSTUB_CA" in env
@@ -497,7 +509,7 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
     # -m: the TV's RAM, and qemu-user's own on top of it (vmsettings.guest_ram_mib). What webOS is
     # told the set has comes from the board's hwopt= (board.cmdline), not from -m.
     mem = str(vmsettings.guest_ram_mib(tv_mem, p.userland))
-    note = vmsettings.memory_note(tv_mem, p.userland)
+    note = vmsettings.memory_note(tv_mem, p.userland, host_swap=accel != "hvf")
     if note:
         say(note)
     smp = _get(env, "SMP", "4")
@@ -686,7 +698,7 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
             )
     # qemu-user's cold overhead: a swap disk on a memfd in host RAM, which the launcher makes when
     # QEMU starts (hostswap.py); a native VM has none
-    swap = vmsettings.qemu_user_swap_mib(tv_mem, p.userland)
+    swap = 0 if accel == "hvf" else vmsettings.qemu_user_swap_mib(tv_mem, p.userland)
     if swap:
         devices += hostswap.argv(swap)
 
@@ -773,14 +785,14 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
     # the TV-service ports (layermeta.forwards: SSAP, root SSH, developer mode and its key server)
     # listen on LISTEN_ADDRESS (vm.toml's listen; 0.0.0.0 opens them to the LAN), by default the VM's
     # address too; this host reaches them at p.service_host (keys.service_host)
+    # shortcut: share macOS's default loopback until per-slot addresses can be provisioned.
+    default_listen = "127.0.0.1" if accel == "hvf" and net == "direct" else p.address
     try:
-        listen = (
-            keys.listen_address(env["LISTEN_ADDRESS"]) if env.get("LISTEN_ADDRESS") else p.address
-        )
+        listen = keys.listen_address(env.get("LISTEN_ADDRESS") or default_listen)
     except keys.Error as e:
         raise Error(f"LISTEN_ADDRESS: {e}") from None
     p.env["LISTEN_ADDRESS"] = listen
-    p.service_host = keys.service_host(listen, p.address)
+    p.service_host = keys.service_host(listen, default_listen)
     addr = p.service_host
 
     def forward(host, guest):
@@ -975,7 +987,7 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
     devices += ["-device", balloon + (",free-page-reporting=on" if fpr == "on" else "")]
     # with the media hub (host/helpers/media-helper), QEMU's video and media sockets are the hub's alone and
     # it serves the viewers at the usual names; the viewers' sockets are QEMU's without it
-    hub = media_helper(top, env)
+    hub = None if accel == "hvf" else media_helper(top, env)
     guest_video = qemu_side(socks["VIDEO_SOCK"]) if hub else socks["VIDEO_SOCK"]
     guest_media = qemu_side(socks["MEDIA_SOCK"]) if hub else socks["MEDIA_SOCK"]
     if hub:
@@ -1287,7 +1299,7 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
             p.display_setup += ("--physical-size", "0", "0")
         if "-S" in env.get("QEMU_EXTRA", "").split():
             p.display_setup += ("--keep-paused",)
-    audio_default = "dbus" if display_backend == "dbus" else "none"
+    audio_default = "off" if accel == "hvf" else "dbus" if display_backend == "dbus" else "none"
 
     # Audio. The mixing engine with fixed settings gives the D-Bus
     # listener one Init for QEMU's lifetime: 44.1 kHz s16 stereo, 441 frames (10 ms) per Write.
@@ -1381,7 +1393,7 @@ def plan(env, words=(), accel=None, tree=paths.TREE, say=None, dry=False):
             machine,
             *memory,
             "-accel",
-            "kvm",
+            accel,
             "-cpu",
             "host",
             "-smp",

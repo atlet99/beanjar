@@ -165,16 +165,13 @@ def qemu_user_swap_mib(mem, userland):
     return int(mem) * QEMU_USER_SWAP_PERCENT // 100 if userland == "qemu-user" else 0
 
 
-def memory_note(mem, userland):
+def memory_note(mem, userland, *, host_swap=True):
     """The line a start logs for its RAM when qemu-user adds to it, else None."""
     extra = qemu_user_overhead_mib(mem, userland)
     if not extra:
         return None
-    swap = qemu_user_swap_mib(mem, userland)
-    return (
-        f"memory: {int(mem)} MB for the TV + {extra} MB RAM and {swap} MB host-RAM swap for "
-        "qemu-user's overhead"
-    )
+    swap = f" and {qemu_user_swap_mib(mem, userland)} MB host-RAM swap" if host_swap else ""
+    return f"memory: {int(mem)} MB for the TV + {extra} MB RAM{swap} for qemu-user's overhead"
 
 
 # mitm_flows (qemu.py MITM_FLOWS): how many flows the mode=mitm inspector keeps, 0 for all of them;
