@@ -112,7 +112,7 @@ def _link_file(src, dst):
     try:
         os.link(src, dst)
     except OSError as e:
-        if e.errno not in (errno.EXDEV, errno.EPERM, errno.EMLINK, errno.EACCES):
+        if e.errno not in (errno.EXDEV, errno.EPERM, errno.EMLINK, errno.EACCES, errno.EROFS):
             raise
         shutil.copy2(src, dst)
 
